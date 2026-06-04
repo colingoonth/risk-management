@@ -9,6 +9,7 @@ import typer
 
 from risk import __version__
 from risk.cli.config import app as config_app
+from risk.cli.event import app as event_app
 from risk.cli.member import app as member_app
 from risk.cli.output import OutputMode
 from risk.cli.semester import app as semester_app
@@ -20,6 +21,7 @@ app = typer.Typer(
 app.add_typer(config_app, name="config")
 app.add_typer(semester_app, name="semester")
 app.add_typer(member_app, name="member")
+app.add_typer(event_app, name="event")
 
 
 @app.callback(invoke_without_command=True)
