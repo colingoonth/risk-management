@@ -1,0 +1,36 @@
+"""Per-entity repository for ``houses``."""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class House:
+    id: int
+    slug: str
+    display_name: str
+
+
+def _row(r: sqlite3.Row) -> House:
+    return House(id=r["id"], slug=r["slug"], display_name=r["display_name"])
+
+
+def insert(conn: sqlite3.Connection, *, slug: str, display_name: str) -> int:
+    cur = conn.execute(
+        "INSERT INTO houses (slug, display_name) VALUES (?, ?)",
+        (slug, display_name),
+    )
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def list_all(conn: sqlite3.Connection) -> list[House]:
+    rows = conn.execute("SELECT * FROM houses ORDER BY slug").fetchall()
+    return [_row(r) for r in rows]
+
+
+def get_by_slug(conn: sqlite3.Connection, slug: str) -> House | None:
+    row = conn.execute("SELECT * FROM houses WHERE slug = ?", (slug,)).fetchone()
+    return _row(row) if row else None

@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from risk import __version__
+from risk.cli.config import app as config_app
 from risk.cli.output import OutputMode
 from risk.cli.semester import app as semester_app
 
@@ -15,6 +16,7 @@ app = typer.Typer(
     name="risk",
     help="Sober-monitor shift assignment + strike tracking.",
 )
+app.add_typer(config_app, name="config")
 app.add_typer(semester_app, name="semester")
 
 
