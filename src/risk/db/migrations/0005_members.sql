@@ -15,15 +15,9 @@ CREATE TABLE IF NOT EXISTS members (
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   status_id INTEGER NOT NULL REFERENCES member_statuses(id),
-  ritual_certified INTEGER NOT NULL DEFAULT 0
-    CHECK (ritual_certified IN (0, 1)),
   class_year INTEGER NULL,
-  graduating_semester_id INTEGER NULL REFERENCES semesters(id),
-  joined_at TEXT NULL,
-  deactivated_at TEXT NULL,
   notes TEXT NULL,
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*'),
-  CHECK (deactivated_at IS NULL OR joined_at IS NULL OR deactivated_at >= joined_at),
   CHECK (class_year IS NULL OR (class_year BETWEEN 2000 AND 2100))
 ) STRICT;
 

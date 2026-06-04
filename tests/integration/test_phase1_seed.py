@@ -47,7 +47,7 @@ def test_allow_list_krush_includes_bar(db: sqlite3.Connection) -> None:
 
 def test_removal_methods_seeded(db: sqlite3.Connection) -> None:
     methods = {m.slug for m in rm_repo.list_active(db)}
-    expected = {"ritual_cert", "leadership_conf", "donation", "ec_event", "voluntary_social_risk"}
+    expected = {"leadership_conf", "donation", "ec_event", "voluntary_social_risk"}
     assert expected.issubset(methods)
 
 

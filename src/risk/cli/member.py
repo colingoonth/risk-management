@@ -47,9 +47,6 @@ def add(
     slug: Annotated[str, typer.Argument(help="Lowercase slug, e.g. 'colin-guenther'.")],
     display_name: Annotated[str, typer.Option("--display-name")],
     status: Annotated[str, typer.Option("--status", help="Member status slug.")] = "active",
-    ritual_certified: Annotated[
-        bool, typer.Option("--ritual-certified", help="Ritual-cert flag.")
-    ] = False,
     class_year: Annotated[
         int | None, typer.Option("--class-year", help="Graduation year (e.g. 2027).")
     ] = None,
@@ -67,7 +64,6 @@ def add(
                 slug=slug,
                 display_name=display_name,
                 status_id=status_row.id,
-                ritual_certified=ritual_certified,
                 class_year=class_year,
             )
     except sqlite3.IntegrityError as exc:
@@ -84,7 +80,6 @@ def add(
             extra_cols=(
                 ("Status", "status_slug"),
                 ("Class year", "class_year"),
-                ("Ritual cert", "ritual_certified"),
             ),
         ),
     )
@@ -145,7 +140,6 @@ def list_(
             extra_cols=(
                 ("Status", "status_slug"),
                 ("Class year", "class_year"),
-                ("Ritual cert", "ritual_certified"),
             ),
         ),
     )

@@ -12,11 +12,7 @@ class Member:
     slug: str
     display_name: str
     status_slug: str
-    ritual_certified: bool
     class_year: int | None
-    graduating_semester_id: int | None
-    joined_at: str | None
-    deactivated_at: str | None
     notes: str | None
 
 
@@ -32,8 +28,7 @@ class MemberAlias:
 _SELECT_WITH_STATUS = """
 SELECT
   m.id, m.slug, m.display_name, ms.slug AS status_slug,
-  m.ritual_certified, m.class_year, m.graduating_semester_id,
-  m.joined_at, m.deactivated_at, m.notes
+  m.class_year, m.notes
 FROM members m
 JOIN member_statuses ms ON ms.id = m.status_id
 """
@@ -45,11 +40,7 @@ def _row(r: sqlite3.Row) -> Member:
         slug=r["slug"],
         display_name=r["display_name"],
         status_slug=r["status_slug"],
-        ritual_certified=bool(r["ritual_certified"]),
         class_year=r["class_year"],
-        graduating_semester_id=r["graduating_semester_id"],
-        joined_at=r["joined_at"],
-        deactivated_at=r["deactivated_at"],
         notes=r["notes"],
     )
 
@@ -60,29 +51,16 @@ def insert(
     slug: str,
     display_name: str,
     status_id: int,
-    ritual_certified: bool = False,
     class_year: int | None = None,
-    graduating_semester_id: int | None = None,
-    joined_at: str | None = None,
     notes: str | None = None,
 ) -> int:
     cur = conn.execute(
         """
         INSERT INTO members
-          (slug, display_name, status_id, ritual_certified, class_year,
-           graduating_semester_id, joined_at, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (slug, display_name, status_id, class_year, notes)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (
-            slug,
-            display_name,
-            status_id,
-            int(ritual_certified),
-            class_year,
-            graduating_semester_id,
-            joined_at,
-            notes,
-        ),
+        (slug, display_name, status_id, class_year, notes),
     )
     assert cur.lastrowid is not None
     return cur.lastrowid

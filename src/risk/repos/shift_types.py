@@ -11,7 +11,6 @@ class ShiftType:
     id: int
     slug: str
     display_name: str
-    requires_ritual_cert: bool
 
 
 def _row(r: sqlite3.Row) -> ShiftType:
@@ -19,7 +18,6 @@ def _row(r: sqlite3.Row) -> ShiftType:
         id=r["id"],
         slug=r["slug"],
         display_name=r["display_name"],
-        requires_ritual_cert=bool(r["requires_ritual_cert"]),
     )
 
 
@@ -28,11 +26,10 @@ def insert(
     *,
     slug: str,
     display_name: str,
-    requires_ritual_cert: bool = False,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO shift_types (slug, display_name, requires_ritual_cert) VALUES (?, ?, ?)",
-        (slug, display_name, int(requires_ritual_cert)),
+        "INSERT INTO shift_types (slug, display_name) VALUES (?, ?)",
+        (slug, display_name),
     )
     assert cur.lastrowid is not None
     return cur.lastrowid

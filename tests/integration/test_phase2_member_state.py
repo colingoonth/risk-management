@@ -113,23 +113,6 @@ def test_member_class_year_bounds(db: sqlite3.Connection) -> None:
         )
 
 
-def test_member_deactivated_at_ordering(db: sqlite3.Connection) -> None:
-    _setup_basics(db)
-    active = statuses_repo.get_by_slug(db, "active")
-    assert active is not None
-    with pytest.raises(sqlite3.IntegrityError), transaction(db):
-        members_repo.insert(
-            db,
-            slug="bad-dates",
-            display_name="Bad",
-            status_id=active.id,
-            joined_at="2026-03-01",
-            notes=None,
-        )
-        # deactivated_at < joined_at via raw update
-        db.execute("UPDATE members SET deactivated_at = '2026-01-01' WHERE slug = 'bad-dates'")
-
-
 # ---------- roles scoped per semester ----------
 
 

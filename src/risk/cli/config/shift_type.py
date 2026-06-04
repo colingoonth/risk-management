@@ -21,18 +21,12 @@ def add(
     ctx: typer.Context,
     slug: Annotated[str, typer.Argument()],
     display_name: Annotated[str, typer.Option("--display-name")],
-    requires_ritual_cert: Annotated[bool, typer.Option("--requires-ritual-cert")] = False,
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     try:
         with transaction(conn):
-            repo.insert(
-                conn,
-                slug=slug,
-                display_name=display_name,
-                requires_ritual_cert=requires_ritual_cert,
-            )
+            repo.insert(conn, slug=slug, display_name=display_name)
     except sqlite3.IntegrityError as exc:
         emit_error("shift_type.integrity", str(exc), mode=mode)
         return
@@ -41,11 +35,7 @@ def add(
     emit_success(
         asdict(st),
         mode=mode,
-        table=simple_lookup_table(
-            "Shift types",
-            [st],
-            extra_cols=(("Ritual cert", "requires_ritual_cert"),),
-        ),
+        table=simple_lookup_table("Shift types", [st]),
     )
 
 
@@ -55,9 +45,5 @@ def list_(ctx: typer.Context) -> None:
     emit_success(
         [asdict(r) for r in rows],
         mode=mode_from_ctx(ctx),
-        table=simple_lookup_table(
-            "Shift types",
-            rows,
-            extra_cols=(("Ritual cert", "requires_ritual_cert"),),
-        ),
+        table=simple_lookup_table("Shift types", rows),
     )

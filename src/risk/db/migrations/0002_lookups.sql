@@ -38,8 +38,6 @@ CREATE TABLE IF NOT EXISTS shift_types (
   id INTEGER PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
-  requires_ritual_cert INTEGER NOT NULL DEFAULT 0
-    CHECK (requires_ritual_cert IN (0, 1)),
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*')
 ) STRICT;
 
@@ -91,12 +89,12 @@ INSERT OR IGNORE INTO pledge_modes (slug, display_name) VALUES
   ('pledge_takeover_full', 'Pledge takeover (full)'),
   ('pledge_takeover_partial', 'Pledge takeover (partial)');
 
-INSERT OR IGNORE INTO shift_types (slug, display_name, requires_ritual_cert) VALUES
-  ('driver', 'Driver', 0),
-  ('door', 'Door', 0),
-  ('setup', 'Setup', 0),
-  ('cleanup', 'Cleanup (next day)', 0),
-  ('bar', 'Bar (Krush only)', 0);
+INSERT OR IGNORE INTO shift_types (slug, display_name) VALUES
+  ('driver', 'Driver'),
+  ('door', 'Door'),
+  ('setup', 'Setup'),
+  ('cleanup', 'Cleanup (next day)'),
+  ('bar', 'Bar (Krush only)');
 
 INSERT OR IGNORE INTO event_types (slug, display_name) VALUES
   ('mixer', 'Mixer'),
@@ -132,10 +130,6 @@ INSERT OR IGNORE INTO serving_methods (slug, display_name) VALUES
 -- Removal methods: seeded once per slug. The partial unique index allows
 -- a retired slug to be re-added; the seed must not re-insert if the slug
 -- already exists in any state (active OR retired) — chair edits win.
-INSERT INTO removal_methods (slug, display_name)
-SELECT 'ritual_cert', 'Ritual certification (wipes all after first)'
-WHERE NOT EXISTS (SELECT 1 FROM removal_methods WHERE slug = 'ritual_cert');
-
 INSERT INTO removal_methods (slug, display_name)
 SELECT 'leadership_conf', 'Leadership conference (-2)'
 WHERE NOT EXISTS (SELECT 1 FROM removal_methods WHERE slug = 'leadership_conf');
