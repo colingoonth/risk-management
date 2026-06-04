@@ -56,3 +56,21 @@ def list_all(conn: sqlite3.Connection) -> list[Semester]:
 def get_by_name(conn: sqlite3.Connection, name: str) -> Semester | None:
     row = conn.execute("SELECT * FROM semesters WHERE name = ?", (name,)).fetchone()
     return _row_to_semester(row) if row else None
+
+
+def get_current(conn: sqlite3.Connection) -> Semester | None:
+    row = conn.execute("SELECT * FROM semesters WHERE is_current = 1").fetchone()
+    return _row_to_semester(row) if row else None
+
+
+def set_current(conn: sqlite3.Connection, name: str) -> int:
+    """Demote any existing current row, then promote ``name``. Caller wraps in transaction.
+
+    Returns the new current semester's id, or raises ``LookupError`` if not found.
+    """
+    target = get_by_name(conn, name)
+    if target is None:
+        raise LookupError(f"No semester named {name!r}")
+    conn.execute("UPDATE semesters SET is_current = 0 WHERE is_current = 1")
+    conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (target.id,))
+    return target.id
