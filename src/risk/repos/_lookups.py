@@ -1,7 +1,7 @@
 """Shared shape for tiny ``(slug, display_name)`` lookup tables.
 
 Used for ``pledge_modes``, ``shift_types``, ``event_types``,
-``consequence_types``, ``serving_methods``. Each gets its own thin wrapper
+``strike_categories``, ``serving_methods``. Each gets its own thin wrapper
 in a sibling module so call sites import a typed function.
 """
 

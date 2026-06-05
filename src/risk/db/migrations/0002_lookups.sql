@@ -54,7 +54,12 @@ CREATE TABLE IF NOT EXISTS event_type_shift_type_allowed (
   PRIMARY KEY (event_type_id, shift_type_id)
 ) STRICT, WITHOUT ROWID;
 
-CREATE TABLE IF NOT EXISTS consequence_types (
+-- ADR-007: `strike_categories` is the category a strike is issued under
+-- (social_risk, car_wash, chapter_attend, other). Distinct from
+-- `pending_consequences.kind` (extra_shift, probation, expulsion_review),
+-- which is the chair-owed action triggered when active-strike count crosses
+-- a threshold. Same English word, two domains — keep the table names apart.
+CREATE TABLE IF NOT EXISTS strike_categories (
   id INTEGER PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
@@ -114,7 +119,7 @@ WHERE
   OR
   (et.slug = 'philanthropy' AND st.slug IN ('setup','cleanup'));
 
-INSERT OR IGNORE INTO consequence_types (slug, display_name) VALUES
+INSERT OR IGNORE INTO strike_categories (slug, display_name) VALUES
   ('social_risk', 'Social risk shift'),
   ('car_wash', 'Car wash'),
   ('chapter_attend', 'Chapter attendance'),
