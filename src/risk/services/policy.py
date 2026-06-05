@@ -23,6 +23,33 @@ PROBATION_AT = 4
 EXPULSION_REVIEW_AT = 5
 """At this strike count, an ``expulsion_review`` pending_consequence is created."""
 
+CONSEQUENCE_KINDS: tuple[str, ...] = ("extra_shift", "probation", "expulsion_review")
+"""Threshold-triggered chair-owed actions (ADR-007 — distinct from `strike_categories`)."""
+
+
+def consequence_kinds_for_count(active_strike_count: int) -> tuple[str, ...]:
+    """Threshold-consequences that should exist given a current active-strike count.
+
+    Pure mapping: which `pending_consequences.kind` rows ought to exist for a
+    member whose open-strike count in the semester is `active_strike_count`.
+    Threshold-emission is monotone in the issuance sequence — once a member has
+    ever crossed a threshold, the kind stays in the result. The caller
+    (`strike_state.derive`) tracks the max-reached count, not the current count.
+    """
+    kinds: list[str] = []
+    if active_strike_count >= EXTRA_SHIFT_AT:
+        kinds.append("extra_shift")
+    if active_strike_count >= PROBATION_AT:
+        kinds.append("probation")
+    if active_strike_count >= EXPULSION_REVIEW_AT:
+        kinds.append("expulsion_review")
+    return tuple(kinds)
+
+
+def in_bad_standing(active_strike_count: int) -> bool:
+    """True when active-strike count meets the bad-standing threshold."""
+    return active_strike_count >= BAD_STANDING_THRESHOLD
+
 
 # --- Fairness weights (Phase 4) ---
 
