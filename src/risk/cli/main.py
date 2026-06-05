@@ -10,6 +10,7 @@ import typer
 from risk import __version__
 from risk.cli.config import app as config_app
 from risk.cli.event import app as event_app
+from risk.cli.ingest import app as ingest_app
 from risk.cli.member import app as member_app
 from risk.cli.output import OutputMode
 from risk.cli.semester import app as semester_app
@@ -28,6 +29,7 @@ app.add_typer(event_app, name="event")
 app.add_typer(strike_app, name="strike")
 app.add_typer(unavailability_app, name="unavailability")
 app.add_typer(swap_app, name="swap")
+app.add_typer(ingest_app, name="ingest")
 
 
 @app.callback(invoke_without_command=True)

@@ -74,3 +74,21 @@ def set_current(conn: sqlite3.Connection, name: str) -> int:
     conn.execute("UPDATE semesters SET is_current = 0 WHERE is_current = 1")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (target.id,))
     return target.id
+
+
+def mark_archived(
+    conn: sqlite3.Connection, *, semester_id: int, archived_at: str
+) -> int:
+    cur = conn.execute(
+        "UPDATE semesters SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
+        (archived_at, semester_id),
+    )
+    return cur.rowcount
+
+
+def unarchive(conn: sqlite3.Connection, *, semester_id: int) -> int:
+    cur = conn.execute(
+        "UPDATE semesters SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL",
+        (semester_id,),
+    )
+    return cur.rowcount

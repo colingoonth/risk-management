@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+from datetime import date as _date
 from typing import Annotated
 
 import typer
@@ -15,6 +16,7 @@ from risk.repos import house_semester_status as hss_repo
 from risk.repos import houses as houses_repo
 from risk.repos import pledge_modes as pmode_repo
 from risk.repos import semesters as semesters_repo
+from risk.services import semester_archive as archive_svc
 
 app = typer.Typer(help="Manage academic semesters.")
 
@@ -110,3 +112,109 @@ def set_house_mode(
     row = hss_repo.get(conn, house_id=h.id, semester_id=sem.id)
     assert row is not None
     emit_success(asdict(row), mode=out)
+
+
+@app.command("archive")
+def archive(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Semester to archive.")],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Auto-dispose blockers (close strikes / carry pcs / cancel swaps).",
+        ),
+    ] = False,
+    carry_to: Annotated[
+        str | None,
+        typer.Option(
+            "--carry-to",
+            help="Target semester for carry-forward strikes (else they close).",
+        ),
+    ] = None,
+    on: Annotated[
+        str | None,
+        typer.Option("--on", help="Archive date (YYYY-MM-DD); defaults to today."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Run the validator only; do not mutate."),
+    ] = False,
+) -> None:
+    """Validate, optionally bulk-dispose, then archive a semester."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    sem = semesters_repo.get_by_name(conn, name)
+    if sem is None:
+        emit_error("semester.not_found", f"No semester named {name!r}.", mode=mode)
+        return
+    if sem.archived_at is not None:
+        emit_error(
+            "semester.already_archived",
+            f"Semester {name!r} archived at {sem.archived_at}.",
+            mode=mode,
+        )
+        return
+    carry_to_id: int | None = None
+    if carry_to is not None:
+        ct = semesters_repo.get_by_name(conn, carry_to)
+        if ct is None:
+            emit_error(
+                "semester.not_found",
+                f"Carry-to semester {carry_to!r} not found.",
+                mode=mode,
+            )
+            return
+        carry_to_id = ct.id
+
+    archived_at = on if on is not None else _date.today().isoformat()
+    report = archive_svc.validate(conn, semester_id=sem.id)
+
+    if dry_run:
+        emit_success(
+            {"report": asdict(report), "would_archive_at": archived_at},
+            mode=mode,
+        )
+        return
+
+    try:
+        with transaction(conn):
+            result = archive_svc.archive(
+                conn,
+                semester_id=sem.id,
+                archived_at=archived_at,
+                force=force,
+                carry_to_semester_id=carry_to_id,
+            )
+    except ValueError as exc:
+        emit_error("semester.archive_blocked", str(exc), mode=mode)
+        return
+    except (LookupError, RuntimeError) as exc:
+        emit_error("semester.archive_failed", str(exc), mode=mode)
+        return
+    emit_success(
+        {"report": asdict(report), "result": asdict(result)},
+        mode=mode,
+    )
+
+
+@app.command("unarchive")
+def unarchive(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Semester to unarchive.")],
+) -> None:
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    sem = semesters_repo.get_by_name(conn, name)
+    if sem is None:
+        emit_error("semester.not_found", f"No semester named {name!r}.", mode=mode)
+        return
+    try:
+        with transaction(conn):
+            archive_svc.unarchive(conn, semester_id=sem.id)
+    except (LookupError, ValueError) as exc:
+        emit_error("semester.unarchive_failed", str(exc), mode=mode)
+        return
+    sem_after = semesters_repo.get_by_name(conn, name)
+    assert sem_after is not None
+    emit_success(asdict(sem_after), mode=mode)
