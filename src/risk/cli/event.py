@@ -15,8 +15,10 @@ from risk.repos import event_shift_requirements as req_repo
 from risk.repos import event_types as etypes_repo
 from risk.repos import events as repo
 from risk.repos import houses as houses_repo
+from risk.repos import roles as roles_repo
 from risk.repos import semesters as semesters_repo
 from risk.repos import shift_types as stypes_repo
+from risk.services import assignment as assign_svc
 from risk.services import shift_requirements as svc
 
 app = typer.Typer(help="Manage chapter events.")
@@ -337,3 +339,132 @@ def cancel(
     with transaction(conn):
         repo.update_status(conn, event_id=ev.id, status="cancelled")
     emit_success({"event": ev.display_name, "status": "cancelled"}, mode=mode)
+
+
+@app.command("auto-assign")
+def auto_assign(
+    ctx: typer.Context,
+    event: Annotated[str, typer.Argument()],
+    allow: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow",
+            help="Soft-excluded role automation_key to allow (repeatable).",
+        ),
+    ] = None,
+    reassign: Annotated[
+        bool,
+        typer.Option("--reassign", help="Clear open slots before filling; preserves assigned."),
+    ] = False,
+    seed: Annotated[
+        int | None,
+        typer.Option("--seed", help="Override the random seed for reproducible reruns."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Compute the assignment without writing."),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Exit non-zero if any shift_type lands below its min."),
+    ] = False,
+) -> None:
+    """Auto-assign members to all shifts on EVENT."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    ev = repo.resolve(conn, event)
+    if ev is None:
+        emit_error("event.not_found", f"Could not resolve event {event!r}.", mode=mode)
+        return
+
+    # Validate each --allow against roles.automation_key inside the command
+    # (ADR-004 — keeps --help DB-free).
+    allowed_keys: set[str] = set()
+    if allow:
+        all_soft = {r.automation_key for r in roles_repo.get_soft_excluded(conn)}
+        for key in allow:
+            if key not in all_soft:
+                emit_error(
+                    "allow.unknown_key",
+                    f"--allow {key!r} is not a soft-excluded role automation_key. "
+                    f"Known: {sorted(k for k in all_soft if k)}",
+                    mode=mode,
+                )
+                return
+            allowed_keys.add(key)
+
+    try:
+        if dry_run:
+            result = assign_svc.auto_assign(
+                conn,
+                event_id=ev.id,
+                allowed_keys=frozenset(allowed_keys),
+                seed=seed,
+                reassign=reassign,
+                strict=strict,
+                commit=False,
+            )
+        else:
+            with transaction(conn):
+                result = assign_svc.auto_assign(
+                    conn,
+                    event_id=ev.id,
+                    allowed_keys=frozenset(allowed_keys),
+                    seed=seed,
+                    reassign=reassign,
+                    strict=strict,
+                    commit=True,
+                )
+    except RuntimeError as exc:
+        emit_error("assignment.below_min", str(exc), mode=mode)
+        return
+    except sqlite3.IntegrityError as exc:
+        emit_error("assignment.integrity", str(exc), mode=mode)
+        return
+
+    payload: dict[str, object] = {
+        "event": ev.display_name,
+        "dry_run": dry_run,
+        "seed": result.seed,
+        "resolved_mode": {
+            "configured": result.resolved_mode.configured_slug,
+            "resolved": result.resolved_mode.resolved_slug,
+            "eligible_pledges": result.resolved_mode.eligible_pledges,
+            "eligible_brothers": result.resolved_mode.eligible_brothers,
+            "total_required": result.resolved_mode.total_required,
+        },
+        "eligibility": {
+            "eligible": len(result.eligibility.eligible),
+            "excluded_by_status": result.eligibility.excluded_by_status,
+            "excluded_by_host_house": result.eligibility.excluded_by_host_house,
+            "excluded_by_hard_role": result.eligibility.excluded_by_hard_role,
+            "excluded_by_soft_role": result.eligibility.excluded_by_soft_role,
+        },
+        "assignments": [
+            {
+                "shift_type": a.shift_type_slug,
+                "slot": a.slot_index,
+                "member": a.member_slug,
+                "score": a.score,
+                "reason": a.reason,
+            }
+            for a in result.assignments
+        ],
+        "warnings": result.warnings,
+    }
+    emit_success(
+        payload,
+        mode=mode,
+        table=attr_table(
+            f"Auto-assign for {ev.display_name} "
+            f"({result.resolved_mode.resolved_slug}, seed={result.seed})",
+            result.assignments,
+            cols=(
+                ("Shift", "shift_type_slug"),
+                ("Slot", "slot_index"),
+                ("Member", "member_slug"),
+                ("Score", "score"),
+                ("Reason", "reason"),
+            ),
+        ),
+    )

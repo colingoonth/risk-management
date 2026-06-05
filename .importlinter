@@ -1,0 +1,13 @@
+[importlinter]
+root_package = risk
+include_external_packages = True
+
+[importlinter:contract:policy-purity]
+name = services.policy is pure — no DB, no repos, no SDKs
+type = forbidden
+source_modules =
+    risk.services.policy
+forbidden_modules =
+    risk.repos
+    risk.db
+    sqlite3
