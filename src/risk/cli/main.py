@@ -14,6 +14,8 @@ from risk.cli.member import app as member_app
 from risk.cli.output import OutputMode
 from risk.cli.semester import app as semester_app
 from risk.cli.strike import app as strike_app
+from risk.cli.swap import app as swap_app
+from risk.cli.unavailability import app as unavailability_app
 
 app = typer.Typer(
     name="risk",
@@ -24,6 +26,8 @@ app.add_typer(semester_app, name="semester")
 app.add_typer(member_app, name="member")
 app.add_typer(event_app, name="event")
 app.add_typer(strike_app, name="strike")
+app.add_typer(unavailability_app, name="unavailability")
+app.add_typer(swap_app, name="swap")
 
 
 @app.callback(invoke_without_command=True)

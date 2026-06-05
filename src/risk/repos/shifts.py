@@ -121,6 +121,16 @@ def list_for_event(conn: sqlite3.Connection, event_id: int) -> list[Shift]:
     return [_row(r) for r in rows]
 
 
+def get_by_id(conn: sqlite3.Connection, shift_id: int) -> Shift | None:
+    row = conn.execute(f"{_SELECT_JOINED} WHERE s.id = ?", (shift_id,)).fetchone()
+    return _row(row) if row else None
+
+
+def event_id_of(conn: sqlite3.Connection, shift_id: int) -> int | None:
+    row = conn.execute("SELECT event_id FROM shifts WHERE id = ?", (shift_id,)).fetchone()
+    return int(row["event_id"]) if row else None
+
+
 def open_slots_for_event(
     conn: sqlite3.Connection, *, event_id: int, shift_type_id: int
 ) -> list[Shift]:

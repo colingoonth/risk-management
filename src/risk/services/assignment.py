@@ -91,6 +91,7 @@ def auto_assign(
         semester_id=event.semester_id,
         host_house_id=event.host_house_id,
         allowed_keys=allowed_keys,
+        event_date=event.date,
     )
     pool = elig.eligible
     eligible_pledges = sum(1 for m in pool if m.is_pledge)
