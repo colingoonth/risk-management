@@ -177,18 +177,14 @@ def _sync_consequences(
             semester_id=semester_id,
             strike_number=threshold,
         )
-        triggering_id = (
-            triggering.id
-            if triggering is not None
-            else _fallback_triggering_strike(
-                conn, member_id=member_id, semester_id=semester_id
-            )
-        )
+        # By construction we only emit `kind` when current_open >= threshold,
+        # so the threshold-th open strike exists in v_strike_numbers.
+        assert triggering is not None
         pc_repo.insert(
             conn,
             member_id=member_id,
             semester_id=semester_id,
-            triggering_strike_id=triggering_id,
+            triggering_strike_id=triggering.id,
             kind=kind,
         )
         inserted.append(kind)
@@ -200,25 +196,5 @@ def _threshold_for_kind(kind: str) -> int:
         return policy.EXTRA_SHIFT_AT
     if kind == "probation":
         return policy.PROBATION_AT
-    if kind == "expulsion_review":
-        return policy.EXPULSION_REVIEW_AT
-    raise ValueError(f"unknown consequence kind: {kind!r}")
-
-
-def _fallback_triggering_strike(
-    conn: sqlite3.Connection, *, member_id: int, semester_id: int
-) -> int:
-    row = conn.execute(
-        """
-        SELECT id FROM strikes
-        WHERE member_id = ? AND semester_id = ?
-        ORDER BY issued_on, id
-        LIMIT 1
-        """,
-        (member_id, semester_id),
-    ).fetchone()
-    if row is None:
-        raise RuntimeError(
-            "consequence emission requested with no strike rows — derivation bug"
-        )
-    return int(row["id"])
+    assert kind == "expulsion_review", f"unknown consequence kind: {kind!r}"
+    return policy.EXPULSION_REVIEW_AT

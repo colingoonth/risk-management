@@ -215,6 +215,80 @@ def test_strikes_in_other_semester_do_not_affect_count(tmp_path) -> None:  # typ
     assert strikes_repo.count_active(conn, member_id=mid, semester_id=sem_b) == 1
 
 
+def test_apply_removal_rejects_missing_strike(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    conn, mid, _sid = _fresh_world(tmp_path)
+    voluntary = rm_repo.get_active_by_slug(conn, "voluntary_social_risk")
+    assert voluntary is not None
+    with pytest.raises(LookupError, match="No strike with id"), transaction(conn):
+        strike_state.apply_removal(
+            conn,
+            member_id=mid,
+            removal_method_id=voluntary.id,
+            performed_on="2026-03-01",
+            strike_ids=[99999],
+        )
+
+
+def test_apply_removal_rejects_wrong_member(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    conn, mid_a, sid = _fresh_world(tmp_path)
+    active = statuses_repo.get_by_slug(conn, "active")
+    assert active is not None
+    mid_b = members_repo.insert(
+        conn, slug="m-other", display_name="Other", status_id=active.id
+    )
+    voluntary = rm_repo.get_active_by_slug(conn, "voluntary_social_risk")
+    assert voluntary is not None
+    with transaction(conn):
+        r = strike_state.issue_strike(
+            conn,
+            member_id=mid_a,
+            semester_id=sid,
+            issued_on="2026-02-10",
+            reason="r",
+        )
+    with pytest.raises(ValueError, match="belongs to member"), transaction(conn):
+        strike_state.apply_removal(
+            conn,
+            member_id=mid_b,
+            removal_method_id=voluntary.id,
+            performed_on="2026-03-01",
+            strike_ids=[r.strike_id],
+        )
+
+
+def test_apply_removal_skips_already_closed_strikes(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    conn, mid, sid = _fresh_world(tmp_path)
+    voluntary = rm_repo.get_active_by_slug(conn, "voluntary_social_risk")
+    assert voluntary is not None
+    with transaction(conn):
+        r = strike_state.issue_strike(
+            conn,
+            member_id=mid,
+            semester_id=sid,
+            issued_on="2026-02-10",
+            reason="r",
+        )
+    with transaction(conn):
+        first = strike_state.apply_removal(
+            conn,
+            member_id=mid,
+            removal_method_id=voluntary.id,
+            performed_on="2026-03-01",
+            strike_ids=[r.strike_id],
+        )
+    assert first.closed_strike_ids == (r.strike_id,)
+    # Re-removing the now-closed strike must be a no-op, not raise.
+    with transaction(conn):
+        second = strike_state.apply_removal(
+            conn,
+            member_id=mid,
+            removal_method_id=voluntary.id,
+            performed_on="2026-03-15",
+            strike_ids=[r.strike_id],
+        )
+    assert second.closed_strike_ids == ()
+
+
 def test_threshold_crossing_emits_exactly_at_threshold(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """Strike N=1 emits nothing; strike N=2 emits extra_shift only."""
     conn, mid, sid = _fresh_world(tmp_path)
