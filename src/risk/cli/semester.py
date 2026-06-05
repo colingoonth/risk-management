@@ -114,6 +114,60 @@ def set_house_mode(
     emit_success(asdict(row), mode=out)
 
 
+@app.command("resync-all")
+def resync_all(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Semester to resync.")],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Report event IDs that would be resynced; do not write."
+        ),
+    ] = False,
+) -> None:
+    """Re-pull merged shift requirements for every non-terminal event in a semester."""
+    from risk.services import shift_requirements as sr_svc
+
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    sem = semesters_repo.get_by_name(conn, name)
+    if sem is None:
+        emit_error("semester.not_found", f"No semester named {name!r}.", mode=mode)
+        return
+    if dry_run:
+        event_ids = [
+            int(r["id"])
+            for r in conn.execute(
+                """
+                SELECT id FROM events
+                WHERE semester_id = ?
+                  AND status NOT IN ('completed', 'cancelled')
+                ORDER BY date, id
+                """,
+                (sem.id,),
+            ).fetchall()
+        ]
+        emit_success(
+            {"would_resync_event_ids": event_ids, "count": len(event_ids), "dry_run": True},
+            mode=mode,
+        )
+        return
+    try:
+        with transaction(conn):
+            result = sr_svc.resync_semester(conn, semester_id=sem.id)
+    except sqlite3.IntegrityError as exc:
+        emit_error("semester.resync_integrity", str(exc), mode=mode)
+        return
+    emit_success(
+        {
+            "semester": sem.name,
+            "event_count": len(result),
+            "rows_rewritten_per_event": result,
+        },
+        mode=mode,
+    )
+
+
 @app.command("archive")
 def archive(
     ctx: typer.Context,

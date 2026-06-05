@@ -94,6 +94,27 @@ def snapshot_for_event(conn: sqlite3.Connection, event_id: int) -> list[MergedRo
     return merged
 
 
+def resync_semester(
+    conn: sqlite3.Connection, *, semester_id: int
+) -> dict[int, int]:
+    """Run ``resync_event`` for every non-terminal event in a semester.
+
+    Caller wraps in transaction. Returns {event_id: rows_rewritten}.
+    """
+    event_ids = [
+        int(r["id"])
+        for r in conn.execute(
+            """
+            SELECT id FROM events
+            WHERE semester_id = ? AND status NOT IN ('completed', 'cancelled')
+            ORDER BY date, id
+            """,
+            (semester_id,),
+        ).fetchall()
+    ]
+    return {eid: len(resync_event(conn, eid)) for eid in event_ids}
+
+
 def resync_event(conn: sqlite3.Connection, event_id: int) -> list[MergedRow]:
     """Re-pull defaults + house prefs; preserve manual overrides.
 

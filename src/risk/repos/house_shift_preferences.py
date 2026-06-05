@@ -98,6 +98,48 @@ def delete(
     return cur.rowcount
 
 
+def state_at(
+    conn: sqlite3.Connection, *, house_id: int, at_timestamp: str
+) -> list[tuple[int, int, int | None, int | None]]:
+    """Reconstruct a house's pref state at a past ``at_timestamp``.
+
+    Returns (event_type_id, shift_type_id, min_count, target_count). NULL
+    counts mean the latest pre-timestamp change was a delete — that pref
+    didn't exist at the snapshot point.
+    """
+    rows = conn.execute(
+        """
+        SELECT event_type_id, shift_type_id, min_count, target_count, change_kind
+        FROM (
+          SELECT
+            event_type_id, shift_type_id, min_count, target_count, change_kind,
+            ROW_NUMBER() OVER (
+              PARTITION BY event_type_id, shift_type_id
+              ORDER BY changed_at DESC, id DESC
+            ) AS rn
+          FROM house_shift_preferences_history
+          WHERE house_id = ? AND changed_at <= ?
+        ) latest
+        WHERE rn = 1
+        """,
+        (house_id, at_timestamp),
+    ).fetchall()
+    out: list[tuple[int, int, int | None, int | None]] = []
+    for r in rows:
+        if r["change_kind"] == "delete":
+            out.append((r["event_type_id"], r["shift_type_id"], None, None))
+        else:
+            out.append(
+                (
+                    r["event_type_id"],
+                    r["shift_type_id"],
+                    r["min_count"],
+                    r["target_count"],
+                )
+            )
+    return out
+
+
 def list_for_house(conn: sqlite3.Connection, house_id: int) -> list[HouseShiftPref]:
     rows = conn.execute(
         """
