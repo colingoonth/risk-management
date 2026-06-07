@@ -77,16 +77,22 @@ def _build_world(db: sqlite3.Connection) -> World:
         db, member_id=members["brother-a"], house_id=other_house_id, semester_id=sem_id
     )
 
+    # Use fixture-prefixed automation_keys/slugs to avoid collisions with
+    # seeded roles from migration 0010 (exec, risk_chair, dj, pledge_chair).
     roles: dict[str, int] = {}
     roles["pledge"] = roles_repo.insert(db, slug="pledge", display_name="Pledge")
     roles["ec"] = roles_repo.insert(
-        db, slug="ec", display_name="EC", automation_key="ec", default_excluded=True
+        db,
+        slug="test-ec",
+        display_name="Test EC",
+        automation_key="test-ec",
+        default_excluded=True,
     )
     roles["risk_chair"] = roles_repo.insert(
         db,
-        slug="risk-chair",
-        display_name="Risk chair",
-        automation_key="risk-chair",
+        slug="test-risk-chair",
+        display_name="Test Risk chair",
+        automation_key="test-risk-chair",
         default_excluded=True,
         soft=True,
     )
@@ -143,7 +149,7 @@ def test_allow_includes_soft_excluded_role(db: sqlite3.Connection) -> None:
         event_id=w.event_id,
         semester_id=w.sem_id,
         host_house_id=w.zta_id,
-        allowed_keys=frozenset({"risk-chair"}),
+        allowed_keys=frozenset({"test-risk-chair"}),
     )
     eligible_slugs = {m.member_slug for m in result.eligible}
     assert "risk-chair-f" in eligible_slugs

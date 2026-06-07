@@ -94,12 +94,22 @@ def test_hard_exclude_without_automation_key_ok(db: sqlite3.Connection) -> None:
 
 
 def test_get_soft_excluded(db: sqlite3.Connection) -> None:
+    # Use fixture-prefixed slugs/keys to avoid collisions with seeded roles
+    # from migration 0010 (exec, risk_chair, dj, pledge_chair).
+    soft_slugs = [r.slug for r in repo.get_soft_excluded(db)]
     with transaction(db):
         repo.insert(
-            db, slug="dj", display_name="DJ", automation_key="dj", default_excluded=True, soft=True
+            db,
+            slug="test-dj",
+            display_name="Test DJ",
+            automation_key="test-dj",
+            default_excluded=True,
+            soft=True,
         )
-        repo.insert(db, slug="senior", display_name="Senior", default_excluded=True, soft=False)
-        repo.insert(db, slug="brother", display_name="Brother")
-    soft = repo.get_soft_excluded(db)
-    assert len(soft) == 1
-    assert soft[0].slug == "dj"
+        repo.insert(
+            db, slug="test-senior", display_name="Test Senior", default_excluded=True, soft=False
+        )
+        repo.insert(db, slug="test-brother", display_name="Test Brother")
+    soft_after = [r.slug for r in repo.get_soft_excluded(db)]
+    new_soft = set(soft_after) - set(soft_slugs)
+    assert new_soft == {"test-dj"}
