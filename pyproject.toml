@@ -60,3 +60,11 @@ markers = [
 [tool.coverage.run]
 source = ["src/risk"]
 branch = true
+parallel = true
+# Subprocess coverage: tests that shell out to the `risk` CLI pick up
+# coverage via sitecustomize.py + COVERAGE_PROCESS_START (set in conftest).
+sigterm = true
+
+[tool.coverage.paths]
+# Merge multi-process coverage data under one canonical source tree.
+source = ["src/risk", "*/src/risk"]
