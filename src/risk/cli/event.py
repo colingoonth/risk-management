@@ -18,6 +18,7 @@ from risk.repos import houses as houses_repo
 from risk.repos import roles as roles_repo
 from risk.repos import semesters as semesters_repo
 from risk.repos import shift_types as stypes_repo
+from risk.repos import shifts as shifts_repo
 from risk.services import assignment as assign_svc
 from risk.services import shift_requirements as svc
 
@@ -105,7 +106,7 @@ def add(
         {"event": asdict(ev), "requirements": [asdict(r) for r in reqs]},
         mode=mode,
         table=attr_table(
-            f"Requirements snapshot for {ev.display_name}",
+            f"Created event #{ev.id}: {ev.display_name} — requirements snapshot",
             reqs,
             cols=(
                 ("Shift type", "shift_type_slug"),
@@ -158,19 +159,36 @@ def show(
         emit_error("event.not_found", f"Could not resolve event {event!r}.", mode=mode)
         return
     reqs = req_repo.list_for_event_with_source(conn, ev.id)
-    emit_success(
-        {"event": asdict(ev), "requirements": [asdict(r) for r in reqs]},
-        mode=mode,
-        table=attr_table(
-            f"Requirements for {ev.display_name}",
-            reqs,
-            cols=(
-                ("Shift type", "shift_type_slug"),
-                ("Min", "min_count"),
-                ("Target", "target_count"),
-                ("Source", "source_layer"),
-            ),
+    shifts = shifts_repo.list_for_event(conn, ev.id)
+    reqs_table = attr_table(
+        f"Requirements for {ev.display_name}",
+        reqs,
+        cols=(
+            ("Shift type", "shift_type_slug"),
+            ("Min", "min_count"),
+            ("Target", "target_count"),
+            ("Source", "source_layer"),
         ),
+    )
+    shifts_table = attr_table(
+        f"Shifts for {ev.display_name}",
+        shifts,
+        cols=(
+            ("ID", "id"),
+            ("Shift", "shift_type_slug"),
+            ("Slot", "slot_index"),
+            ("Member", "assigned_member_slug"),
+            ("Status", "status"),
+        ),
+    )
+    emit_success(
+        {
+            "event": asdict(ev),
+            "requirements": [asdict(r) for r in reqs],
+            "shifts": [asdict(s) for s in shifts],
+        },
+        mode=mode,
+        tables=[reqs_table, shifts_table],
     )
 
 

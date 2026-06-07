@@ -121,6 +121,40 @@ def list_for_event(conn: sqlite3.Connection, event_id: int) -> list[Shift]:
     return [_row(r) for r in rows]
 
 
+def list_filtered(
+    conn: sqlite3.Connection,
+    *,
+    member_id: int | None = None,
+    event_id: int | None = None,
+    semester_id: int | None = None,
+    status: str | None = None,
+) -> list[Shift]:
+    """Filtered list for ``risk shift list``. Joins event for semester filter + date ordering."""
+    clauses: list[str] = []
+    params: list[object] = []
+    if member_id is not None:
+        clauses.append("s.assigned_member_id = ?")
+        params.append(member_id)
+    if event_id is not None:
+        clauses.append("s.event_id = ?")
+        params.append(event_id)
+    if semester_id is not None:
+        clauses.append("ev.semester_id = ?")
+        params.append(semester_id)
+    if status is not None:
+        clauses.append("s.status = ?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = (
+        f"{_SELECT_JOINED} "
+        "JOIN events ev ON ev.id = s.event_id "
+        f"{where} "
+        "ORDER BY ev.date, st.slug, s.slot_index"
+    )
+    rows = conn.execute(sql, params).fetchall()
+    return [_row(r) for r in rows]
+
+
 def get_by_id(conn: sqlite3.Connection, shift_id: int) -> Shift | None:
     row = conn.execute(f"{_SELECT_JOINED} WHERE s.id = ?", (shift_id,)).fetchone()
     return _row(row) if row else None
