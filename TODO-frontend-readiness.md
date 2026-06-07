@@ -26,10 +26,25 @@ Tier 3 = nice-to-have.
 
 - **[T3] `config house add` help text example is misleading.** Says `'main', 'annex'` but the actual usage is sororities/host-fraternities for events (e.g. `axid`, `zta`).
 - **[T3] Confirmation messages for write commands have no consistent voice.** Even after the dict-repr fix, decide on a uniform format like `✓ Issued strike #2 for aidan-m (reason=late) — extra_shift consequence emitted.` vs the current data-blob style.
+- **[T3] Coverage gap to plan §7 (90% line / 85% branch).** Currently 80% line. The 10-pt gap lives in:
+  - `semester.py` (42%) — archive/unarchive/set-house-mode/resync-all paths untested.
+  - `event.py` (63%) — set-shift-req/cancel/resync-shift-reqs error paths.
+  - `member.py` (64%) — show error paths, set-house, add-alias.
+  - `ingest.py` (29%) — file-mode preview/apply paths.
+  - `house.py` (50%) — set-pref/list-prefs/revert-prefs error paths.
+  Each gap is straightforward CLI test writing; estimated ~3 more files of subprocess tests of similar size to test_swap_cli.py.
 
 ## Resolved in this pass
 
-_(populated as fixes land)_
+- **[T1] Dict-repr leak in HUMAN mode.** `emit_success(dict, mode=HUMAN)` was rendering `str(dict)`. Fixed via `dict_kv_table` helper + auto-render dict payloads as 2-col tables. 5 new unit tests.
+- **[T1] `event add` missing event ID.** Title now reads `Created event #<id>: <name> — requirements snapshot`.
+- **[T1] Roles table empty by default.** Migration 0010 seeds `exec`, `risk_chair`, `dj`, `pledge_chair`. `set-role alice exec` works out of the box.
+- **[T1] No `risk shift` subcommand.** Added `risk shift list [--member --event --semester --status]` + `risk shift show <id>`. 6 new integration tests.
+- **[T1] `event show` missing actual shifts.** Now renders Requirements + Shifts as two tables (and `emit_success` learned a `tables=` kwarg for multi-table HUMAN-mode output).
+- **[T2] Ambiguous error messages.** `config event-type allow/disallow/set-default/clear-default` now split `event_type.not_found` vs `shift_type.not_found`. `swap.from_shift_missing` expanded with shift id + recovery hint. `swap.request_invalid` wraps service exception with initiator slug + `risk shift list --member` hint. `shift.not_found` includes a `risk shift list` hint.
+- **[T2] `risk db backup PATH`** — implemented via SQLite online-backup API + atomic rename (`<dest>.partial` → `<dest>`). ADR R3.1-B mention now real. 4 integration tests.
+- **JSON envelope audit.** 24 read commands × 2 modes = 48 invocations sweep-tested. Surfaced + fixed strike list help/impl mismatch (help said "Filter by member" but impl required it).
+- **CLI coverage.** Total line coverage 66% → 80% (+14 pts). Driven by enabling subprocess coverage tracking (pytest-cov a1_coverage.pth hook via `COVERAGE_PROCESS_START`) + new CLI tests for swap (11), unavailability (6), event_type config (7). Plan §7 gate is 90% line / 85% branch — see Tier 3 below.
 
 ## Deferred / needs Colin input
 
