@@ -70,7 +70,15 @@ def request(
                 counterparty_member_id=cp_id,
             )
     except (LookupError, ValueError) as exc:
-        emit_error("swap.request_invalid", str(exc), mode=mode)
+        # Wrap the raw service exception with chair-friendly slug context +
+        # a discovery hint pointing at `risk shift list` so the chair knows
+        # how to find valid shift IDs.
+        hint = (
+            f"Initiator {fs.assigned_member_slug or fs.assigned_member_id} holds "
+            f"shift {fs.id} ({fs.shift_type_slug}). "
+            "Try `risk shift list --member <slug>` to see their other assignments."
+        )
+        emit_error("swap.request_invalid", f"{exc} — {hint}", mode=mode)
         return
     except sqlite3.IntegrityError as exc:
         emit_error("swap.request_integrity", str(exc), mode=mode)
@@ -93,7 +101,13 @@ def accept(
         return
     fs = shifts_repo.get_by_id(conn, req.from_shift_id)
     if fs is None:
-        emit_error("swap.from_shift_missing", "from_shift gone.", mode=mode)
+        emit_error(
+            "swap.from_shift_missing",
+            f"shift {req.from_shift_id} (the swap's from_shift) no longer exists — "
+            "the underlying shift may have been deleted or the swap is stale. "
+            "Try `risk swap list` for current swap state.",
+            mode=mode,
+        )
         return
     ev = events_repo.get_by_id(conn, fs.event_id)
     assert ev is not None

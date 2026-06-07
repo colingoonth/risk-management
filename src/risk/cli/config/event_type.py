@@ -57,8 +57,11 @@ def allow_shift_type(
     conn = open_conn(ctx)
     et = repo.get_by_slug(conn, event_type)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if et is None or st is None:
-        emit_error("not_found", "event-type or shift-type slug not found.", mode=mode)
+    if et is None:
+        emit_error("event_type.not_found", f"No event type with slug {event_type!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     with transaction(conn):
         repo.allow_shift_type(conn, event_type_id=et.id, shift_type_id=st.id)
@@ -78,8 +81,11 @@ def disallow_shift_type(
     conn = open_conn(ctx)
     et = repo.get_by_slug(conn, event_type)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if et is None or st is None:
-        emit_error("not_found", "event-type or shift-type slug not found.", mode=mode)
+    if et is None:
+        emit_error("event_type.not_found", f"No event type with slug {event_type!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     with transaction(conn):
         repo.disallow_shift_type(conn, event_type_id=et.id, shift_type_id=st.id)
@@ -101,8 +107,11 @@ def set_default(
     conn = open_conn(ctx)
     et = repo.get_by_slug(conn, event_type)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if et is None or st is None:
-        emit_error("not_found", "event-type or shift-type slug not found.", mode=mode)
+    if et is None:
+        emit_error("event_type.not_found", f"No event type with slug {event_type!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     try:
         with transaction(conn):
@@ -142,8 +151,11 @@ def clear_default(
     conn = open_conn(ctx)
     et = repo.get_by_slug(conn, event_type)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if et is None or st is None:
-        emit_error("not_found", "event-type or shift-type slug not found.", mode=mode)
+    if et is None:
+        emit_error("event_type.not_found", f"No event type with slug {event_type!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     with transaction(conn):
         deleted = defaults_repo.delete(conn, event_type_id=et.id, shift_type_id=st.id)

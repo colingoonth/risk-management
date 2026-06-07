@@ -105,6 +105,10 @@ def show(
     conn = open_conn(ctx)
     shift = repo.get_by_id(conn, shift_id)
     if shift is None:
-        emit_error("shift.not_found", f"No shift with id {shift_id}.", mode=mode)
+        emit_error(
+            "shift.not_found",
+            f"No shift with id {shift_id}. Try `risk shift list` for valid ids.",
+            mode=mode,
+        )
         return
     emit_success(asdict(shift), mode=mode)
