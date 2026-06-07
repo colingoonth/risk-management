@@ -9,6 +9,7 @@ import typer
 
 from risk import __version__
 from risk.cli.config import app as config_app
+from risk.cli.db import app as db_app
 from risk.cli.event import app as event_app
 from risk.cli.ingest import app as ingest_app
 from risk.cli.member import app as member_app
@@ -24,6 +25,7 @@ app = typer.Typer(
     help="Sober-monitor shift assignment + strike tracking.",
 )
 app.add_typer(config_app, name="config")
+app.add_typer(db_app, name="db")
 app.add_typer(semester_app, name="semester")
 app.add_typer(member_app, name="member")
 app.add_typer(event_app, name="event")
