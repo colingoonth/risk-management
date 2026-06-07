@@ -21,15 +21,26 @@ class OutputMode(enum.Enum):
     JSON_RAW = "json_raw"  # bare resource(s)
 
 
-def emit_success(data: Any, *, mode: OutputMode, table: Table | None = None) -> None:
+def emit_success(
+    data: Any,
+    *,
+    mode: OutputMode,
+    table: Table | None = None,
+    tables: Sequence[Table] | None = None,
+) -> None:
     if mode is OutputMode.JSON:
         sys.stdout.write(json.dumps({"ok": True, "data": data, "error": None, "warnings": []}))
         sys.stdout.write("\n")
     elif mode is OutputMode.JSON_RAW:
         sys.stdout.write(json.dumps(data))
         sys.stdout.write("\n")
+    elif tables is not None:
+        for t in tables:
+            stdout_console.print(t)
     elif table is not None:
         stdout_console.print(table)
+    elif isinstance(data, dict):
+        stdout_console.print(dict_kv_table(data))
     elif data is not None:
         stdout_console.print(data)
 
@@ -55,6 +66,31 @@ def _cell(value: Any) -> str:
     if value is None:
         return "—"
     return str(value)
+
+
+def _format_value(value: Any) -> str:
+    """Render a single dict-value for the 2-col key/value table."""
+    if isinstance(value, bool):
+        return "✓" if value else "✗"
+    if value is None:
+        return "—"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, indent=2, default=str)
+    return str(value)
+
+
+def dict_kv_table(data: dict[str, Any]) -> Table:
+    """Render a flat-ish dict as a 2-column key/value table for HUMAN-mode output.
+
+    Nested dicts/lists are rendered as indented JSON in the value cell — readable
+    fallback for confirmation/show payloads that have one level of nesting.
+    """
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="dim")
+    table.add_column()
+    for k, v in data.items():
+        table.add_row(str(k), _format_value(v))
+    return table
 
 
 def simple_lookup_table(
