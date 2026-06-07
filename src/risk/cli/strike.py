@@ -132,7 +132,8 @@ def standing(
 def list_strikes(
     ctx: typer.Context,
     member: Annotated[
-        str | None, typer.Option("--member", help="Filter by member slug/id/alias.")
+        str | None,
+        typer.Option("--member", help="Member slug/id/alias (required — per-member listing only)."),
     ] = None,
     semester: Annotated[
         str | None, typer.Option("--semester", help="Filter by semester (default: current).")
