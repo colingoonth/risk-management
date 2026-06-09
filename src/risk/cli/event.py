@@ -271,8 +271,11 @@ def clear_shift_req(
     conn = open_conn(ctx)
     ev = repo.resolve(conn, event)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if ev is None or st is None:
-        emit_error("not_found", "event or shift-type slug not found.", mode=mode)
+    if ev is None:
+        emit_error("event.not_found", f"Could not resolve event {event!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     with transaction(conn):
         deleted = svc.clear_requirement(conn, event_id=ev.id, shift_type_id=st.id)

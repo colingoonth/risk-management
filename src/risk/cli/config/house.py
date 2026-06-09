@@ -113,8 +113,14 @@ def clear_pref(
     h = houses_repo.get_by_slug(conn, house)
     et = etypes_repo.get_by_slug(conn, event_type)
     st = stypes_repo.get_by_slug(conn, shift_type)
-    if h is None or et is None or st is None:
-        emit_error("not_found", "house, event-type, or shift-type slug not found.", mode=mode)
+    if h is None:
+        emit_error("house.not_found", f"No house with slug {house!r}.", mode=mode)
+        return
+    if et is None:
+        emit_error("event_type.not_found", f"No event type with slug {event_type!r}.", mode=mode)
+        return
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type with slug {shift_type!r}.", mode=mode)
         return
     with transaction(conn):
         deleted = prefs_repo.delete(conn, house_id=h.id, event_type_id=et.id, shift_type_id=st.id)
