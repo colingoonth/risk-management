@@ -25,13 +25,13 @@ Tier 3 = nice-to-have.
 
 - **[T3] `config house add` help text example is misleading.** Says `'main', 'annex'` but the actual usage is sororities/host-fraternities for events (e.g. `axid`, `zta`).
 - **[T3] Confirmation messages for write commands have no consistent voice.** Even after the dict-repr fix, decide on a uniform format like `✓ Issued strike #2 for aidan-m (reason=late) — extra_shift consequence emitted.` vs the current data-blob style.
-- **[T3] Coverage gap to plan §7 (90% line / 85% branch).** Currently 80% line. The 10-pt gap lives in:
-  - `semester.py` (42%) — archive/unarchive/set-house-mode/resync-all paths untested.
-  - `event.py` (63%) — set-shift-req/cancel/resync-shift-reqs error paths.
-  - `member.py` (64%) — show error paths, set-house, add-alias.
-  - `ingest.py` (29%) — file-mode preview/apply paths.
-  - `house.py` (50%) — set-pref/list-prefs/revert-prefs error paths.
-  Each gap is straightforward CLI test writing; estimated ~3 more files of subprocess tests of similar size to test_swap_cli.py.
+- **[T3] Coverage gap to plan §7 (90% line / 85% branch).** Currently 87% line / 84% branch. The remaining 3-pt line gap lives in:
+  - `member.py` (77%) — `add` flow error branches (status-not-found, integrity).
+  - `event.py` (78%) — auto-assign error paths (allow.unknown_key, assignment.integrity, below-min strict).
+  - `swap.py` (78%) — accept error branches when from_shift_missing fires.
+  - `unavailability.py` (76%) — remove error path.
+  - Smaller misses across `house.py`, `event_type.py`, `output.py`.
+  Each gap is straightforward CLI test writing; the gate is hittable in a focused half-session.
 
 ## Resolved in this pass
 
