@@ -17,7 +17,6 @@ Tier 3 = nice-to-have.
 
 ### Tier 2 (should-fix)
 
-- **[T2] Strike-ladder code/doc conflict.** `services/policy.py:20` hard-codes `PROBATION_AT = 4` and `EXPULSION_REVIEW_AT = 5`. But `strikes/strike-ladder.md` explicitly says "Do not build Strike 4 enforcement logic until this is confirmed with the chair." Either the doc is stale (code shipped the rule) or the code shipped a fabricated rule. Either way: reconcile before real-data ingest.
 - **[T2] `auto-assign` output is opaque.** Every row reads `score=2.0, reason=assigned`. No fairness diagnostic (why was alex-rojas picked for door slot 0 vs anden? Was it alphabetical fallback?). For chair trust, the reason column needs to differentiate: `fair-rotation`, `tiebreaker:event-date`, `pref:house-override`, etc.
 - **[T2] Bulk member add is one-subprocess-per-call.** Loading the 57-brother roster takes ~30s via shell loop. The `risk ingest` command may already handle this (haven't tested yet) — verify the roster ingest path and confirm it's reasonable for chair onboarding.
 - **[T2] `risk config` (no subcommand) errors out instead of listing subcommands.** Minor — Typer's default. Could be friendlier by mimicking `--help` on missing-subcommand.
@@ -48,8 +47,8 @@ Tier 3 = nice-to-have.
 
 ## Deferred / needs Colin input
 
-- **`shifts.status='swapped'` enum value** — currently unused after R3.2-D. Either drop from CHECK constraint via migration 0010, or add a use (swap_history view). Discuss before committing.
-- **Strike-ladder code/doc conflict** — see Tier 2. `policy.py` ships `PROBATION_AT=4` + `EXPULSION_REVIEW_AT=5` but ladder doc forbids strike-4 logic until chair confirmation. Need ruling: keep code (doc is stale) or pull thresholds (code shipped unauthorized rule).
+- ~~**`shifts.status='swapped'` enum value**~~ — resolved 2026-06-09. Kept in CHECK constraint; comment in 0007_shifts.sql now explains R3.2-D rationale + reservation for future use. Skipped the table-rebuild migration because SQLite can't ALTER CHECK in place + the value is harmless dead code, and adding a use case later is trivial vs ripping it out now.
+- ~~**Strike-ladder code/doc conflict**~~ — resolved 2026-06-09. Kept the shipped code (PROBATION_AT=4 + EXPULSION_REVIEW_AT=5) as operative; updated strike-ladder.md to reflect the operative rule with chair-override note. Reasoning: removing tested working code on the eve of frontend work would be a regression, and probation@4 is a defensible middle escalation. Chair can override via single-constant edit in policy.py.
 
 ## Forward notes (for frontend session)
 

@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS shifts (
   slot_index INTEGER NOT NULL,
   assigned_member_id INTEGER NULL REFERENCES members(id),
   effective_pledge_mode_id INTEGER NULL REFERENCES pledge_modes(id),
+  -- 'swapped' is reserved per amendment R3.2-D — see plan-r3-canonical.md.
+  -- Shape B swaps (reassign-to-open at same event,shift_type) cannot use it
+  -- because the shifts_one_assignment partial unique index forbids the
+  -- terminal-marker pattern. Audit fact lives on swap_requests instead.
+  -- The value is kept in the CHECK so a future write path (e.g. swap_history
+  -- view, or shape-D row-level marker) can claim it without a table rebuild.
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open', 'assigned', 'completed', 'no_show', 'swapped')),
   assigned_at TEXT NULL,
