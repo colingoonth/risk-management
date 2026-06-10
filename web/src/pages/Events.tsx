@@ -2,7 +2,14 @@ import { useState } from 'react'
 import { api } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
 import type { Shift } from '../lib/types'
-import { Button, Card, Empty, ErrorNote, SectionHeader, Spinner, Tag } from '../components/ui'
+import { ErrorNote } from '../components/ui'
+import {
+  DayStamp,
+  LedgerField,
+  LedgerSection,
+  PenButton,
+  StatusGlyph,
+} from '../components/ledger'
 
 export function Events() {
   const { data: events, loading, error, reload } = useAsync(() => api.listEvents(), [])
@@ -16,7 +23,7 @@ export function Events() {
     try {
       const r = await api.autoAssign(eventId)
       const filled = r.assignments.filter((a) => a.reason === 'assigned').length
-      setNote(`${r.event_name}: ${filled} assigned (mode ${r.resolved_mode}).`)
+      setNote(`${r.event_name}: ${filled} posted (mode ${r.resolved_mode}).`)
       reload()
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e))
@@ -26,70 +33,77 @@ export function Events() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+    <div className="space-y-10">
+      <h1 className="text-3xl font-medium tracking-tight text-ink-100">Events</h1>
       {note && <ErrorNote message={note} />}
 
       <CreateEvent onCreated={reload} />
 
-      <Card>
-        <SectionHeader title="Schedule" />
+      <LedgerSection title="The Schedule">
         {loading ? (
-          <Spinner label="Loading events" />
+          <p className="px-4 py-8 text-sm italic text-ink-500">Loading the schedule…</p>
         ) : error ? (
           <ErrorNote message={error} />
         ) : !events || events.length === 0 ? (
-          <Empty>No events yet. Add one above to start the semester.</Empty>
+          <p className="px-4 py-8 text-center text-sm italic text-ink-500">
+            No events entered. Post one above to open the term.
+          </p>
         ) : (
-          <ul className="divide-y divide-brass-500/10">
+          <ul>
             {events.map((e) => (
-              <li key={e.id}>
-                <div className="flex items-center gap-4 px-5 py-3">
-                  <span className="w-20 shrink-0 font-mono text-sm text-brass-300">{e.date}</span>
+              <li key={e.id} className="border-b border-ink-700/30 last:border-0">
+                <div className="flex items-center gap-4 py-3 pl-4 pr-4 transition-colors hover:bg-char-850/40">
+                  <DayStamp iso={e.date} />
                   <button
                     className="min-w-0 flex-1 text-left"
                     onClick={() => setOpen(open === e.id ? null : e.id)}
                   >
-                    <div className="truncate font-medium">{e.display_name}</div>
-                    <div className="font-mono text-xs text-ink-500">
+                    <div className="truncate text-ink-100">{e.display_name}</div>
+                    <div className="font-mono text-[11px] uppercase tracking-wider text-ink-500">
                       {e.event_type_slug}
                       {e.host_house_slug && ` · ${e.host_house_slug}`}
                     </div>
                   </button>
-                  <Tag tone={e.status === 'cancelled' ? 'neutral' : 'filled'}>{e.status}</Tag>
-                  <Button variant="ghost" disabled={busy !== null} onClick={() => assign(e.id)}>
-                    {busy === e.id ? 'Assigning…' : 'Auto-assign'}
-                  </Button>
+                  <span className="w-24 font-mono text-[11px] uppercase tracking-wider text-ink-500">
+                    {e.status === 'cancelled' ? 'cancelled' : e.status}
+                  </span>
+                  <PenButton disabled={busy !== null} onClick={() => assign(e.id)}>
+                    {busy === e.id ? 'posting…' : 'auto-assign'}
+                  </PenButton>
                 </div>
                 {open === e.id && <ShiftList eventId={e.id} />}
               </li>
             ))}
           </ul>
         )}
-      </Card>
+      </LedgerSection>
     </div>
   )
 }
 
 function ShiftList({ eventId }: { eventId: number }) {
   const { data, loading } = useAsync<Shift[]>(() => api.eventShifts(eventId), [eventId])
-  if (loading) return <Spinner label="Loading shifts" />
+  if (loading) return <p className="px-4 py-3 text-sm italic text-ink-500">Loading shifts…</p>
   if (!data || data.length === 0)
-    return <Empty>No shift slots snapshotted for this event type.</Empty>
+    return (
+      <p className="border-t border-ink-700/20 bg-char-900/40 px-4 py-3 text-sm italic text-ink-500">
+        No shift slots snapshotted for this event type.
+      </p>
+    )
   return (
-    <div className="border-t border-brass-500/10 bg-char-850 px-5 py-3">
+    <div className="border-t border-ink-700/20 bg-char-900/50 px-4 py-3">
       <table className="w-full font-mono text-sm">
         <tbody>
           {data.map((s) => (
-            <tr key={s.id} className="border-b border-brass-500/5 last:border-0">
-              <td className="py-1.5 text-ink-300">
+            <tr key={s.id} className="border-b border-ink-700/15 last:border-0">
+              <td className="py-1.5 text-ink-500">
                 {s.shift_type_slug} #{s.slot_index}
               </td>
               <td className="py-1.5 text-right">
                 {s.assigned_member_slug ? (
                   <span className="text-ink-100">{s.assigned_member_slug}</span>
                 ) : (
-                  <span className="text-signal-open">— open —</span>
+                  <StatusGlyph state="unfilled" />
                 )}
               </td>
             </tr>
@@ -133,44 +147,17 @@ function CreateEvent({ onCreated }: { onCreated: () => void }) {
   const ready = type && name && date
 
   return (
-    <Card>
-      <SectionHeader title="Add event (ad-hoc)" />
-      <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Field label="Type" value={type} onChange={setType} placeholder="mixer / dage / philanthropy" />
-        <Field label="Name" value={name} onChange={setName} placeholder="ZTA Mixer" />
-        <Field label="Date" value={date} onChange={setDate} placeholder="2026-09-12" />
-        <Field label="Host (opt)" value={host} onChange={setHost} placeholder="zta" />
-        <div className="flex items-end">
-          <Button variant="primary" disabled={!ready || busy} onClick={submit} className="w-full justify-center">
-            {busy ? 'Adding…' : 'Add event'}
-          </Button>
-        </div>
+    <LedgerSection title="Enter an Event" hint="ad-hoc addition">
+      <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+        <LedgerField label="Type" value={type} onChange={setType} placeholder="mixer / dage" />
+        <LedgerField label="Name" value={name} onChange={setName} placeholder="ZTA Mixer" />
+        <LedgerField label="Date" value={date} onChange={setDate} placeholder="2026-09-12" />
+        <LedgerField label="Host" value={host} onChange={setHost} placeholder="zta (optional)" />
+        <PenButton disabled={!ready || busy} onClick={submit} className="justify-center">
+          {busy ? 'entering…' : 'enter event'}
+        </PenButton>
       </div>
       {err && <ErrorNote message={err} />}
-    </Card>
-  )
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block font-mono text-xs uppercase tracking-wider text-ink-500">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-[3px] border border-brass-500/25 bg-char-950 px-3 py-1.5 text-sm text-ink-100 placeholder:text-ink-500/60 focus:border-brass-500/70 focus:outline-none"
-      />
-    </label>
+    </LedgerSection>
   )
 }

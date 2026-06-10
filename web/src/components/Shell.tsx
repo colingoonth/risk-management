@@ -1,8 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useSemester } from '../lib/SemesterContext'
+import { WaxSeal } from './ledger'
 
 const NAV = [
-  { to: '/', label: 'Dashboard', end: true },
+  { to: '/', label: 'Register', end: true },
   { to: '/events', label: 'Events' },
   { to: '/roster', label: 'Roster' },
 ]
@@ -11,41 +12,46 @@ export function Shell() {
   const { current, version } = useSemester()
   return (
     <div className="min-h-screen">
-      {/* Oxblood identity band */}
-      <header className="border-b border-brass-500/30 bg-gradient-to-r from-oxblood-700 to-oxblood-600">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-baseline gap-3">
-            <span className="text-brass-300">◆</span>
-            <span className="text-lg font-semibold uppercase tracking-[0.2em] text-ink-100">
-              Kappa Sigma
-            </span>
-            <span className="font-mono text-sm uppercase tracking-[0.3em] text-brass-300">
-              Risk
-            </span>
-          </div>
-          <div className="font-mono text-xs text-ink-100/80">
-            {current ? (
-              <span>
-                <span className="text-brass-300">{current.name}</span>
-                {current.archived_at && <span className="ml-2 text-ink-100/60">(archived)</span>}
+      {/* Ledger head — flat charcoal, brass hairline, off-grid wax seal. */}
+      <header className="relative overflow-hidden border-b border-brass-500/30 bg-char-950">
+        <div className="mx-auto flex max-w-6xl items-end justify-between px-6 pb-3 pt-5">
+          <div>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-lg font-semibold uppercase tracking-[0.16em] text-ink-100">
+                Duty Register
+              </h1>
+              <span className="font-mono text-xs uppercase tracking-[0.25em] text-brass-400">
+                Kappa Sigma · ΦΑ
               </span>
-            ) : (
-              <span className="text-ink-100/60">no current semester</span>
-            )}
+            </div>
+            <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-ink-500">
+              {current ? (
+                <>
+                  {current.name} Term
+                  {current.archived_at && <span className="ml-2 text-ink-700">· archived</span>}
+                </>
+              ) : (
+                'no term set'
+              )}
+            </p>
+          </div>
+          {/* Wax seal bleeds off the top-right edge. */}
+          <div className="absolute right-5 top-2">
+            <WaxSeal />
           </div>
         </div>
       </header>
 
-      {/* Nav rail */}
-      <nav className="border-b border-brass-500/20 bg-char-900">
-        <div className="mx-auto flex max-w-6xl gap-1 px-6">
+      {/* Nav — small-caps ledger tabs */}
+      <nav className="border-b border-ink-700/40 bg-char-950">
+        <div className="mx-auto flex max-w-6xl gap-6 px-6">
           {NAV.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
               end={n.end}
               className={({ isActive }) =>
-                `border-b-2 px-4 py-3 text-sm font-medium uppercase tracking-wider transition-colors ${
+                `-mb-px border-b py-3 font-mono text-xs uppercase tracking-[0.18em] transition-colors ${
                   isActive
                     ? 'border-brass-500 text-brass-300'
                     : 'border-transparent text-ink-500 hover:text-ink-300'
@@ -62,8 +68,8 @@ export function Shell() {
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-6xl px-6 py-6 font-mono text-xs text-ink-500">
-        risk-management {version && `· v${version}`}
+      <footer className="mx-auto max-w-6xl px-6 py-6 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-700">
+        risk register {version && `· v${version}`}
       </footer>
     </div>
   )

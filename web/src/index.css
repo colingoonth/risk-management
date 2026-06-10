@@ -1,67 +1,81 @@
 @import 'tailwindcss';
 
 /* Self-hosted fonts (local-first, no CDN at runtime). */
-@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/eb-garamond';
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
 
 /*
-  Oxblood Heritage design system.
-  Fraternity identity, modernized: deep oxblood + brass on charcoal, geometric
-  sans, brass hairlines. No AI-default cream/green/navy, no editorial serifs.
+  Oxblood Heritage — "Duty Ledger" execution.
+  An archival chapter records-book: hairline-ruled regions (NOT cards), brass
+  rationed to the pen (one primary action), oxblood rationed to alarm, mono
+  tabular numerals, a wax-seal crest used once. No AI-default palette, no
+  editorial serifs, no decorative gradients.
 */
 @theme {
-  /* Surfaces — charcoal stack */
-  --color-char-950: #131114;
-  --color-char-900: #1a181c;
-  --color-char-850: #211e23;
-  --color-char-800: #2a262e;
-  --color-char-700: #3a353f;
-  --color-char-600: #4c4654;
+  /* Owala palette — baby-blue body (the field), brown + beige cap accents,
+     grey spout. Surface stack runs LIGHT BLUE; names kept for code stability. */
+  --color-char-950: #d3e1e8; /* baby-blue page (bottle body) */
+  --color-char-900: #c7d8e2; /* banded panel (the docket) */
+  --color-char-850: #b9cdda; /* row hover */
+  --color-char-800: #a9c0d0;
+  --color-char-700: #e4d8bf; /* beige (cap) — warm fill accent */
+  --color-char-600: #93a0a6; /* grey (spout) — muted neutral */
 
-  /* Oxblood — primary identity / destructive-adjacent emphasis */
-  --color-oxblood-300: #c98a93;
-  --color-oxblood-500: #8b2533;
-  --color-oxblood-600: #6b1f2a;
-  --color-oxblood-700: #551821;
+  /* Alarm — brick/sienna: the hole (unfilled / overdue). Warm-on-cool, pops. */
+  --color-oxblood-300: #99391b; /* alarm text on baby blue (high contrast) */
+  --color-oxblood-500: #a8441f;
+  --color-oxblood-600: #9c3f22; /* fill empties / accent bar */
+  --color-oxblood-700: #7c3318; /* wax seal body */
 
-  /* Brass — accent / actions / hairlines */
-  --color-brass-300: #e3c987;
-  --color-brass-400: #d4af5e;
-  --color-brass-500: #c9a24b;
-  --color-brass-600: #a8853a;
+  /* The Pen — warm brown (bottle cap band): primary action, focus, the seal */
+  --color-brass-300: #e4d8bf; /* beige accent (cap) */
+  --color-brass-400: #9c6a44;
+  --color-brass-500: #835334; /* primary action bg (light text reads on it) */
+  --color-brass-600: #674027;
 
-  /* Status */
-  --color-signal-filled: #6f9f6a; /* muted sage, NOT generic SaaS green */
-  --color-signal-open: #cf6a4c; /* terracotta alarm */
-  --color-signal-warn: #d4af5e;
+  /* Ink — espresso brown on blue */
+  --color-ink-100: #2f2417; /* primary text */
+  --color-ink-300: #50422f; /* secondary */
+  --color-ink-500: #6d7b81; /* metadata / captions (cool grey, the spout) */
+  --color-ink-700: #9fb2bc; /* faint rules / disabled (blue-grey) */
 
-  /* Text on charcoal */
-  --color-ink-100: #ece7e1; /* warm bone, primary text */
-  --color-ink-300: #b8b0aa;
-  --color-ink-500: #8a827d; /* muted */
-
-  --font-sans: 'Space Grotesk Variable', system-ui, sans-serif;
+  --font-sans: 'EB Garamond Variable', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-
-  --radius-card: 4px;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
     @apply bg-char-950 text-ink-100 font-sans antialiased;
     font-feature-settings: 'tnum' 1; /* tabular numerals everywhere */
   }
-  /* Brass hairline — the signature divider of the system. */
-  .hairline {
-    @apply border-brass-500/25;
+  /* Faint paper grain over the whole page — archival tactility, under the data. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
-  /* Crest tick — small brass diamond used as a section marker. */
-  .crest-tick::before {
-    content: '◆';
-    @apply text-brass-500 mr-2 text-[0.7em] align-middle;
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+  /* Designed focus ring — inset brass, never browser-default blue. */
+  :focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1.5px var(--color-brass-500);
+  }
+}
+
+@layer components {
+  /* Section caption — a ruled ledger column header, not a card title. */
+  .ledger-cap {
+    @apply font-sans text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500;
   }
 }

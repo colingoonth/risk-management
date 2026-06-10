@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../lib/api'
 import { useSemester } from '../lib/SemesterContext'
 import { useAsync } from '../lib/useAsync'
 import type { RosterIngestResult } from '../lib/types'
-import { Button, Card, Empty, ErrorNote, SectionHeader, Spinner, Tag } from '../components/ui'
+import { ErrorNote } from '../components/ui'
+import { LedgerField, LedgerSection, PenButton } from '../components/ledger'
 
 export function Roster() {
   const { current } = useSemester()
@@ -13,7 +14,6 @@ export function Roster() {
   const [result, setResult] = useState<RosterIngestResult | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const targetSemester = semester.trim() || current?.name || ''
 
@@ -34,88 +34,88 @@ export function Roster() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Roster</h1>
+    <div className="space-y-10">
+      <h1 className="text-3xl font-medium tracking-tight text-ink-100">Roster</h1>
 
-      <Card>
-        <SectionHeader title="Import Google Form roster (CSV)" />
-        <div className="space-y-4 px-5 py-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+      <LedgerSection title="Enroll from Google Form" hint="CSV import">
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <LedgerField
+              label="Target term"
+              value={semester}
+              onChange={setSemester}
+              placeholder={current?.name ?? 'FA26'}
+            />
             <label className="block">
-              <span className="mb-1 block font-mono text-xs uppercase tracking-wider text-ink-500">
-                Target semester
-              </span>
-              <input
-                value={semester}
-                onChange={(e) => setSemester(e.target.value)}
-                placeholder={current?.name ?? 'FA26'}
-                className="w-full rounded-[3px] border border-brass-500/25 bg-char-950 px-3 py-1.5 text-sm focus:border-brass-500/70 focus:outline-none"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block font-mono text-xs uppercase tracking-wider text-ink-500">
+              <span className="mb-1 block font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
                 CSV file
               </span>
               <input
-                ref={inputRef}
                 type="file"
                 accept=".csv,text/csv"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-ink-300 file:mr-3 file:rounded-[3px] file:border-0 file:bg-brass-500 file:px-3 file:py-1.5 file:font-medium file:uppercase file:tracking-wider file:text-char-950 hover:file:bg-brass-400"
+                className="block w-full py-1 text-sm text-ink-300 file:mr-3 file:rounded-[2px] file:border-0 file:bg-brass-500 file:px-3 file:py-1.5 file:font-mono file:text-[11px] file:font-medium file:uppercase file:tracking-wider file:text-char-950 hover:file:bg-brass-400"
               />
             </label>
           </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" disabled={!file || !targetSemester || busy} onClick={() => ingest(true)}>
-              Preview
-            </Button>
-            <Button variant="primary" disabled={!file || !targetSemester || busy} onClick={() => ingest(false)}>
-              {busy ? 'Importing…' : 'Import'}
-            </Button>
+          <div className="flex gap-3">
+            <button
+              disabled={!file || !targetSemester || busy}
+              onClick={() => ingest(true)}
+              className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-500 transition-colors hover:text-ink-100 disabled:text-ink-700"
+            >
+              preview
+            </button>
+            <PenButton disabled={!file || !targetSemester || busy} onClick={() => ingest(false)}>
+              {busy ? 'enrolling…' : 'enroll'}
+            </PenButton>
           </div>
           {err && <ErrorNote message={err} />}
           {result && <IngestSummary result={result} />}
         </div>
-      </Card>
+      </LedgerSection>
 
-      <Card>
-        <SectionHeader
-          title="Members"
-          right={<Tag>{members?.length ?? 0} total</Tag>}
-        />
+      <LedgerSection title="The Roster" hint={`${members?.length ?? 0} brothers`}>
         {loading ? (
-          <Spinner label="Loading members" />
+          <p className="px-4 py-8 text-sm italic text-ink-500">Loading the roster…</p>
         ) : error ? (
           <ErrorNote message={error} />
         ) : !members || members.length === 0 ? (
-          <Empty>No members yet — import a roster above.</Empty>
+          <p className="px-4 py-8 text-center text-sm italic text-ink-500">
+            No brothers enrolled — import a roster above.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-brass-500/20 text-left font-mono text-xs uppercase tracking-wider text-ink-500">
-                <th className="px-5 py-2 font-medium">Name</th>
-                <th className="px-5 py-2 font-medium">Slug</th>
-                <th className="px-5 py-2 font-medium">Grad</th>
-                <th className="px-5 py-2 font-medium">PC</th>
-                <th className="px-5 py-2 font-medium">Status</th>
+              <tr className="border-b border-ink-700/40 text-left font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+                <th className="px-4 py-2 font-medium">Name</th>
+                <th className="px-4 py-2 font-medium">Slug</th>
+                <th className="px-4 py-2 font-medium">Grad</th>
+                <th className="px-4 py-2 font-medium">PC</th>
+                <th className="px-4 py-2 font-medium">Standing</th>
               </tr>
             </thead>
             <tbody>
               {members.map((m) => (
-                <tr key={m.id} className="border-b border-brass-500/5 last:border-0">
-                  <td className="px-5 py-2">{m.display_name}</td>
-                  <td className="px-5 py-2 font-mono text-ink-300">{m.slug}</td>
-                  <td className="px-5 py-2 font-mono">{m.class_year ?? '—'}</td>
-                  <td className="px-5 py-2 font-mono text-brass-300">{m.pledge_class ?? '—'}</td>
-                  <td className="px-5 py-2">
-                    <Tag tone={m.status_slug === 'active' ? 'filled' : 'neutral'}>{m.status_slug}</Tag>
+                <tr
+                  key={m.id}
+                  className="border-b border-ink-700/20 transition-colors last:border-0 hover:bg-char-850/40"
+                >
+                  <td className="px-4 py-2 text-ink-100">{m.display_name}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-ink-500">{m.slug}</td>
+                  <td className="px-4 py-2 font-mono tabular-nums text-ink-300">
+                    {m.class_year ?? '—'}
+                  </td>
+                  <td className="px-4 py-2 font-mono text-brass-400">{m.pledge_class ?? '—'}</td>
+                  <td className="px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-ink-500">
+                    {m.status_slug}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </Card>
+      </LedgerSection>
     </div>
   )
 }
@@ -123,27 +123,25 @@ export function Roster() {
 function IngestSummary({ result }: { result: RosterIngestResult }) {
   const p = result.preview
   return (
-    <div className="rounded-[3px] border border-brass-500/25 bg-char-850 px-4 py-3 font-mono text-sm">
-      <div className="mb-2 text-brass-300">
-        {result.dry_run ? 'Preview' : 'Imported'} · {p.semester} · base year {p.base_year}
+    <div className="border-l-2 border-brass-500/60 bg-char-900/50 px-4 py-3 font-mono text-sm">
+      <div className="mb-2 text-brass-400">
+        {result.dry_run ? 'Preview' : 'Enrolled'} · {p.semester} · base year {p.base_year}
       </div>
       <ul className="space-y-1 text-ink-300">
-        <li>{p.total_rows} rows · {p.new_members} new · {p.existing_members} existing</li>
+        <li>
+          {p.total_rows} rows · {p.new_members} new · {p.existing_members} existing
+        </li>
         <li>{p.exec_assignments} exec assignments</li>
         {result.inserted_members !== undefined && (
-          <li className="text-signal-filled">
-            {result.inserted_members} members inserted · {result.exec_roles_set} exec roles set
+          <li className="text-ink-100">
+            {result.inserted_members} enrolled · {result.exec_roles_set} exec roles set
           </li>
         )}
         {p.unmapped_rising_class.length > 0 && (
-          <li className="text-signal-warn">
-            ⚠ unmapped class: {p.unmapped_rising_class.join(', ')}
-          </li>
+          <li className="text-oxblood-300">⚠ unmapped class: {p.unmapped_rising_class.join(', ')}</li>
         )}
         {p.unmapped_pledge_class.length > 0 && (
-          <li className="text-signal-warn">
-            ⚠ non-Greek PC: {p.unmapped_pledge_class.join(', ')}
-          </li>
+          <li className="text-oxblood-300">⚠ non-Greek PC: {p.unmapped_pledge_class.join(', ')}</li>
         )}
       </ul>
     </div>

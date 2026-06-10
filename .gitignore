@@ -23,3 +23,7 @@ data/
 .idea/
 .vscode/
 NEXT-SESSION-KICKOFF.md
+
+# frontend dev artifacts
+shots/
+web/shot.cjs
