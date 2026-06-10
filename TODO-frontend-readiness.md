@@ -1,5 +1,54 @@
 # TODO — Frontend Readiness
 
+## Frontend session — 2026-06-10
+
+First frontend pass. Backend (v1 CLI) was feature-complete at session start; this
+session added the schema/ingest/fairness pieces the frontend needed, stood up an
+HTTP layer, and built the chair SPA. Suite: 443 → 459 tests, all green; mypy
+--strict, ruff, import-linter clean. 5 commits.
+
+### Architecture decisions made
+- **Backend integration → FastAPI thin layer** (not CLI-subprocess). In-process
+  service calls (~3 ms) vs ~120 ms Python-boot per click; native JSON for React.
+  New `src/risk/api/` package, same dependency layer as `cli/*`.
+- **Frontend stack → Vite + React + TS + Tailwind v4** (Colin's call).
+- **Design identity → Oxblood Heritage** (Colin's call): deep oxblood + brass on
+  charcoal, Space Grotesk, brass hairlines. No AI-default palette / editorial serif.
+- **PC schema → nullable `pledge_class` TEXT column** on `members` (not a lookup
+  table — YAGNI). Declared in 0005 CREATE TABLE + idempotent `_ensure_columns`
+  reconciler for legacy DBs.
+- **Fairness tiebreaker direction → younger-first** (resolved a contradiction in
+  the prior kickoff doc: line 57/154 "younger-first" vs line 101 "ASC"; chose
+  younger-first, consistent with the phantom-shift score philosophy).
+
+### Shipped
+- Migration: `pledge_class` on members, threaded through repo / eligibility / CLI.
+- Seniority-inverted tiebreaker: `score → class_year younger-first → pledge_class
+  newer-first (Greek ordinal) → last_assigned_at → slug`. `policy.GREEK_PLEDGE_CLASS_ORDER`.
+- Google Form roster ingest: `ingest.gform_roster` + `risk ingest gform-roster`
+  (CSV → members, rising-class→class_year, PC→pledge_class, EC→exec role; idempotent).
+- FastAPI layer (23 routes): dashboard aggregate, semesters + pledge-mode, members,
+  events (add / single + bulk auto-assign / set-host / cancel), shifts, strikes +
+  consequences, swaps, roster upload. `risk-api` / `python -m risk.api`.
+- React SPA (`web/`): Dashboard (actions-led), Events (list + drill-down + ad-hoc
+  add + auto-assign), Roster (CSV import + member table). Verified e2e w/ Playwright.
+
+### Still open / deferred to next frontend pass
+- UI screens not yet built (APIs exist for all): strike issue/remove/resolve,
+  swap **request** creation (accept/reject are wired on the dashboard), event
+  set-host + cancel, semester create/set-current/archive, pledge-takeover
+  (set-house-mode) — backend `POST /semesters/{name}/house-modes` is ready.
+- Event-type dropdown needs a `GET /event-types` endpoint (create form is a text
+  field for now).
+- `member show` raw-JSON kv-table bug (T2-NEW below) still open on the CLI side.
+- Real SP26 roster CSV not yet ingested (Colin doesn't have it yet); ingest tested
+  against synthetic + verbose-header fixtures.
+- The Tier 2/Tier 3 CLI polish items below (raw-dict outputs, archive ergonomics)
+  are untouched — frontend now bypasses most of them, so re-triage their priority.
+
+---
+
+
 Captured during the 2026-06-07 finishing pass (dogfooding walkthrough).
 Tier 1 = blocks usable CLI / frontend can't be built without it.
 Tier 2 = should-fix before frontend.
