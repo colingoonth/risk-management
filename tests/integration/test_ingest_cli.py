@@ -157,3 +157,57 @@ def test_ingest_semester_override_wins(tmp_path: Path) -> None:
         "--semester", "SP26", "--dry-run",
     )
     assert code == 0, data
+
+
+# --- gform-roster ---
+
+_ROSTER_CSV = (
+    "Full Name,Rising Class,PC,EC\n"
+    "Alice Anderson,Rising Senior,Zeta,Yes\n"
+    "Bob Brown,Rising Junior,Eta,No\n"
+)
+
+
+def test_gform_roster_dry_run(tmp_path: Path) -> None:
+    db_path = tmp_path / "r.db"
+    _seed(db_path)
+    csv_path = tmp_path / "roster.csv"
+    csv_path.write_text(_ROSTER_CSV)
+    data, code = _run(
+        db_path, "ingest", "gform-roster", str(csv_path), "--semester", "SP26", "--dry-run"
+    )
+    assert code == 0, data
+    assert data["data"]["dry_run"] is True
+    assert data["data"]["preview"]["new_members"] == 2
+    assert data["data"]["preview"]["base_year"] == 2026
+
+
+def test_gform_roster_apply(tmp_path: Path) -> None:
+    db_path = tmp_path / "r.db"
+    _seed(db_path)
+    csv_path = tmp_path / "roster.csv"
+    csv_path.write_text(_ROSTER_CSV)
+    data, code = _run(db_path, "ingest", "gform-roster", str(csv_path), "--semester", "SP26")
+    assert code == 0, data
+    assert data["data"]["inserted_members"] == 2
+    assert data["data"]["exec_roles_set"] == 1  # only Alice is EC
+
+
+def test_gform_roster_file_not_found(tmp_path: Path) -> None:
+    db_path = tmp_path / "r.db"
+    _seed(db_path)
+    data, code = _run(
+        db_path, "ingest", "gform-roster", str(tmp_path / "nope.csv"), "--semester", "SP26"
+    )
+    assert code != 0
+    assert data["error"]["code"] == "ingest.file_not_found"
+
+
+def test_gform_roster_unknown_semester_errors(tmp_path: Path) -> None:
+    db_path = tmp_path / "r.db"
+    _seed(db_path)
+    csv_path = tmp_path / "roster.csv"
+    csv_path.write_text(_ROSTER_CSV)
+    data, code = _run(db_path, "ingest", "gform-roster", str(csv_path), "--semester", "NOPE")
+    assert code != 0
+    assert data["error"]["code"] == "ingest.apply_failed"

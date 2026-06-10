@@ -68,3 +68,63 @@ def strike_sheet(
         },
         mode=mode,
     )
+
+
+def _roster_summary(preview: svc.GformPreview) -> dict[str, object]:
+    """Compact, render-friendly view of a roster preview (omits the full row dump)."""
+    return {
+        "semester": preview.semester_name,
+        "base_year": preview.base_year,
+        "total_rows": len(preview.rows),
+        "new_members": len(preview.new_members),
+        "existing_members": len(preview.existing_members),
+        "exec_assignments": len(preview.exec_assignments),
+        "unmapped_rising_class": list(preview.unmapped_rising_class),
+        "unmapped_pledge_class": list(preview.unmapped_pledge_class),
+    }
+
+
+@app.command("gform-roster")
+def gform_roster(
+    ctx: typer.Context,
+    path: Annotated[Path, typer.Argument(help="Path to the Google Form roster CSV export.")],
+    semester: Annotated[
+        str,
+        typer.Option("--semester", help="Target semester name (e.g. FA26). Required."),
+    ],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Preview the roster diff without applying.")
+    ] = False,
+) -> None:
+    """Ingest a Google-Form roster CSV (Full Name, Rising Class, PC, EC).
+
+    Derives class_year from rising-class against the target semester, stores the
+    pledge class, and assigns the exec role to EC members. Idempotent on slug.
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    if not path.exists():
+        emit_error("ingest.file_not_found", f"{path} does not exist.", mode=mode)
+        return
+    if dry_run:
+        try:
+            preview = svc.preview_gform_roster(conn, path=path, semester_name=semester)
+        except (LookupError, ValueError) as exc:
+            emit_error("ingest.preview_failed", str(exc), mode=mode)
+            return
+        emit_success({"preview": _roster_summary(preview), "dry_run": True}, mode=mode)
+        return
+    try:
+        with transaction(conn):
+            result = svc.apply_gform_roster(conn, path=path, semester_name=semester)
+    except (LookupError, ValueError) as exc:
+        emit_error("ingest.apply_failed", str(exc), mode=mode)
+        return
+    emit_success(
+        {
+            "preview": _roster_summary(result.preview),
+            "inserted_members": len(result.inserted_member_ids),
+            "exec_roles_set": result.exec_roles_set,
+        },
+        mode=mode,
+    )
