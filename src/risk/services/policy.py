@@ -67,6 +67,35 @@ Freshman → 0, sophomore → 1, junior → 2, senior → 3, super-senior → 4 
 """
 
 
+# --- Pledge-class ordering (seniority-inverted tiebreaker, R3.2-A chain) ---
+
+GREEK_PLEDGE_CLASS_ORDER: dict[str, int] = {
+    name: ordinal
+    for ordinal, name in enumerate(
+        (
+            "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta",
+            "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron",
+            "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+        ),
+        start=1,
+    )
+}
+"""Greek-letter pledge class → ordinal (Alpha=1 … Omega=24).
+
+Later letters denote newer pledge classes. The fairness tiebreaker prefers the
+*later* (newer) class first, so newer pledges pick up shifts before older
+brothers when fairness scores and class_year both tie. Lexical ordering would be
+wrong here (Eta < Theta < Zeta alphabetically, but Zeta < Eta < Theta in Greek),
+so ordering goes through this ordinal. Unmapped labels sort last (neutral)."""
+
+
+def pledge_class_ordinal(pledge_class: str | None) -> int | None:
+    """Greek-alphabet position of a pledge-class label, or None if unmapped."""
+    if pledge_class is None:
+        return None
+    return GREEK_PLEDGE_CLASS_ORDER.get(pledge_class.strip().lower())
+
+
 def seniority_phantom_shifts(class_year: int | None, event_year: int) -> float:
     """Phantom-shift score contribution from class_year.
 

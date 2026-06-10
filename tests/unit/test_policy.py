@@ -51,3 +51,34 @@ def test_seniority_phantom_shifts_monotone_in_class_year() -> None:
     scores = [policy.seniority_phantom_shifts(cy, event_year) for cy in range(2030, 2024, -1)]
     for a, b in zip(scores, scores[1:], strict=False):
         assert a <= b, f"non-monotone: {scores}"
+
+
+# --- Pledge-class ordinal (seniority-inverted tiebreaker) ---
+
+
+def test_greek_order_spans_alpha_to_omega() -> None:
+    assert policy.GREEK_PLEDGE_CLASS_ORDER["alpha"] == 1
+    assert policy.GREEK_PLEDGE_CLASS_ORDER["omega"] == 24
+    assert len(policy.GREEK_PLEDGE_CLASS_ORDER) == 24
+
+
+def test_pledge_class_ordinal_follows_greek_not_lexical_order() -> None:
+    """Greek order is Zeta(6) < Eta(7) < Theta(8)."""
+    zeta = policy.pledge_class_ordinal("Zeta")
+    eta = policy.pledge_class_ordinal("Eta")
+    theta = policy.pledge_class_ordinal("Theta")
+    assert zeta is not None and eta is not None and theta is not None
+    assert zeta < eta < theta
+    # Lexical sort would give the wrong order (Eta < Theta < Zeta) — confirm the
+    # labels really do disagree, so this test is meaningfully guarding ordinal use.
+    assert sorted(["Eta", "Theta", "Zeta"]) == ["Eta", "Theta", "Zeta"]
+
+
+@pytest.mark.parametrize("label", ["zeta", "Zeta", "ZETA", "  Zeta  "])
+def test_pledge_class_ordinal_is_case_and_whitespace_insensitive(label: str) -> None:
+    assert policy.pledge_class_ordinal(label) == 6
+
+
+@pytest.mark.parametrize("label", [None, "", "not-a-letter", "alpha-alpha"])
+def test_pledge_class_ordinal_unmapped_is_none(label: str | None) -> None:
+    assert policy.pledge_class_ordinal(label) is None
