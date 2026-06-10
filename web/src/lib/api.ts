@@ -1,0 +1,97 @@
+// Thin typed client over the FastAPI layer. All calls hit /api (dev: proxied
+// to the local risk-api server; same-origin in any future bundled deploy).
+
+import type {
+  AutoAssignResult,
+  Dashboard,
+  EventRow,
+  Member,
+  RosterIngestResult,
+  Semester,
+  Shift,
+  SwapRequest,
+} from './types'
+
+export class ApiError extends Error {
+  status: number
+  detail: string
+  constructor(status: number, detail: string) {
+    super(detail)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    headers: init?.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : undefined,
+    ...init,
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail ?? detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(res.status, detail)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
+const post = (path: string, body?: unknown) =>
+  req<unknown>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+
+export const api = {
+  meta: () => req<{ version: string; current_semester: Semester | null }>('/meta'),
+  dashboard: (semester?: string) =>
+    req<Dashboard>(`/dashboard${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`),
+
+  listSemesters: () => req<Semester[]>('/semesters'),
+  setCurrentSemester: (name: string) =>
+    req<Semester>(`/semesters/${encodeURIComponent(name)}/set-current`, { method: 'POST' }),
+  createSemester: (body: { name: string; starts_on: string; ends_on: string }) =>
+    req<Semester>('/semesters', { method: 'POST', body: JSON.stringify(body) }),
+  setHouseMode: (semester: string, house_slug: string, pledge_mode_slug: string) =>
+    req<unknown>(`/semesters/${encodeURIComponent(semester)}/house-modes`, {
+      method: 'POST',
+      body: JSON.stringify({ house_slug, pledge_mode_slug }),
+    }),
+
+  listMembers: () => req<Member[]>('/members'),
+
+  listEvents: (semester?: string) =>
+    req<EventRow[]>(`/events${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`),
+  createEvent: (
+    body: { event_type_slug: string; display_name: string; date: string; host_house_slug?: string | null },
+    semester?: string,
+  ) =>
+    req<EventRow>(`/events${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  eventShifts: (eventId: number) => req<Shift[]>(`/events/${eventId}/shifts`),
+  autoAssign: (eventId: number, body: { seed?: number; reassign?: boolean } = {}) =>
+    req<AutoAssignResult>(`/events/${eventId}/auto-assign`, { method: 'POST', body: JSON.stringify(body) }),
+  autoAssignBulk: (semester?: string, body: { seed?: number; reassign?: boolean } = {}) =>
+    req<AutoAssignResult[]>(
+      `/events/auto-assign-bulk${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  listSwaps: (state?: string) =>
+    req<SwapRequest[]>(`/swaps${state ? `?state=${encodeURIComponent(state)}` : ''}`),
+  acceptSwap: (id: number) => post(`/swaps/${id}/accept`),
+  rejectSwap: (id: number) => post(`/swaps/${id}/reject`),
+
+  ingestRoster: (file: File, semester: string, dryRun: boolean) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('semester', semester)
+    form.append('dry_run', String(dryRun))
+    return req<RosterIngestResult>('/ingest/gform-roster', { method: 'POST', body: form })
+  },
+}

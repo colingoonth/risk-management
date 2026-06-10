@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+/* Self-hosted fonts (local-first, no CDN at runtime). */
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
+  Oxblood Heritage design system.
+  Fraternity identity, modernized: deep oxblood + brass on charcoal, geometric
+  sans, brass hairlines. No AI-default cream/green/navy, no editorial serifs.
+*/
+@theme {
+  /* Surfaces — charcoal stack */
+  --color-char-950: #131114;
+  --color-char-900: #1a181c;
+  --color-char-850: #211e23;
+  --color-char-800: #2a262e;
+  --color-char-700: #3a353f;
+  --color-char-600: #4c4654;
+
+  /* Oxblood — primary identity / destructive-adjacent emphasis */
+  --color-oxblood-300: #c98a93;
+  --color-oxblood-500: #8b2533;
+  --color-oxblood-600: #6b1f2a;
+  --color-oxblood-700: #551821;
+
+  /* Brass — accent / actions / hairlines */
+  --color-brass-300: #e3c987;
+  --color-brass-400: #d4af5e;
+  --color-brass-500: #c9a24b;
+  --color-brass-600: #a8853a;
+
+  /* Status */
+  --color-signal-filled: #6f9f6a; /* muted sage, NOT generic SaaS green */
+  --color-signal-open: #cf6a4c; /* terracotta alarm */
+  --color-signal-warn: #d4af5e;
+
+  /* Text on charcoal */
+  --color-ink-100: #ece7e1; /* warm bone, primary text */
+  --color-ink-300: #b8b0aa;
+  --color-ink-500: #8a827d; /* muted */
+
+  --font-sans: 'Space Grotesk Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-card: 4px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-char-950 text-ink-100 font-sans antialiased;
+    font-feature-settings: 'tnum' 1; /* tabular numerals everywhere */
+  }
+  /* Brass hairline — the signature divider of the system. */
+  .hairline {
+    @apply border-brass-500/25;
+  }
+  /* Crest tick — small brass diamond used as a section marker. */
+  .crest-tick::before {
+    content: '◆';
+    @apply text-brass-500 mr-2 text-[0.7em] align-middle;
+  }
+}
