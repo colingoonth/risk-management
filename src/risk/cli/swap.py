@@ -69,10 +69,21 @@ def request(
                 to_shift_id=to_shift,
                 counterparty_member_id=cp_id,
             )
-    except (LookupError, ValueError) as exc:
-        # Wrap the raw service exception with chair-friendly slug context +
-        # a discovery hint pointing at `risk shift list` so the chair knows
-        # how to find valid shift IDs.
+    except ValueError as exc:
+        msg = str(exc)
+        if "open swap request already exists" in msg:
+            # Duplicate open request for the same from_shift — surface directly.
+            emit_error("swap.duplicate_open", msg, mode=mode)
+            return
+        # Other validation errors: wrap with chair-friendly slug context.
+        hint = (
+            f"Initiator {fs.assigned_member_slug or fs.assigned_member_id} holds "
+            f"shift {fs.id} ({fs.shift_type_slug}). "
+            "Try `risk shift list --member <slug>` to see their other assignments."
+        )
+        emit_error("swap.request_invalid", f"{msg} — {hint}", mode=mode)
+        return
+    except LookupError as exc:
         hint = (
             f"Initiator {fs.assigned_member_slug or fs.assigned_member_id} holds "
             f"shift {fs.id} ({fs.shift_type_slug}). "
@@ -81,7 +92,11 @@ def request(
         emit_error("swap.request_invalid", f"{exc} — {hint}", mode=mode)
         return
     except sqlite3.IntegrityError as exc:
-        emit_error("swap.request_integrity", str(exc), mode=mode)
+        emit_error(
+            "swap.request_integrity",
+            f"Integrity error creating swap request for shift {from_shift}: {exc}",
+            mode=mode,
+        )
         return
     row = sr_repo.get_by_id(conn, req_id)
     assert row is not None

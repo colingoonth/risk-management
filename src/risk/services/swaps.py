@@ -57,6 +57,16 @@ def request_swap(
         )
     if to_shift_id is None and counterparty_member_id is None:
         raise ValueError("either to_shift_id or counterparty_member_id must be given")
+    # Guard: reject a second open request for the same from_shift.
+    existing = conn.execute(
+        "SELECT id FROM swap_requests WHERE from_shift_id = ? AND state = 'open'",
+        (from_shift_id,),
+    ).fetchone()
+    if existing is not None:
+        raise ValueError(
+            f"An open swap request already exists for shift {from_shift_id}"
+            " — run `risk swap list` to see pending swaps."
+        )
     return sr_repo.insert(
         conn,
         semester_id=semester_id,
