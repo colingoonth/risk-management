@@ -18,3 +18,10 @@ app.add_typer(role_app, name="role")
 app.add_typer(shift_type_app, name="shift-type")
 app.add_typer(removal_method_app, name="removal-method")
 app.add_typer(pledge_mode_app, name="pledge-mode")
+
+
+@app.callback(invoke_without_command=True)
+def _root_callback(ctx: typer.Context) -> None:
+    """Show help when ``risk config`` is invoked with no subcommand."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
