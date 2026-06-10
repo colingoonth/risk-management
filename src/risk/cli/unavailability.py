@@ -70,7 +70,19 @@ def add(
                 reason=reason,
             )
     except sqlite3.IntegrityError as exc:
-        emit_error("unavailability.integrity", str(exc), mode=mode)
+        exc_str = str(exc)
+        if "unavailability_member_semester_range" in exc_str or "UNIQUE" in exc_str.upper():
+            emit_error(
+                "unavailability.duplicate",
+                f"An unavailability window already exists for {m.slug} from {starts} to {ends}.",
+                mode=mode,
+            )
+        else:
+            emit_error(
+                "unavailability.integrity",
+                f"Cannot add unavailability window for {m.slug}: {exc_str}",
+                mode=mode,
+            )
         return
     win = repo.get_by_id(conn, win_id)
     assert win is not None
