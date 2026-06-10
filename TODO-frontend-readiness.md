@@ -98,6 +98,46 @@ Clean `{ok, data, error, warnings}` envelope on all tested commands. `data` incl
 
 No bulk member import tested — the `risk ingest` command was not explored in this session. With a subprocess-per-call shell loop, adding 57 brothers took ~7 seconds (acceptable). The `ingest` path should be tested separately.
 
+## Verification pass results (2026-06-09)
+
+Probe results from the post-Phase-2 integrity + perf sweep. Tests added under
+`tests/integration/test_constraint_stress.py` (14 cases) and
+`tests/integration/test_integrity_probes.py` (5 cases) — 19 new tests, all green.
+
+### Integrity probes
+
+| Probe | Result |
+| --- | --- |
+| **1 — SQL injection sweep** | CLEAN. 10 hits in `src/risk/repos/*.py` + `src/risk/db/connection.py`. Every match is either a literal SELECT fragment composed from module-scope constants (`_SELECT_WITH_STATUS`, `_SELECT_JOINED`) with parameterized user input, a `_lookups` helper where the table name is a caller-side literal (only caller is `pledge_modes.py` passing `"pledge_modes"`), or `BUSY_TIMEOUT_MS` (int constant). No user input ever reaches an f-string. |
+| **2 — `PRAGMA foreign_key_check`** | CLEAN. Zero orphans on a 60-member / 30-event populated DB with 138 assigned shifts after 10 auto-assign runs. `PRAGMA integrity_check` returns `ok`. Guard test: `test_foreign_key_check_clean_on_populated_db`. |
+| **3 — Constraint stress** | All documented invariants fire. See `test_constraint_stress.py` — covers `shifts.slot_index` range (negative + >=50), `shifts.status` enum, the assigned/open <-> member coupling CHECK, `UNIQUE(event_id, shift_type_id, slot_index)`, `shifts_one_assignment` partial unique index (member double-assignment), `events.status` enum, `event_shift_requirements` target >= min, `members.slug` lowercase GLOB, `members.class_year` 2000-2100 range, `unavailability.ends_on >= starts_on`, `UNIQUE` on unavailability ranges (mig 0011), and `trg_strikes_block_archived_insert` archive guard. |
+| **4 — Migration replay** | CLEAN. `ensure_schema()` produces a `.schema` byte-identical to feeding `src/risk/db/migrations/*.sql` into a fresh `sqlite3` DB. Guard test: `test_migration_replay_matches_ensure_schema`. |
+| **5 — Backup round-trip** | CLEAN. `.dump` sha256 of `risk db backup` output matches source bit-for-bit on a populated DB (verified after `wal_checkpoint(TRUNCATE)`). Guard test: `test_backup_dump_sha_matches_source`. |
+| **6 — Reproducibility** | CLEAN. `auto-assign --seed 42 --dry-run` is byte-identical across re-runs on the same DB AND across a backup -> restore round-trip. No wall-clock leak in the R3.2-A `event.date` tiebreaker. Guard tests: `test_auto_assign_reproducible_same_db`, `test_auto_assign_reproducible_after_backup_restore`. |
+
+### Performance (Probe 7)
+
+Load: 60 members, 30 events, all events snapshotted from event-type defaults. Run on M1 MBP, cold WAL.
+
+| Operation | CLI wall time | In-process call | Target | Verdict |
+| --- | --- | --- | --- | --- |
+| `event auto-assign` (14-slot mixer, 60-member pool, seed=42) | ~120 ms | **3.4 ms** | <500 ms | well under |
+| `semester resync-all FA25` (30 events) | ~130 ms | **1.5 ms** | <5 s | well under |
+| `--json event show <id>` envelope (post-assignment) | — | — | n/a baseline | **4,979 bytes** |
+
+Notes:
+
+- In-process numbers come from `risk.services.assignment.auto_assign()` / `shift_requirements.snapshot_for_event()` driven from Python — they exclude CLI/Click startup. CLI wall time is dominated by Python import + Click boot (~100 ms baseline). For the chair workflow that's fine; if the frontend wraps this as a subprocess per click, a long-running daemon or shared interpreter would shave that.
+- JSON envelope is small enough that gzipping or paging is not on the critical path.
+- No operation came close to its target — no profiling work needed.
+
+### Tests added
+
+- `tests/integration/test_constraint_stress.py` — 14 cases
+- `tests/integration/test_integrity_probes.py` — 5 cases
+
+Total: 19 new tests. Suite stands at 334 tests when this branch is run in isolation. (6 swap / event-cancel / semester-unarchive CLI tests currently fail because Agent H's parallel branch added a `--yes` confirmation-prompt to `swap cancel` etc. without updating the existing tests; those failures are scoped to Agent H's diff and not caused by this verification pass.)
+
 ## Deferred / needs Colin input
 
 - ~~**`shifts.status='swapped'` enum value**~~ — resolved 2026-06-09. Kept in CHECK constraint; comment in 0007_shifts.sql now explains R3.2-D rationale + reservation for future use. Skipped the table-rebuild migration because SQLite can't ALTER CHECK in place + the value is harmless dead code, and adding a use case later is trivial vs ripping it out now.
