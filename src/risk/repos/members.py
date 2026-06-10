@@ -13,6 +13,7 @@ class Member:
     display_name: str
     status_slug: str
     class_year: int | None
+    pledge_class: str | None
     notes: str | None
 
 
@@ -28,7 +29,7 @@ class MemberAlias:
 _SELECT_WITH_STATUS = """
 SELECT
   m.id, m.slug, m.display_name, ms.slug AS status_slug,
-  m.class_year, m.notes
+  m.class_year, m.pledge_class, m.notes
 FROM members m
 JOIN member_statuses ms ON ms.id = m.status_id
 """
@@ -41,6 +42,7 @@ def _row(r: sqlite3.Row) -> Member:
         display_name=r["display_name"],
         status_slug=r["status_slug"],
         class_year=r["class_year"],
+        pledge_class=r["pledge_class"],
         notes=r["notes"],
     )
 
@@ -52,15 +54,16 @@ def insert(
     display_name: str,
     status_id: int,
     class_year: int | None = None,
+    pledge_class: str | None = None,
     notes: str | None = None,
 ) -> int:
     cur = conn.execute(
         """
         INSERT INTO members
-          (slug, display_name, status_id, class_year, notes)
-        VALUES (?, ?, ?, ?, ?)
+          (slug, display_name, status_id, class_year, pledge_class, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (slug, display_name, status_id, class_year, notes),
+        (slug, display_name, status_id, class_year, pledge_class, notes),
     )
     assert cur.lastrowid is not None
     return cur.lastrowid

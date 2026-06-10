@@ -41,6 +41,7 @@ class EligibleMember:
     member_slug: str
     display_name: str
     class_year: int | None
+    pledge_class: str | None
     is_pledge: bool
 
 
@@ -89,6 +90,7 @@ def eligible_for(
           m.slug AS member_slug,
           m.display_name,
           m.class_year,
+          m.pledge_class,
           ms.excludes_from_assignment AS status_excludes,
           mha.house_id AS member_house_id,
           EXISTS(
@@ -160,6 +162,7 @@ def eligible_for(
                 member_slug=r["member_slug"],
                 display_name=r["display_name"],
                 class_year=r["class_year"],
+                pledge_class=r["pledge_class"],
                 is_pledge=bool(r["is_pledge"]),
             )
         )

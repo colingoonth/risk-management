@@ -139,6 +139,7 @@ def test_score_monotone_in_shifts_so_far(db: sqlite3.Connection) -> None:
             member_slug=f"m{i}",
             display_name=f"M{i}",
             class_year=None,
+            pledge_class=None,
             is_pledge=False,
         )
         for i, mid in enumerate(ids)

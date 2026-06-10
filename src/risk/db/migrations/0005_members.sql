@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS members (
   display_name TEXT NOT NULL,
   status_id INTEGER NOT NULL REFERENCES member_statuses(id),
   class_year INTEGER NULL,
+  -- Pledge class as a Greek-letter label (e.g. 'Zeta'), captured from the
+  -- Google Form roster intake. Display + seniority-inverted tiebreaker only;
+  -- ordering is by Greek-alphabet ordinal (see policy.GREEK_PLEDGE_CLASS_ORDER),
+  -- NOT lexical, so it stays a free-form nullable TEXT label here. Legacy DBs
+  -- created before this column existed are reconciled by schema._ensure_columns.
+  pledge_class TEXT NULL,
   notes TEXT NULL,
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*'),
   CHECK (class_year IS NULL OR (class_year BETWEEN 2000 AND 2100))

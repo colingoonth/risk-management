@@ -50,6 +50,10 @@ def add(
     class_year: Annotated[
         int | None, typer.Option("--class-year", help="Graduation year (e.g. 2027).")
     ] = None,
+    pledge_class: Annotated[
+        str | None,
+        typer.Option("--pledge-class", help="Pledge class as a Greek letter, e.g. 'Zeta'."),
+    ] = None,
 ) -> None:
     """Register a new chapter member.
 
@@ -70,6 +74,7 @@ def add(
                 display_name=display_name,
                 status_id=status_row.id,
                 class_year=class_year,
+                pledge_class=pledge_class,
             )
     except sqlite3.IntegrityError:
         emit_error(
@@ -90,6 +95,7 @@ def add(
             extra_cols=(
                 ("Status", "status_slug"),
                 ("Class year", "class_year"),
+                ("PC", "pledge_class"),
             ),
         ),
     )
@@ -150,6 +156,7 @@ def list_(
             extra_cols=(
                 ("Status", "status_slug"),
                 ("Class year", "class_year"),
+                ("PC", "pledge_class"),
             ),
         ),
     )
