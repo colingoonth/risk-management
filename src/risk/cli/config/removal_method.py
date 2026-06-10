@@ -27,8 +27,13 @@ def add(
     try:
         with transaction(conn):
             repo.insert(conn, slug=slug, display_name=display_name)
-    except sqlite3.IntegrityError as exc:
-        emit_error("removal_method.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "removal_method.integrity",
+            f"A removal method with slug {slug!r} already exists — run "
+            f"'risk config removal-method list --include-retired' to see all methods.",
+            mode=mode,
+        )
         return
     method = repo.get_active_by_slug(conn, slug)
     assert method is not None

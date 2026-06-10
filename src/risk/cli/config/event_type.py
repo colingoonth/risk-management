@@ -29,8 +29,13 @@ def add(
     try:
         with transaction(conn):
             repo.insert(conn, slug=slug, display_name=display_name)
-    except sqlite3.IntegrityError as exc:
-        emit_error("event_type.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "event_type.integrity",
+            f"An event type with slug {slug!r} already exists — run "
+            f"'risk config event-type list' to see existing event types.",
+            mode=mode,
+        )
         return
     et = repo.get_by_slug(conn, slug)
     assert et is not None
@@ -122,8 +127,13 @@ def set_default(
                 min_count=min_count,
                 target_count=target_count,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("default.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "default.integrity",
+            f"Could not set default shift requirement for event type {event_type!r} "
+            f"+ shift type {shift_type!r} — check that both slugs are valid.",
+            mode=mode,
+        )
         return
     rows = defaults_repo.list_for_event_type(conn, et.id)
     emit_success(

@@ -49,8 +49,13 @@ def add(
                 default_excluded=default_excluded,
                 soft=soft,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("role.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "role.integrity",
+            f"A role with slug {slug!r} already exists — run 'risk config role list' "
+            f"to see existing roles.",
+            mode=mode,
+        )
         return
     role = repo.get_by_slug(conn, slug)
     assert role is not None

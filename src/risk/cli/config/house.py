@@ -30,8 +30,13 @@ def add(
     try:
         with transaction(conn):
             houses_repo.insert(conn, slug=slug, display_name=display_name)
-    except sqlite3.IntegrityError as exc:
-        emit_error("house.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "house.integrity",
+            f"A house with slug {slug!r} already exists — run 'risk config house list' "
+            f"to see existing houses.",
+            mode=mode,
+        )
         return
     house = houses_repo.get_by_slug(conn, slug)
     assert house is not None
@@ -81,8 +86,13 @@ def set_pref(
                 min_count=min_count,
                 target_count=target_count,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("house_pref.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "house_pref.integrity",
+            f"Could not save shift preference for house {house!r} — check that the "
+            f"event type and shift type exist and that counts are valid.",
+            mode=mode,
+        )
         return
     rows = prefs_repo.list_for_house(conn, h.id)
     emit_success(
@@ -215,8 +225,14 @@ def revert_prefs(
                 prefs_repo.delete(
                     conn, house_id=h.id, event_type_id=et, shift_type_id=st
                 )
-    except sqlite3.IntegrityError as exc:
-        emit_error("house.revert_integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "house.revert_integrity",
+            f"Revert failed due to a constraint conflict while restoring preferences for "
+            f"house {house!r}. The house state may be partially updated — revert again or "
+            f"run 'risk config house list-prefs {house}' to inspect.",
+            mode=mode,
+        )
         return
     emit_success({"plan": plan, "applied": True}, mode=mode)
 

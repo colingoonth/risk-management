@@ -10,7 +10,7 @@ from typing import Annotated
 import typer
 
 from risk.cli._common import mode_from_ctx, open_conn
-from risk.cli.output import emit_error, emit_success, semesters_table
+from risk.cli.output import OutputMode, emit_error, emit_success, semesters_table
 from risk.db.connection import transaction
 from risk.repos import house_semester_status as hss_repo
 from risk.repos import houses as houses_repo
@@ -44,8 +44,12 @@ def add(
                 ends_on=ends,
                 pledge_takeover_starts_on=pledge_takeover,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("semester.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "semester.integrity",
+            f"A semester named {name!r} already exists.",
+            mode=mode,
+        )
         return
     sem = semesters_repo.get_by_name(conn, name)
     assert sem is not None
@@ -155,8 +159,13 @@ def resync_all(
     try:
         with transaction(conn):
             result = sr_svc.resync_semester(conn, semester_id=sem.id)
-    except sqlite3.IntegrityError as exc:
-        emit_error("semester.resync_integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "semester.resync_integrity",
+            f"Resync failed due to a constraint conflict in semester {name!r}. "
+            f"Try running 'risk semester list' to confirm the semester state.",
+            mode=mode,
+        )
         return
     emit_success(
         {
@@ -246,10 +255,26 @@ def archive(
     except (LookupError, RuntimeError) as exc:
         emit_error("semester.archive_failed", str(exc), mode=mode)
         return
-    emit_success(
-        {"report": asdict(report), "result": asdict(result)},
-        mode=mode,
-    )
+    if mode is OutputMode.HUMAN:
+        from rich.table import Table as _Table
+        tbl = _Table.grid(padding=(0, 2))
+        tbl.add_column(style="bold green")
+        tbl.add_column()
+        tbl.add_row(f"Archived semester {name}", "")
+        tbl.add_row("  Strikes closed:", str(result.strikes_closed))
+        tbl.add_row("  Strikes carried forward:", str(result.strikes_carried_forward))
+        tbl.add_row("  Consequences carried:", str(result.consequences_carried_forward))
+        tbl.add_row("  Swaps cancelled:", str(result.swaps_cancelled))
+        emit_success(
+            {"report": asdict(report), "result": asdict(result)},
+            mode=mode,
+            table=tbl,
+        )
+    else:
+        emit_success(
+            {"report": asdict(report), "result": asdict(result)},
+            mode=mode,
+        )
 
 
 @app.command("unarchive")

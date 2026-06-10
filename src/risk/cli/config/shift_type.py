@@ -27,8 +27,13 @@ def add(
     try:
         with transaction(conn):
             repo.insert(conn, slug=slug, display_name=display_name)
-    except sqlite3.IntegrityError as exc:
-        emit_error("shift_type.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "shift_type.integrity",
+            f"A shift type with slug {slug!r} already exists — run "
+            f"'risk config shift-type list' to see existing shift types.",
+            mode=mode,
+        )
         return
     st = repo.get_by_slug(conn, slug)
     assert st is not None

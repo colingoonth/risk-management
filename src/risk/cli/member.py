@@ -66,8 +66,13 @@ def add(
                 status_id=status_row.id,
                 class_year=class_year,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("member.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "member.integrity",
+            f"A member with slug {slug!r} already exists — use a different slug or "
+            f"run 'risk member list' to see existing members.",
+            mode=mode,
+        )
         return
     member = repo.get_by_slug(conn, slug)
     assert member is not None
@@ -248,8 +253,12 @@ def add_alias(
     try:
         with transaction(conn):
             repo.add_alias(conn, member_id=m.id, alias=alias, source=source)
-    except sqlite3.IntegrityError as exc:
-        emit_error("alias.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "alias.integrity",
+            "This alias is already assigned to another member.",
+            mode=mode,
+        )
         return
     emit_success({"member": m.slug, "alias": alias}, mode=mode)
 
