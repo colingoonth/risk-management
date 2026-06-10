@@ -1,18 +1,14 @@
-"""CLI-layer tests for ``risk swap`` — request shapes A/B/C + accept/reject/cancel/list.
-
-Uses the installed ``risk`` entry point so coverage is collected via the
-subprocess hook configured in conftest.py.
-"""
+"""CLI-layer tests for ``risk swap`` — request shapes A/B/C + accept/reject/cancel/list."""
 
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from risk.cli.main import app
 from risk.db.connection import connect, transaction
 from risk.db.schema import ensure_schema
 from risk.repos import event_types as etypes_repo
@@ -25,19 +21,16 @@ from risk.services import assignment, shift_requirements
 
 pytestmark = pytest.mark.integration
 
+runner = CliRunner()
 
-def _run_cli(db_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    risk_bin = Path(sys.executable).parent / "risk"
-    return subprocess.run(
-        [str(risk_bin), "--db", str(db_path), "--json", *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+
+def _run(db_path: Path, *args: str) -> tuple[dict, int]:
+    res = runner.invoke(app, ["--json", "--db", str(db_path), *args])
+    return json.loads(res.output), res.exit_code
 
 
 def _seed(db_path: Path) -> int:
-    """Seed SP26 + 1 mixer + 8 members + auto-assign. Return event id."""
+    """Seed SP26 + 1 mixer + 15 members + auto-assign. Return event id."""
     conn = connect(db_path)
     ensure_schema(conn)
     sem_id = semesters_repo.insert(
@@ -72,9 +65,9 @@ def _seed(db_path: Path) -> int:
     return event_id
 
 
-def _assigned_shifts(db_path: Path) -> list[dict[str, object]]:
-    res = _run_cli(db_path, "shift", "list", "--status", "assigned")
-    return list(json.loads(res.stdout)["data"])
+def _assigned_shifts(db_path: Path) -> list[dict]:
+    data, _ = _run(db_path, "shift", "list", "--status", "assigned")
+    return list(data["data"])
 
 
 def test_swap_request_shape_a_trade(tmp_path: Path) -> None:
@@ -86,13 +79,12 @@ def test_swap_request_shape_a_trade(tmp_path: Path) -> None:
     s1, s2 = shifts[0], shifts[1]
     assert s1["assigned_member_slug"] != s2["assigned_member_slug"]
 
-    res = _run_cli(
+    data, code = _run(
         db_path, "swap", "request", "--from-shift", str(s1["id"]), "--to-shift", str(s2["id"])
     )
-    assert res.returncode == 0, res.stdout + res.stderr
-    payload = json.loads(res.stdout)
-    assert payload["ok"] is True
-    assert payload["data"]["swap_request"]["state"] == "open"
+    assert code == 0, data
+    assert data["ok"] is True
+    assert data["data"]["swap_request"]["state"] == "open"
 
 
 def test_swap_request_invalid_from_shift_open_errors(tmp_path: Path) -> None:
@@ -107,26 +99,24 @@ def test_swap_request_invalid_from_shift_open_errors(tmp_path: Path) -> None:
     open_id = conn.execute("SELECT id FROM shifts WHERE slot_index = 49").fetchone()[0]
     conn.close()
 
-    res = _run_cli(db_path, "swap", "request", "--from-shift", str(open_id))
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "swap.from_shift_open"
+    data, code = _run(db_path, "swap", "request", "--from-shift", str(open_id))
+    assert code != 0
+    assert data["error"]["code"] == "swap.from_shift_open"
 
 
 def test_swap_request_from_shift_not_found(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(db_path, "swap", "request", "--from-shift", "9999")
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "swap.from_shift_not_found"
+    data, code = _run(db_path, "swap", "request", "--from-shift", "9999")
+    assert code != 0
+    assert data["error"]["code"] == "swap.from_shift_not_found"
 
 
 def test_swap_request_unknown_counterparty_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     shifts = _assigned_shifts(db_path)
-    res = _run_cli(
+    data, code = _run(
         db_path,
         "swap",
         "request",
@@ -135,9 +125,8 @@ def test_swap_request_unknown_counterparty_errors(tmp_path: Path) -> None:
         "--counterparty",
         "ghost",
     )
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "member.not_found"
+    assert code != 0
+    assert data["error"]["code"] == "member.not_found"
 
 
 def test_swap_accept_resolves_swap(tmp_path: Path) -> None:
@@ -145,30 +134,30 @@ def test_swap_accept_resolves_swap(tmp_path: Path) -> None:
     _seed(db_path)
     shifts = _assigned_shifts(db_path)
     s1, s2 = shifts[0], shifts[1]
-    req_res = _run_cli(
+    req_data, req_code = _run(
         db_path, "swap", "request", "--from-shift", str(s1["id"]), "--to-shift", str(s2["id"])
     )
-    req_id = json.loads(req_res.stdout)["data"]["swap_request"]["id"]
+    assert req_code == 0, req_data
+    req_id = req_data["data"]["swap_request"]["id"]
 
-    accept_res = _run_cli(db_path, "swap", "accept", str(req_id))
-    assert accept_res.returncode == 0, accept_res.stdout + accept_res.stderr
-    assert json.loads(accept_res.stdout)["ok"] is True
+    accept_data, accept_code = _run(db_path, "swap", "accept", str(req_id))
+    assert accept_code == 0, accept_data
+    assert accept_data["ok"] is True
 
 
 def test_swap_accept_unknown_id_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(db_path, "swap", "accept", "9999")
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "swap.not_found"
+    data, code = _run(db_path, "swap", "accept", "9999")
+    assert code != 0
+    assert data["error"]["code"] == "swap.not_found"
 
 
 def test_swap_reject_marks_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     shifts = _assigned_shifts(db_path)
-    req_res = _run_cli(
+    req_data, req_code = _run(
         db_path,
         "swap",
         "request",
@@ -177,26 +166,26 @@ def test_swap_reject_marks_rejected(tmp_path: Path) -> None:
         "--to-shift",
         str(shifts[1]["id"]),
     )
-    req_id = json.loads(req_res.stdout)["data"]["swap_request"]["id"]
-    res = _run_cli(db_path, "swap", "reject", str(req_id))
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert json.loads(res.stdout)["data"]["state"] == "rejected"
+    assert req_code == 0, req_data
+    req_id = req_data["data"]["swap_request"]["id"]
+    data, code = _run(db_path, "swap", "reject", str(req_id))
+    assert code == 0, data
+    assert data["data"]["state"] == "rejected"
 
 
 def test_swap_reject_unknown_id_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(db_path, "swap", "reject", "9999")
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "swap.reject_invalid"
+    data, code = _run(db_path, "swap", "reject", "9999")
+    assert code != 0
+    assert data["error"]["code"] == "swap.reject_invalid"
 
 
 def test_swap_cancel_marks_cancelled(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     shifts = _assigned_shifts(db_path)
-    req_res = _run_cli(
+    req_data, req_code = _run(
         db_path,
         "swap",
         "request",
@@ -205,26 +194,26 @@ def test_swap_cancel_marks_cancelled(tmp_path: Path) -> None:
         "--to-shift",
         str(shifts[1]["id"]),
     )
-    req_id = json.loads(req_res.stdout)["data"]["swap_request"]["id"]
-    res = _run_cli(db_path, "swap", "cancel", str(req_id))
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert json.loads(res.stdout)["data"]["state"] == "cancelled"
+    assert req_code == 0, req_data
+    req_id = req_data["data"]["swap_request"]["id"]
+    data, code = _run(db_path, "swap", "cancel", str(req_id))
+    assert code == 0, data
+    assert data["data"]["state"] == "cancelled"
 
 
 def test_swap_cancel_unknown_id_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(db_path, "swap", "cancel", "9999")
-    assert res.returncode != 0
-    err = json.loads(res.stdout)["error"]
-    assert err["code"] == "swap.cancel_invalid"
+    data, code = _run(db_path, "swap", "cancel", "9999")
+    assert code != 0
+    assert data["error"]["code"] == "swap.cancel_invalid"
 
 
 def test_swap_list_filters_by_state(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     shifts = _assigned_shifts(db_path)
-    _run_cli(
+    _run(
         db_path,
         "swap",
         "request",
@@ -233,8 +222,8 @@ def test_swap_list_filters_by_state(tmp_path: Path) -> None:
         "--to-shift",
         str(shifts[1]["id"]),
     )
-    res = _run_cli(db_path, "swap", "list", "--state", "open")
-    assert res.returncode == 0, res.stdout + res.stderr
-    rows = json.loads(res.stdout)["data"]["swap_requests"]
+    data, code = _run(db_path, "swap", "list", "--state", "open")
+    assert code == 0, data
+    rows = data["data"]["swap_requests"]
     assert len(rows) >= 1
     assert all(r["state"] == "open" for r in rows)

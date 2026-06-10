@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from risk.cli.main import app
 from risk.db.connection import connect
 from risk.db.schema import ensure_schema
 from risk.repos import member_statuses as statuses_repo
@@ -17,15 +17,12 @@ from risk.repos import semesters as semesters_repo
 
 pytestmark = pytest.mark.integration
 
+runner = CliRunner()
 
-def _run_cli(db_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    risk_bin = Path(sys.executable).parent / "risk"
-    return subprocess.run(
-        [str(risk_bin), "--db", str(db_path), "--json", *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+
+def _run(db_path: Path, *args: str) -> tuple[dict, int]:
+    res = runner.invoke(app, ["--json", "--db", str(db_path), *args])
+    return json.loads(res.output), res.exit_code
 
 
 def _seed(db_path: Path) -> None:
@@ -43,16 +40,16 @@ def _seed(db_path: Path) -> None:
     conn.close()
 
 
-def _write_payload(path: Path, payload: dict[str, object]) -> None:
+def _write_payload(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload))
 
 
 def test_ingest_file_not_found(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(tmp_path / "nope.json"))
-    assert res.returncode != 0
-    assert json.loads(res.stdout)["error"]["code"] == "ingest.file_not_found"
+    data, code = _run(db_path, "ingest", "strike-sheet", str(tmp_path / "nope.json"))
+    assert code != 0
+    assert data["error"]["code"] == "ingest.file_not_found"
 
 
 def test_ingest_invalid_json(tmp_path: Path) -> None:
@@ -60,9 +57,9 @@ def test_ingest_invalid_json(tmp_path: Path) -> None:
     _seed(db_path)
     bad = tmp_path / "bad.json"
     bad.write_text("[not an object]")
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(bad))
-    assert res.returncode != 0
-    assert json.loads(res.stdout)["error"]["code"] == "ingest.invalid_json"
+    data, code = _run(db_path, "ingest", "strike-sheet", str(bad))
+    assert code != 0
+    assert data["error"]["code"] == "ingest.invalid_json"
 
 
 def test_ingest_wrong_ingest_type(tmp_path: Path) -> None:
@@ -70,9 +67,9 @@ def test_ingest_wrong_ingest_type(tmp_path: Path) -> None:
     _seed(db_path)
     bad = tmp_path / "bad.json"
     _write_payload(bad, {"ingest_type": "rosters", "entries": []})
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(bad))
-    assert res.returncode != 0
-    assert json.loads(res.stdout)["error"]["code"] == "ingest.invalid_json"
+    data, code = _run(db_path, "ingest", "strike-sheet", str(bad))
+    assert code != 0
+    assert data["error"]["code"] == "ingest.invalid_json"
 
 
 def test_ingest_dry_run_preview(tmp_path: Path) -> None:
@@ -86,11 +83,10 @@ def test_ingest_dry_run_preview(tmp_path: Path) -> None:
             {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
         ],
     })
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
-    assert res.returncode == 0, res.stdout + res.stderr
-    data = json.loads(res.stdout)["data"]
-    assert data["dry_run"] is True
-    assert data["preview"]["new_strikes"] == 1
+    data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
+    assert code == 0, data
+    assert data["data"]["dry_run"] is True
+    assert data["data"]["preview"]["new_strikes"] == 1
 
 
 def test_ingest_dry_run_missing_semester_errors(tmp_path: Path) -> None:
@@ -103,9 +99,9 @@ def test_ingest_dry_run_missing_semester_errors(tmp_path: Path) -> None:
             {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
         ],
     })
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
-    assert res.returncode != 0
-    assert json.loads(res.stdout)["error"]["code"] == "ingest.preview_failed"
+    data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
+    assert code != 0
+    assert data["error"]["code"] == "ingest.preview_failed"
 
 
 def test_ingest_apply_idempotent(tmp_path: Path) -> None:
@@ -119,14 +115,14 @@ def test_ingest_apply_idempotent(tmp_path: Path) -> None:
             {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
         ],
     })
-    first = _run_cli(db_path, "ingest", "strike-sheet", str(payload_path))
-    assert first.returncode == 0, first.stdout + first.stderr
-    assert len(json.loads(first.stdout)["data"]["applied_strike_ids"]) == 1
+    first_data, first_code = _run(db_path, "ingest", "strike-sheet", str(payload_path))
+    assert first_code == 0, first_data
+    assert len(first_data["data"]["applied_strike_ids"]) == 1
 
     # Second apply should be a no-op (idempotent upsert).
-    second = _run_cli(db_path, "ingest", "strike-sheet", str(payload_path))
-    assert second.returncode == 0, second.stdout + second.stderr
-    assert len(json.loads(second.stdout)["data"]["applied_strike_ids"]) == 0
+    second_data, second_code = _run(db_path, "ingest", "strike-sheet", str(payload_path))
+    assert second_code == 0, second_data
+    assert len(second_data["data"]["applied_strike_ids"]) == 0
 
 
 def test_ingest_apply_unknown_semester_errors(tmp_path: Path) -> None:
@@ -140,9 +136,9 @@ def test_ingest_apply_unknown_semester_errors(tmp_path: Path) -> None:
             {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
         ],
     })
-    res = _run_cli(db_path, "ingest", "strike-sheet", str(payload_path))
-    assert res.returncode != 0
-    assert json.loads(res.stdout)["error"]["code"] == "ingest.apply_failed"
+    data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path))
+    assert code != 0
+    assert data["error"]["code"] == "ingest.apply_failed"
 
 
 def test_ingest_semester_override_wins(tmp_path: Path) -> None:
@@ -156,8 +152,8 @@ def test_ingest_semester_override_wins(tmp_path: Path) -> None:
             {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
         ],
     })
-    res = _run_cli(
+    data, code = _run(
         db_path, "ingest", "strike-sheet", str(payload_path),
         "--semester", "SP26", "--dry-run",
     )
-    assert res.returncode == 0, res.stdout + res.stderr
+    assert code == 0, data
