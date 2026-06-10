@@ -313,6 +313,7 @@ def consequences_list(
     }
 
     from rich.table import Table as _Table
+
     from risk.cli.output import _cell
 
     tbl_title = "Threshold-consequences" + (f" (state={state})" if state else "")

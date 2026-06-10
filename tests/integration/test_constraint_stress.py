@@ -22,12 +22,10 @@ Coverage maps to migrations 0005-0011:
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 import pytest
 
-from risk.db.connection import connect, transaction
-from risk.db.schema import ensure_schema
+from risk.db.connection import transaction
 from risk.repos import event_types as etypes_repo
 from risk.repos import events as events_repo
 from risk.repos import houses as houses_repo
@@ -85,61 +83,56 @@ def _populated(db: sqlite3.Connection) -> dict[str, int]:
 
 def test_shift_negative_slot_index_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
-                "VALUES (?, ?, -1, 'open')",
-                (ctx["event_id"], ctx["shift_type_driver"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
+            "VALUES (?, ?, -1, 'open')",
+            (ctx["event_id"], ctx["shift_type_driver"]),
+        )
 
 
 def test_shift_slot_index_50_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
-                "VALUES (?, ?, 50, 'open')",
-                (ctx["event_id"], ctx["shift_type_driver"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
+            "VALUES (?, ?, 50, 'open')",
+            (ctx["event_id"], ctx["shift_type_driver"]),
+        )
 
 
 def test_shift_unknown_status_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
-                "VALUES (?, ?, 0, 'bogus')",
-                (ctx["event_id"], ctx["shift_type_driver"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
+            "VALUES (?, ?, 0, 'bogus')",
+            (ctx["event_id"], ctx["shift_type_driver"]),
+        )
 
 
 def test_shift_assigned_status_requires_member(db: sqlite3.Connection) -> None:
     """status='assigned' with NULL assigned_member_id is forbidden by CHECK."""
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
-                "assigned_member_id, status, assigned_at) "
-                "VALUES (?, ?, 0, NULL, 'assigned', '2025-10-09T00:00:00')",
-                (ctx["event_id"], ctx["shift_type_driver"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
+            "assigned_member_id, status, assigned_at) "
+            "VALUES (?, ?, 0, NULL, 'assigned', '2025-10-09T00:00:00')",
+            (ctx["event_id"], ctx["shift_type_driver"]),
+        )
 
 
 def test_shift_open_status_with_member_rejected(db: sqlite3.Connection) -> None:
     """status='open' with a non-NULL member is forbidden."""
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
-                "assigned_member_id, status) "
-                "VALUES (?, ?, 0, ?, 'open')",
-                (ctx["event_id"], ctx["shift_type_driver"], ctx["member_a"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
+            "assigned_member_id, status) "
+            "VALUES (?, ?, 0, ?, 'open')",
+            (ctx["event_id"], ctx["shift_type_driver"], ctx["member_a"]),
+        )
 
 
 def test_shift_duplicate_slot_index_rejected(db: sqlite3.Connection) -> None:
@@ -151,13 +144,12 @@ def test_shift_duplicate_slot_index_rejected(db: sqlite3.Connection) -> None:
             "VALUES (?, ?, 7, 'open')",
             (ctx["event_id"], ctx["shift_type_driver"]),
         )
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
-                "VALUES (?, ?, 7, 'open')",
-                (ctx["event_id"], ctx["shift_type_driver"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, status) "
+            "VALUES (?, ?, 7, 'open')",
+            (ctx["event_id"], ctx["shift_type_driver"]),
+        )
 
 
 def test_shift_member_assigned_twice_same_event_type_rejected(
@@ -172,14 +164,13 @@ def test_shift_member_assigned_twice_same_event_type_rejected(
             "VALUES (?, ?, 0, ?, 'assigned', '2025-10-09T00:00:00')",
             (ctx["event_id"], ctx["shift_type_driver"], ctx["member_a"]),
         )
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
-                "assigned_member_id, status, assigned_at) "
-                "VALUES (?, ?, 1, ?, 'assigned', '2025-10-09T00:00:00')",
-                (ctx["event_id"], ctx["shift_type_driver"], ctx["member_a"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO shifts (event_id, shift_type_id, slot_index, "
+            "assigned_member_id, status, assigned_at) "
+            "VALUES (?, ?, 1, ?, 'assigned', '2025-10-09T00:00:00')",
+            (ctx["event_id"], ctx["shift_type_driver"], ctx["member_a"]),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -190,27 +181,25 @@ def test_event_unknown_status_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
     et = etypes_repo.get_by_slug(db, "mixer")
     assert et is not None
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO events (semester_id, event_type_id, display_name, "
-                "date, status) VALUES (?, ?, 'Bad Event', '2025-10-10', 'oops')",
-                (ctx["sem_id"], et.id),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO events (semester_id, event_type_id, display_name, "
+            "date, status) VALUES (?, ?, 'Bad Event', '2025-10-10', 'oops')",
+            (ctx["sem_id"], et.id),
+        )
 
 
 def test_event_requirement_target_below_min_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
     # event already has snapshotted reqs; insert a new (event, shift_type) pair
     # with target < min to trip the CHECK.
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO event_shift_requirements "
-                "(event_id, shift_type_id, min_count, target_count) "
-                "VALUES (?, 5, 3, 1)",  # shift_type 5 = bar, not yet inserted
-                (ctx["event_id"],),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO event_shift_requirements "
+            "(event_id, shift_type_id, min_count, target_count) "
+            "VALUES (?, 5, 3, 1)",  # shift_type 5 = bar, not yet inserted
+            (ctx["event_id"],),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -221,25 +210,23 @@ def test_member_slug_uppercase_rejected(db: sqlite3.Connection) -> None:
     """slug GLOB '[a-z]*' — uppercase first char is forbidden."""
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO members (slug, display_name, status_id, class_year) "
-                "VALUES ('BadSlug', 'Bad', ?, 2027)",
-                (active.id,),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO members (slug, display_name, status_id, class_year) "
+            "VALUES ('BadSlug', 'Bad', ?, 2027)",
+            (active.id,),
+        )
 
 
 def test_member_class_year_out_of_range_rejected(db: sqlite3.Connection) -> None:
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO members (slug, display_name, status_id, class_year) "
-                "VALUES ('m-bad', 'Bad', ?, 1999)",
-                (active.id,),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO members (slug, display_name, status_id, class_year) "
+            "VALUES ('m-bad', 'Bad', ?, 1999)",
+            (active.id,),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -248,14 +235,13 @@ def test_member_class_year_out_of_range_rejected(db: sqlite3.Connection) -> None
 
 def test_unavailability_end_before_start_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO unavailability "
-                "(member_id, semester_id, starts_on, ends_on, reason) "
-                "VALUES (?, ?, '2025-10-10', '2025-10-05', 'bad')",
-                (ctx["member_a"], ctx["sem_id"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO unavailability "
+            "(member_id, semester_id, starts_on, ends_on, reason) "
+            "VALUES (?, ?, '2025-10-10', '2025-10-05', 'bad')",
+            (ctx["member_a"], ctx["sem_id"]),
+        )
 
 
 def test_unavailability_duplicate_range_rejected(db: sqlite3.Connection) -> None:
@@ -268,14 +254,13 @@ def test_unavailability_duplicate_range_rejected(db: sqlite3.Connection) -> None
             "VALUES (?, ?, '2025-10-10', '2025-10-12', 'first')",
             (ctx["member_a"], ctx["sem_id"]),
         )
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO unavailability "
-                "(member_id, semester_id, starts_on, ends_on, reason) "
-                "VALUES (?, ?, '2025-10-10', '2025-10-12', 'dup')",
-                (ctx["member_a"], ctx["sem_id"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO unavailability "
+            "(member_id, semester_id, starts_on, ends_on, reason) "
+            "VALUES (?, ?, '2025-10-10', '2025-10-12', 'dup')",
+            (ctx["member_a"], ctx["sem_id"]),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -290,11 +275,10 @@ def test_strike_on_archived_semester_rejected(db: sqlite3.Connection) -> None:
         semesters_repo.mark_archived(
             db, semester_id=ctx["sem_id"], archived_at="2025-12-20T00:00:00"
         )
-    with pytest.raises(sqlite3.IntegrityError):
-        with transaction(db):
-            db.execute(
-                "INSERT INTO strikes "
-                "(member_id, semester_id, issued_on, reason) "
-                "VALUES (?, ?, '2025-10-10', 'late')",
-                (ctx["member_a"], ctx["sem_id"]),
-            )
+    with pytest.raises(sqlite3.IntegrityError), transaction(db):
+        db.execute(
+            "INSERT INTO strikes "
+            "(member_id, semester_id, issued_on, reason) "
+            "VALUES (?, ?, '2025-10-10', 'late')",
+            (ctx["member_a"], ctx["sem_id"]),
+        )

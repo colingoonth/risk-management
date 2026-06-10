@@ -7,7 +7,6 @@ covered by the broader Phase 1-8 test suites. Grouped by source file.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -188,7 +187,7 @@ def test_event_cancel_decline_confirmation(tmp_path: Path) -> None:
     """Human mode, no --yes, user types 'n': cancel aborted (exit 0 by design)."""
     db = tmp_path / "r.db"
     _seed_with_event(db)
-    res = runner.invoke(app, ["--db", str(db), "event", "cancel", "1"], input="n\n")
+    runner.invoke(app, ["--db", str(db), "event", "cancel", "1"], input="n\n")
     # exit_code=0 is intentional for declined-by-user; verify shift wasn't cancelled
     data, _ = _run(db, "event", "show", "1")
     assert data["data"]["event"]["status"] != "cancelled"
@@ -339,7 +338,7 @@ def test_semester_unarchive_decline_confirmation(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "semester", "add", "SP26", "--starts", "2026-01-15", "--ends", "2026-05-15")
     _run(db, "semester", "archive", "SP26", "--force")
-    res = runner.invoke(
+    runner.invoke(
         app, ["--db", str(db), "semester", "unarchive", "SP26"],
         input="n\n",
     )
@@ -689,7 +688,7 @@ def test_swap_cancel_decline_confirmation(tmp_path: Path) -> None:
         "--to-shift", str(s2["id"]),
     )
     req_id = req_data["data"]["swap_request"]["id"]
-    res = runner.invoke(
+    runner.invoke(
         app, ["--db", str(db), "swap", "cancel", str(req_id)],
         input="n\n",
     )

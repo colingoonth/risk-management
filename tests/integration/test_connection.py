@@ -102,9 +102,8 @@ def test_transaction_raises_after_max_retries(tmp_path: Path) -> None:
     # fail_count > RETRY_MAX_ATTEMPTS so it always fails
     flaky = _FlakyConnection(real_conn, fail_count=RETRY_MAX_ATTEMPTS + 10)
 
-    with pytest.raises(sqlite3.OperationalError, match="locked"):
-        with transaction(flaky):  # type: ignore[arg-type]
-            pass
+    with pytest.raises(sqlite3.OperationalError, match="locked"), transaction(flaky):  # type: ignore[arg-type]
+        pass
 
     assert flaky.call_count == RETRY_MAX_ATTEMPTS
     real_conn.close()
@@ -116,13 +115,12 @@ def test_transaction_rollback_on_exception(tmp_path: Path) -> None:
     conn = connect(db_path)
     ensure_schema(conn)
 
-    with pytest.raises(RuntimeError, match="simulated"):
-        with transaction(conn):
-            conn.execute(
-                "INSERT INTO semesters (name, starts_on, ends_on) VALUES (?, ?, ?)",
-                ("SP26", "2026-01-15", "2026-05-15"),
-            )
-            raise RuntimeError("simulated failure")
+    with pytest.raises(RuntimeError, match="simulated"), transaction(conn):
+        conn.execute(
+            "INSERT INTO semesters (name, starts_on, ends_on) VALUES (?, ?, ?)",
+            ("SP26", "2026-01-15", "2026-05-15"),
+        )
+        raise RuntimeError("simulated failure")
 
     count = conn.execute("SELECT COUNT(*) FROM semesters").fetchone()[0]
     assert count == 0

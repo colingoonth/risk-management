@@ -75,16 +75,15 @@ def test_dedup_guard_raises_on_second_issue(tmp_path) -> None:
             shift_id=shift_id,
         )
 
-    with pytest.raises(ValueError, match="active strike already exists"):
-        with transaction(conn):
-            issue_strike(
-                conn,
-                member_id=mid,
-                semester_id=sem_id,
-                issued_on="2026-02-14",
-                reason="no-show",
-                shift_id=shift_id,
-            )
+    with pytest.raises(ValueError, match="active strike already exists"), transaction(conn):
+        issue_strike(
+            conn,
+            member_id=mid,
+            semester_id=sem_id,
+            issued_on="2026-02-14",
+            reason="no-show",
+            shift_id=shift_id,
+        )
 
 
 def test_dedup_guard_allows_null_shift_id(tmp_path) -> None:

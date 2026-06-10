@@ -6,6 +6,7 @@ are separate and coverage is captured correctly.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -55,12 +56,10 @@ def _seed_member(db_path: Path, slug: str = "alice", display_name: str = "Alice"
     ensure_schema(conn)
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    try:
+    with contextlib.suppress(sqlite3.IntegrityError):
         members_repo.insert(
             conn, slug=slug, display_name=display_name, status_id=active.id, class_year=2027
         )
-    except sqlite3.IntegrityError:
-        pass  # already exists
     conn.close()
 
 
@@ -174,7 +173,7 @@ def test_unavailability_add_duplicate(tmp_path: Path) -> None:
     )
     assert r1.exit_code == 0, r1.output
 
-    r2 = _run(
+    _run(
         db_path,
         "unavailability",
         "add",

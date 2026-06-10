@@ -524,9 +524,11 @@ def auto_assign(
         "warnings": result.warnings,
     }
     if not result.assignments:
-        payload["warnings"] = list(payload.get("warnings", [])) + [
+        existing_warnings = result.warnings or []
+        payload["warnings"] = [
+            *existing_warnings,
             "No shifts were filled — this event has no shift requirements."
-            " Run `risk event set-shift-req` to configure them."
+            " Run `risk event set-shift-req` to configure them.",
         ]
 
     emit_success(

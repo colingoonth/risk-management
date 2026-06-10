@@ -62,7 +62,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     is_new = not db_path.exists() or db_path.stat().st_size == 0
     conn = sqlite3.connect(db_path, isolation_level=None, timeout=BUSY_TIMEOUT_MS / 1000)
     if is_new:
-        os.chmod(db_path, 0o600)
+        db_path.chmod(0o600)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
