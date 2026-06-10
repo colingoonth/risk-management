@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+from datetime import date as _date
 from typing import Annotated
 
 import typer
@@ -81,6 +82,17 @@ def add(
             return
         host_id = h.id
 
+    # Validate ISO date before touching the DB.
+    try:
+        _date.fromisoformat(date)
+    except ValueError:
+        emit_error(
+            "event.invalid_date",
+            f"Invalid date format {date!r} — use YYYY-MM-DD (e.g. 2025-09-12).",
+            mode=mode,
+        )
+        return
+
     try:
         with transaction(conn):
             event_id = repo.insert(
@@ -95,15 +107,29 @@ def add(
                 notes=notes,
             )
             svc.snapshot_for_event(conn, event_id)
-    except sqlite3.IntegrityError as exc:
-        emit_error("event.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "event.duplicate",
+            f"An event named {display_name!r} already exists for this semester.",
+            mode=mode,
+        )
         return
 
     ev = repo.get_by_id(conn, event_id)
     reqs = req_repo.list_for_event_with_source(conn, event_id)
     assert ev is not None
+
+    # Warn if no shift requirements were snapshotted for this event type.
+    warnings: list[str] = []
+    if not reqs:
+        warnings.append(
+            f"Warning: event type {event_type!r} has no shift requirements configured"
+            f" — run `risk config event-type show {event_type}` to check,"
+            f" or `risk event set-shift-req` to add them."
+        )
+
     emit_success(
-        {"event": asdict(ev), "requirements": [asdict(r) for r in reqs]},
+        {"event": asdict(ev), "requirements": [asdict(r) for r in reqs], "warnings": warnings},
         mode=mode,
         table=attr_table(
             f"Created event #{ev.id}: {ev.display_name} — requirements snapshot",
@@ -116,6 +142,9 @@ def add(
             ),
         ),
     )
+    if warnings and mode.value == "human":
+        for w in warnings:
+            typer.echo(w, err=True)
 
 
 @app.command("list")
@@ -473,6 +502,12 @@ def auto_assign(
         ],
         "warnings": result.warnings,
     }
+    if not result.assignments:
+        payload["warnings"] = list(payload.get("warnings", [])) + [
+            "No shifts were filled — this event has no shift requirements."
+            " Run `risk event set-shift-req` to configure them."
+        ]
+
     emit_success(
         payload,
         mode=mode,
