@@ -194,10 +194,24 @@ def reject(
 @app.command("cancel")
 def cancel(
     ctx: typer.Context,
-    req_id: Annotated[int, typer.Argument(help="swap_requests.id")],
+    req_id: Annotated[int, typer.Argument(help="Swap request ID.")],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
 ) -> None:
+    """Cancel a pending swap request. Irreversible — prompts unless --yes."""
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
+    if not yes:
+        msg = f"Cancel swap request #{req_id}? This cannot be undone."
+        if not typer.confirm(msg):
+            emit_error(
+                "swap.cancel.aborted",
+                "Cancellation aborted by user.",
+                mode=mode,
+                exit_code=0,
+            )
+            return
     try:
         with transaction(conn):
             swaps.cancel_swap(conn, request_id=req_id)

@@ -378,14 +378,31 @@ def set_host(
 @app.command("cancel")
 def cancel(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name.")],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
 ) -> None:
+    """Cancel an event. Irreversible — prompts for confirmation unless --yes."""
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     ev = repo.resolve(conn, event)
     if ev is None:
         emit_error("event.not_found", f"Could not resolve event {event!r}.", mode=mode)
         return
+    if not yes:
+        msg = (
+            f"Cancel event {ev.display_name!r} (#{ev.id})? "
+            "This cannot be undone."
+        )
+        if not typer.confirm(msg):
+            emit_error(
+                "event.cancel.aborted",
+                "Cancellation aborted by user.",
+                mode=mode,
+                exit_code=0,
+            )
+            return
     with transaction(conn):
         repo.update_status(conn, event_id=ev.id, status="cancelled")
     emit_success({"event": ev.display_name, "status": "cancelled"}, mode=mode)

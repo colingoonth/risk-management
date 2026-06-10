@@ -380,7 +380,7 @@ class TestBug4SwapDuplicate:
         )
         req_id = json.loads(r1.stdout)["data"]["swap_request"]["id"]
 
-        cancel_res = _run(db_path, "swap", "cancel", str(req_id))
+        cancel_res = _run(db_path, "swap", "cancel", str(req_id), "--yes")
         assert cancel_res.returncode == 0, cancel_res.stdout
 
         r2 = _run(

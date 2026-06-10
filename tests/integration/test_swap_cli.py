@@ -196,7 +196,7 @@ def test_swap_cancel_marks_cancelled(tmp_path: Path) -> None:
     )
     assert req_code == 0, req_data
     req_id = req_data["data"]["swap_request"]["id"]
-    data, code = _run(db_path, "swap", "cancel", str(req_id))
+    data, code = _run(db_path, "swap", "cancel", str(req_id), "--yes")
     assert code == 0, data
     assert data["data"]["state"] == "cancelled"
 
@@ -204,7 +204,7 @@ def test_swap_cancel_marks_cancelled(tmp_path: Path) -> None:
 def test_swap_cancel_unknown_id_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    data, code = _run(db_path, "swap", "cancel", "9999")
+    data, code = _run(db_path, "swap", "cancel", "9999", "--yes")
     assert code != 0
     assert data["error"]["code"] == "swap.cancel_invalid"
 

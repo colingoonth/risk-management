@@ -171,14 +171,14 @@ def test_event_set_host_unknown_house_errors(tmp_path: Path) -> None:
 def test_event_cancel_happy(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    data, code = _run(db_path, "event", "cancel", "1")
+    data, code = _run(db_path, "event", "cancel", "1", "--yes")
     assert code == 0, data
 
 
 def test_event_cancel_unknown_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    data, code = _run(db_path, "event", "cancel", "9999")
+    data, code = _run(db_path, "event", "cancel", "9999", "--yes")
     assert code != 0
     assert data["error"]["code"] == "event.not_found"
 

@@ -215,7 +215,7 @@ def test_semester_unarchive_round_trip(tmp_path: Path) -> None:
     _bare_db(db_path)
     _run(db_path, "semester", "add", "SP26", "--starts", "2026-01-15", "--ends", "2026-05-15")
     _run(db_path, "semester", "archive", "SP26", "--force")
-    data, code = _run(db_path, "semester", "unarchive", "SP26")
+    data, code = _run(db_path, "semester", "unarchive", "SP26", "--yes")
     assert code == 0, data
     list_data, _ = _run(db_path, "semester", "list")
     sp26 = next(r for r in list_data["data"] if r["name"] == "SP26")
@@ -225,6 +225,6 @@ def test_semester_unarchive_round_trip(tmp_path: Path) -> None:
 def test_semester_unarchive_unknown_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare_db(db_path)
-    data, code = _run(db_path, "semester", "unarchive", "NOPE")
+    data, code = _run(db_path, "semester", "unarchive", "NOPE", "--yes")
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"

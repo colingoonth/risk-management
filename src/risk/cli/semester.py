@@ -285,13 +285,30 @@ def archive(
 def unarchive(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Semester to unarchive.")],
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
+    ] = False,
 ) -> None:
+    """Unarchive a finalized semester. Reverses a prior archive — confirm before running."""
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     sem = semesters_repo.get_by_name(conn, name)
     if sem is None:
         emit_error("semester.not_found", f"No semester named {name!r}.", mode=mode)
         return
+    if not yes:
+        msg = (
+            f"Unarchive semester {name!r}? This reverses the finalized archive "
+            "and reopens strikes / consequences / swaps."
+        )
+        if not typer.confirm(msg):
+            emit_error(
+                "semester.unarchive.aborted",
+                "Unarchive aborted by user.",
+                mode=mode,
+                exit_code=0,
+            )
+            return
     try:
         with transaction(conn):
             archive_svc.unarchive(conn, semester_id=sem.id)
