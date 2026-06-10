@@ -1,7 +1,8 @@
 """SQLite connection layer.
 
 All connections opened through this module apply the canonical PRAGMAs:
-    foreign_keys=ON, journal_mode=WAL, synchronous=NORMAL, busy_timeout=5000.
+    foreign_keys=ON, journal_mode=WAL, synchronous=NORMAL, busy_timeout=5000,
+    temp_store=MEMORY, cache_size=-64000.
 
 Dates are stored as ISO 8601 TEXT (`YYYY-MM-DD`); times as `HH:MM`.
 
@@ -14,37 +15,69 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path("data/risk.db")
+_xdg_data = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+DEFAULT_DB_PATH = _xdg_data / "risk" / "risk.db"
+
 BUSY_TIMEOUT_MS = 5000
 RETRY_MAX_ATTEMPTS = 3
 RETRY_BASE_DELAY_S = 0.05
 
+# Legacy cwd-relative path used before XDG migration.
+_LEGACY_DB_PATH = Path("data/risk.db")
+
 
 def resolve_db_path(explicit: Path | None = None) -> Path:
-    """Resolution order: explicit arg > RISK_DB_PATH env > default."""
+    """Resolution order: explicit arg > RISK_DB_PATH env > legacy fallback > default.
+
+    If the legacy ``./data/risk.db`` exists in the cwd and the XDG path does
+    not yet exist, a one-time warning is printed to stderr and the old path is
+    used to avoid silent data loss.
+    """
     if explicit is not None:
         return explicit
     env = os.environ.get("RISK_DB_PATH")
     if env:
         return Path(env)
+    # Migration fallback: legacy path exists AND new XDG path does not.
+    if _LEGACY_DB_PATH.exists() and not DEFAULT_DB_PATH.exists():
+        print(
+            f"Warning: found existing DB at {_LEGACY_DB_PATH} — using it. "
+            f"To migrate to the standard location,\n"
+            f"run: mv {_LEGACY_DB_PATH} {DEFAULT_DB_PATH} (or set RISK_DB_PATH)",
+            file=sys.stderr,
+        )
+        return _LEGACY_DB_PATH
     return DEFAULT_DB_PATH
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
     """Open a connection with all canonical PRAGMAs applied."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not db_path.exists() or db_path.stat().st_size == 0
     conn = sqlite3.connect(db_path, isolation_level=None, timeout=BUSY_TIMEOUT_MS / 1000)
+    if is_new:
+        os.chmod(db_path, 0o600)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA cache_size = -64000")
     return conn
+
+
+def close_conn(conn: sqlite3.Connection) -> None:
+    """Run PRAGMA optimize then close.  Call this instead of conn.close() directly."""
+    conn.execute("PRAGMA analysis_limit = 400")
+    conn.execute("PRAGMA optimize")
+    conn.close()
 
 
 @contextmanager

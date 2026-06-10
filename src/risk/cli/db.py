@@ -6,7 +6,6 @@ ADR R3.1-B (zero-cost runtime): no cloud backup tier; chair runs
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +13,7 @@ import typer
 
 from risk.cli._common import mode_from_ctx, open_conn
 from risk.cli.output import emit_error, emit_success
+from risk.db.connection import connect
 
 app = typer.Typer(help="Database backup + maintenance.")
 
@@ -45,10 +45,9 @@ def backup(
     # cleanly (sqlite3.Connection.backup requires a clean target file).
     tmp = dest.with_name(dest.name + ".partial")
     tmp.unlink(missing_ok=True)
-    dst_conn = sqlite3.connect(tmp)
+    dst_conn = connect(tmp)
     try:
-        with dst_conn:
-            conn.backup(dst_conn)
+        conn.backup(dst_conn)
     finally:
         dst_conn.close()
     tmp.replace(dest)

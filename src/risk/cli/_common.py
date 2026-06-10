@@ -24,4 +24,12 @@ def open_conn(ctx: typer.Context) -> sqlite3.Connection:
     db_path = resolve_db_path(obj.get("db_path"))
     conn = connect(db_path)
     ensure_schema(conn)
+    result = conn.execute("PRAGMA quick_check").fetchone()
+    if result[0] != "ok":
+        from risk.cli.output import emit_error
+        emit_error(
+            "db.corruption",
+            f"Database integrity check failed: {result[0]}. Run 'risk db doctor' for details.",
+            mode=mode_from_ctx(ctx),
+        )
     return conn
