@@ -75,8 +75,21 @@ def issue(
                 reason=reason,
                 shift_id=shift_id,
             )
-    except sqlite3.IntegrityError as exc:
-        emit_error("strike.integrity", str(exc), mode=mode)
+    except ValueError as exc:
+        msg = str(exc)
+        emit_error(
+            "strike.duplicate",
+            msg + f" Run 'risk strike list --member {m.slug}' to review.",
+            mode=mode,
+        )
+        return
+    except sqlite3.IntegrityError:
+        emit_error(
+            "strike.integrity",
+            f"This strike conflicts with an existing record — use "
+            f"'risk strike list --member {m.slug}' to review.",
+            mode=mode,
+        )
         return
 
     payload = {
@@ -254,8 +267,13 @@ def remove(
     except (LookupError, ValueError) as exc:
         emit_error("strike.remove.bad_link", str(exc), mode=mode)
         return
-    except sqlite3.IntegrityError as exc:
-        emit_error("strike.remove.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "strike.remove.integrity",
+            f"This strike removal conflicts with an existing record — use "
+            f"'risk strike list --member {m.slug}' to review.",
+            mode=mode,
+        )
         return
 
     emit_success(
@@ -283,22 +301,41 @@ def consequences_list(
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     rows = pc_repo.list_all_with_state(conn, state=state)
+
+    # Build member_id → slug map for display.
+    member_slugs: dict[int, str] = {
+        r["id"]: r["slug"]
+        for r in conn.execute("SELECT id, slug FROM members").fetchall()
+    }
+
+    from rich.table import Table as _Table
+    from risk.cli.output import _cell
+
+    tbl_title = "Threshold-consequences" + (f" (state={state})" if state else "")
+    tbl = _Table(title=tbl_title)
+    tbl.add_column("ID", justify="right", style="dim")
+    tbl.add_column("Member")
+    tbl.add_column("Semester")
+    tbl.add_column("Kind")
+    tbl.add_column("State")
+    tbl.add_column("Trig. strike", justify="right")
+    tbl.add_column("Created")
+    for r in rows:
+        slug = member_slugs.get(r.member_id, str(r.member_id))
+        tbl.add_row(
+            str(r.id),
+            slug,
+            str(r.semester_id),
+            r.kind,
+            r.state,
+            str(r.triggering_strike_id),
+            _cell(r.created_at),
+        )
+
     emit_success(
         {"consequences": [asdict(r) for r in rows]},
         mode=mode,
-        table=attr_table(
-            "Threshold-consequences" + (f" (state={state})" if state else ""),
-            rows,
-            cols=(
-                ("ID", "id"),
-                ("Member", "member_id"),
-                ("Semester", "semester_id"),
-                ("Kind", "kind"),
-                ("State", "state"),
-                ("Trig. strike", "triggering_strike_id"),
-                ("Created", "created_at"),
-            ),
-        ),
+        table=tbl,
     )
 
 
@@ -326,8 +363,13 @@ def consequences_resolve(
     try:
         with transaction(conn):
             updated = pc_repo.resolve(conn, pc_id, new_state=as_)
-    except sqlite3.IntegrityError as exc:
-        emit_error("consequence.resolve.integrity", str(exc), mode=mode)
+    except sqlite3.IntegrityError:
+        emit_error(
+            "consequence.resolve.integrity",
+            f"Could not resolve consequence id={pc_id} — it may already be resolved. "
+            f"Run 'risk strike consequences list' to review.",
+            mode=mode,
+        )
         return
     if updated == 0:
         emit_error(

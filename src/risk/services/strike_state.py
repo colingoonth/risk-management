@@ -55,6 +55,17 @@ def issue_strike(
     kind row. The triggering_strike_id is the strike whose insertion took the
     open count to the threshold.
     """
+    if shift_id is not None:
+        existing = conn.execute(
+            "SELECT id FROM strikes WHERE member_id=? AND shift_id=? AND closed_at IS NULL",
+            (member_id, shift_id),
+        ).fetchone()
+        if existing:
+            raise ValueError(
+                f"An active strike already exists for this member on shift {shift_id} "
+                f"(strike #{existing[0]})."
+            )
+
     strike_id = strike_repo.insert(
         conn,
         member_id=member_id,
