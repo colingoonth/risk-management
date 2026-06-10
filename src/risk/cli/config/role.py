@@ -19,7 +19,7 @@ app = typer.Typer(help="Manage roles + their auto-assign exclusion behavior.")
 @app.command("add")
 def add(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Role slug, e.g. 'risk_chair', 'dj'.")],
     display_name: Annotated[str, typer.Option("--display-name")],
     automation_key: Annotated[
         str | None,
@@ -95,7 +95,7 @@ def list_(ctx: typer.Context) -> None:
 @app.command("rename")
 def rename(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Role slug to rename.")],
     display_name: Annotated[str, typer.Option("--display-name")],
 ) -> None:
     mode = mode_from_ctx(ctx)

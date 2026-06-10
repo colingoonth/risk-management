@@ -19,7 +19,7 @@ app = typer.Typer(help="Manage shift types.")
 @app.command("add")
 def add(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Shift type slug, e.g. 'door', 'floor'.")],
     display_name: Annotated[str, typer.Option("--display-name")],
 ) -> None:
     mode = mode_from_ctx(ctx)

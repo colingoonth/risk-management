@@ -19,7 +19,7 @@ app = typer.Typer(help="Manage strike-removal methods (versioned via soft-delete
 @app.command("add")
 def add(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Removal method slug, e.g. 'service_hours'.")],
     display_name: Annotated[str, typer.Option("--display-name")],
 ) -> None:
     mode = mode_from_ctx(ctx)
@@ -51,7 +51,7 @@ def add(
 @app.command("retire")
 def retire(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Removal method slug to retire.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)

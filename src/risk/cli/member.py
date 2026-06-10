@@ -51,6 +51,11 @@ def add(
         int | None, typer.Option("--class-year", help="Graduation year (e.g. 2027).")
     ] = None,
 ) -> None:
+    """Register a new chapter member.
+
+    Example:
+        risk member add alice --display-name "Alice" --status active --class-year 2027
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     status_row = statuses_repo.get_by_slug(conn, status)
@@ -186,8 +191,11 @@ def show(
 @app.command("set-role")
 def set_role(
     ctx: typer.Context,
-    member: Annotated[str, typer.Argument()],
-    role: Annotated[str, typer.Argument()],
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    role: Annotated[
+        str,
+        typer.Argument(help="Role slug (e.g. exec, risk_chair, dj, pledge_chair)."),
+    ],
     semester: Annotated[str | None, typer.Option("--semester")] = None,
 ) -> None:
     mode = mode_from_ctx(ctx)
@@ -217,8 +225,8 @@ def set_role(
 @app.command("unset-role")
 def unset_role(
     ctx: typer.Context,
-    member: Annotated[str, typer.Argument()],
-    role: Annotated[str, typer.Argument()],
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    role: Annotated[str, typer.Argument(help="Role slug to remove.")],
     semester: Annotated[str | None, typer.Option("--semester")] = None,
 ) -> None:
     mode = mode_from_ctx(ctx)
@@ -240,7 +248,7 @@ def unset_role(
 @app.command("add-alias")
 def add_alias(
     ctx: typer.Context,
-    member: Annotated[str, typer.Argument()],
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
     alias: Annotated[str, typer.Argument(help="Free-form alias to register.")],
     source: Annotated[str | None, typer.Option("--source")] = None,
 ) -> None:
@@ -266,8 +274,8 @@ def add_alias(
 @app.command("set-house")
 def set_house(
     ctx: typer.Context,
-    member: Annotated[str, typer.Argument()],
-    house: Annotated[str, typer.Argument()],
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    house: Annotated[str, typer.Argument(help="House slug (e.g. axid, zta, kd).")],
     semester: Annotated[str | None, typer.Option("--semester")] = None,
 ) -> None:
     mode = mode_from_ctx(ctx)

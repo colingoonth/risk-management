@@ -21,7 +21,7 @@ app = typer.Typer(help="Manage event types + their default shift requirements.")
 @app.command("add")
 def add(
     ctx: typer.Context,
-    slug: Annotated[str, typer.Argument()],
+    slug: Annotated[str, typer.Argument(help="Event type slug, e.g. 'social', 'mixer'.")],
     display_name: Annotated[str, typer.Option("--display-name")],
 ) -> None:
     mode = mode_from_ctx(ctx)
@@ -55,8 +55,8 @@ def list_(ctx: typer.Context) -> None:
 @app.command("allow-shift-type")
 def allow_shift_type(
     ctx: typer.Context,
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug to allow.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -79,8 +79,8 @@ def allow_shift_type(
 @app.command("disallow-shift-type")
 def disallow_shift_type(
     ctx: typer.Context,
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug to disallow.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -103,8 +103,8 @@ def disallow_shift_type(
 @app.command("set-default")
 def set_default(
     ctx: typer.Context,
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug.")],
     min_count: Annotated[int, typer.Option("--min")],
     target_count: Annotated[int, typer.Option("--target")],
 ) -> None:
@@ -154,8 +154,8 @@ def set_default(
 @app.command("clear-default")
 def clear_default(
     ctx: typer.Context,
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -175,7 +175,7 @@ def clear_default(
 @app.command("show")
 def show(
     ctx: typer.Context,
-    event_type: Annotated[str, typer.Argument()],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)

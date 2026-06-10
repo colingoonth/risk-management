@@ -57,7 +57,11 @@ def issue(
         str | None, typer.Option("--semester", help="Defaults to current semester.")
     ] = None,
 ) -> None:
-    """Issue a new strike, emitting any threshold-consequences crossed."""
+    """Issue a new strike, emitting any threshold-consequences crossed.
+
+    Example:
+        risk strike issue alice --reason "no-show" --on 2025-09-12
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     m = members_repo.resolve(conn, member)

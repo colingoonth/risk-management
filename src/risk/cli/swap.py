@@ -35,6 +35,11 @@ def request(
         ),
     ] = None,
 ) -> None:
+    """Create a new swap request for the initiator's currently-assigned shift.
+
+    Example:
+        risk swap request --from-shift 42 --counterparty bob
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     fs = shifts_repo.get_by_id(conn, from_shift)
@@ -135,7 +140,39 @@ def accept(
     except sqlite3.IntegrityError as exc:
         emit_error("swap.accept_integrity", str(exc), mode=mode)
         return
-    emit_success({"swap_result": asdict(result)}, mode=mode)
+
+    # Resolve current member slugs so the chair sees who holds what post-swap.
+    def _slug_for(member_id: int | None) -> str:
+        if member_id is None:
+            return "(open)"
+        m = members_repo.get_by_id(conn, member_id)
+        return m.slug if m is not None else str(member_id)
+
+    from types import SimpleNamespace
+
+    rows: list[SimpleNamespace] = [
+        SimpleNamespace(
+            shift_id=result.from_shift_id,
+            now_assigned=_slug_for(result.new_from_assignee_member_id),
+        ),
+    ]
+    if result.to_shift_id is not None:
+        rows.append(
+            SimpleNamespace(
+                shift_id=result.to_shift_id,
+                now_assigned=_slug_for(result.new_to_assignee_member_id),
+            )
+        )
+
+    emit_success(
+        {"swap_result": asdict(result)},
+        mode=mode,
+        table=attr_table(
+            f"Swap #{result.request_id} accepted ({result.shape})",
+            rows,
+            cols=(("Shift", "shift_id"), ("Now assigned", "now_assigned")),
+        ),
+    )
 
 
 @app.command("reject")

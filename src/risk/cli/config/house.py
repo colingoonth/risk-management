@@ -56,9 +56,9 @@ def list_(ctx: typer.Context) -> None:
 @app.command("set-pref")
 def set_pref(
     ctx: typer.Context,
-    house: Annotated[str, typer.Argument()],
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    house: Annotated[str, typer.Argument(help="House slug (e.g. axid, zta, kd).")],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug.")],
     min_count: Annotated[int, typer.Option("--min", help="Minimum positions to fill.")],
     target_count: Annotated[int, typer.Option("--target", help="Target positions to fill.")],
 ) -> None:
@@ -114,9 +114,9 @@ def set_pref(
 @app.command("clear-pref")
 def clear_pref(
     ctx: typer.Context,
-    house: Annotated[str, typer.Argument()],
-    event_type: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    house: Annotated[str, typer.Argument(help="House slug.")],
+    event_type: Annotated[str, typer.Argument(help="Event type slug.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -140,7 +140,7 @@ def clear_pref(
 @app.command("list-prefs")
 def list_prefs(
     ctx: typer.Context,
-    house: Annotated[str, typer.Argument()],
+    house: Annotated[str, typer.Argument(help="House slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -168,7 +168,7 @@ def list_prefs(
 @app.command("revert-prefs")
 def revert_prefs(
     ctx: typer.Context,
-    house: Annotated[str, typer.Argument()],
+    house: Annotated[str, typer.Argument(help="House slug.")],
     to: Annotated[
         str,
         typer.Option(
@@ -240,7 +240,7 @@ def revert_prefs(
 @app.command("pref-history")
 def pref_history(
     ctx: typer.Context,
-    house: Annotated[str, typer.Argument()],
+    house: Annotated[str, typer.Argument(help="House slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)

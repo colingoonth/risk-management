@@ -224,8 +224,8 @@ def show(
 @app.command("set-shift-req")
 def set_shift_req(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name (in current semester).")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug (e.g. door, floor).")],
     min_count: Annotated[int, typer.Option("--min")],
     target_count: Annotated[int, typer.Option("--target")],
     yes: Annotated[
@@ -293,8 +293,8 @@ def set_shift_req(
 @app.command("clear-shift-req")
 def clear_shift_req(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
-    shift_type: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -314,7 +314,7 @@ def clear_shift_req(
 @app.command("resync-shift-reqs")
 def resync_shift_reqs(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name.")],
 ) -> None:
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -347,7 +347,7 @@ def resync_shift_reqs(
 @app.command("set-host")
 def set_host(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name.")],
     host: Annotated[
         str | None,
         typer.Option(
@@ -394,7 +394,7 @@ def cancel(
 @app.command("auto-assign")
 def auto_assign(
     ctx: typer.Context,
-    event: Annotated[str, typer.Argument()],
+    event: Annotated[str, typer.Argument(help="Event ID or display name.")],
     allow: Annotated[
         list[str] | None,
         typer.Option(
@@ -419,7 +419,11 @@ def auto_assign(
         typer.Option("--strict", help="Exit non-zero if any shift_type lands below its min."),
     ] = False,
 ) -> None:
-    """Auto-assign members to all shifts on EVENT."""
+    """Auto-assign members to all shifts on EVENT.
+
+    Example:
+        risk event auto-assign 1 --seed 42 --dry-run
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     ev = repo.resolve(conn, event)

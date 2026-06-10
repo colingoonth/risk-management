@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -24,6 +25,23 @@ app = typer.Typer(
     name="risk",
     help="Sober-monitor shift assignment + strike tracking.",
 )
+
+
+def _maybe_handle_version_eager(argv: list[str] | None = None) -> bool:
+    """Intercept ``--version`` anywhere in argv so it works at any subcommand depth.
+
+    Typer/Click options are command-local: ``risk event list --version`` would
+    otherwise fail with "no such option". We short-circuit before parsing so
+    users don't have to remember the flag has to come before the subcommand.
+    Returns True when the flag fired (caller should exit 0).
+    """
+    args = sys.argv[1:] if argv is None else argv
+    if "--version" in args:
+        typer.echo(f"risk {__version__}")
+        return True
+    return False
+
+
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
 app.add_typer(semester_app, name="semester")
@@ -49,7 +67,10 @@ def main(
     json_raw: Annotated[
         bool, typer.Option("--json-raw", help="Emit bare-resource JSON on stdout (jq-friendly).")
     ] = False,
-    version: Annotated[bool, typer.Option("--version", help="Print version and exit.")] = False,
+    version: Annotated[
+        bool,
+        typer.Option("--version", is_eager=True, help="Print version and exit."),
+    ] = False,
 ) -> None:
     """Global flags resolve before any subcommand runs."""
     if version:
@@ -63,3 +84,10 @@ def main(
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
+
+
+def main_entry() -> None:
+    """CLI entry point — handles ``--version`` eagerly, then dispatches to Typer."""
+    if _maybe_handle_version_eager():
+        raise SystemExit(0)
+    app()

@@ -204,7 +204,11 @@ def archive(
         typer.Option("--dry-run", help="Run the validator only; do not mutate."),
     ] = False,
 ) -> None:
-    """Validate, optionally bulk-dispose, then archive a semester."""
+    """Validate, optionally bulk-dispose, then archive a semester.
+
+    Example:
+        risk semester archive FA25 --force --carry-to SP26
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     sem = semesters_repo.get_by_name(conn, name)
