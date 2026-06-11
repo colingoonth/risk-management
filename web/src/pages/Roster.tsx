@@ -35,7 +35,7 @@ export function Roster() {
 
   return (
     <div className="space-y-10">
-      <h1 className="text-3xl font-medium tracking-tight text-ink-100">Roster</h1>
+      <h1 className="text-3xl font-semibold tracking-tight text-ink-100">Roster</h1>
 
       <LedgerSection title="Enroll from Google Form" hint="CSV import">
         <div className="space-y-4 px-4 py-4">

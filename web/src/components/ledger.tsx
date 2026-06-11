@@ -82,7 +82,7 @@ export function DayStamp({ iso }: { iso: string }) {
   const [, m, d] = iso.split('-')
   return (
     <span className="block w-12 shrink-0 text-center font-mono leading-none">
-      <span className="block text-lg tabular-nums text-ink-100">{d ?? '--'}</span>
+      <span className="block text-lg font-medium tabular-nums text-ink-100">{d ?? '--'}</span>
       <span className="block text-[10px] tracking-widest text-ink-500">
         {MONTHS[(Number(m) || 1) - 1] ?? '---'}
       </span>

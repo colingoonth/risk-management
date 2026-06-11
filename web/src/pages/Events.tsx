@@ -34,7 +34,7 @@ export function Events() {
 
   return (
     <div className="space-y-10">
-      <h1 className="text-3xl font-medium tracking-tight text-ink-100">Events</h1>
+      <h1 className="text-3xl font-semibold tracking-tight text-ink-100">Events</h1>
       {note && <ErrorNote message={note} />}
 
       <CreateEvent onCreated={reload} />

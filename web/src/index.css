@@ -35,10 +35,10 @@
   --color-brass-600: #674027;
 
   /* Ink — espresso brown on blue */
-  --color-ink-100: #2f2417; /* primary text */
-  --color-ink-300: #50422f; /* secondary */
-  --color-ink-500: #6d7b81; /* metadata / captions (cool grey, the spout) */
-  --color-ink-700: #9fb2bc; /* faint rules / disabled (blue-grey) */
+  --color-ink-100: #281e12; /* primary text */
+  --color-ink-300: #463829; /* secondary */
+  --color-ink-500: #54514c; /* metadata / captions (darker warm grey, readable) */
+  --color-ink-700: #7c8a92; /* faint rules / disabled (blue-grey) */
 
   --font-sans: 'EB Garamond Variable', Georgia, serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -49,7 +49,7 @@
     color-scheme: light;
   }
   body {
-    @apply bg-char-950 text-ink-100 font-sans antialiased;
+    @apply bg-char-950 text-ink-100 font-sans font-medium antialiased;
     font-feature-settings: 'tnum' 1; /* tabular numerals everywhere */
   }
   /* Faint paper grain over the whole page — archival tactility, under the data. */
@@ -76,6 +76,6 @@
 @layer components {
   /* Section caption — a ruled ledger column header, not a card title. */
   .ledger-cap {
-    @apply font-sans text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500;
+    @apply font-sans text-[11px] font-semibold uppercase tracking-[0.22em] text-ink-500;
   }
 }
