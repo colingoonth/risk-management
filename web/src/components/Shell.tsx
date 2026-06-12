@@ -5,6 +5,7 @@ import { WaxSeal } from './ledger'
 const NAV = [
   { to: '/', label: 'Register', end: true },
   { to: '/events', label: 'Events' },
+  { to: '/swaps', label: 'Swaps' },
   { to: '/strikes', label: 'Strikes' },
   { to: '/roster', label: 'Roster' },
 ]

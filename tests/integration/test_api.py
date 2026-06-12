@@ -297,6 +297,50 @@ def test_swap_request_and_accept(client: TestClient) -> None:
     assert accepted.json()["state"] == "accepted"
 
 
+def test_concurrent_reads_no_cross_thread_error(client: TestClient) -> None:
+    # FastAPI runs sync endpoints in a threadpool; a connection opened on one
+    # thread must be usable on another (check_same_thread=False). Fire many
+    # parallel reads and assert none 500 with the cross-thread ProgrammingError.
+    from concurrent.futures import ThreadPoolExecutor
+
+    paths = ["/api/events?semester=FA26", "/api/shifts", "/api/swaps", "/api/members"] * 8
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = list(pool.map(lambda p: client.get(p).status_code, paths))
+    assert all(c == 200 for c in codes), codes
+
+
+def test_list_shifts_by_member_and_status(client: TestClient) -> None:
+    events = client.get("/api/events?semester=FA26").json()
+    eid = events[0]["id"]
+    client.post(f"/api/events/{eid}/auto-assign", json={"seed": 42})
+    shifts = client.get(f"/api/events/{eid}/shifts").json()
+    holder = next(s["assigned_member_slug"] for s in shifts if s["assigned_member_id"])
+    mine = client.get(f"/api/shifts?member={holder}&status=assigned&semester=FA26")
+    assert mine.status_code == 200, mine.text
+    rows = mine.json()
+    assert rows and all(r["assigned_member_slug"] == holder for r in rows)
+    assert all(r["status"] == "assigned" for r in rows)
+
+
+def test_list_shifts_rejects_bad_status(client: TestClient) -> None:
+    r = client.get("/api/shifts?status=bogus")
+    assert r.status_code == 422, r.text
+
+
+def test_raise_swap_rejects_self_swap(client: TestClient) -> None:
+    events = client.get("/api/events?semester=FA26").json()
+    eid = events[0]["id"]
+    client.post(f"/api/events/{eid}/auto-assign", json={"seed": 42})
+    shifts = client.get(f"/api/events/{eid}/shifts").json()
+    assigned = next(s for s in shifts if s["assigned_member_id"])
+    holder = assigned["assigned_member_slug"]
+    r = client.post(
+        "/api/swaps?semester=FA26",
+        json={"from_shift_id": assigned["id"], "counterparty_member_slug": holder},
+    )
+    assert r.status_code == 400, r.text
+
+
 def test_gform_roster_upload(client: TestClient) -> None:
     csv = "Full Name,Rising Class,PC,EC\nNew Guy,Rising Senior,Eta,Yes\n"
     r = client.post(

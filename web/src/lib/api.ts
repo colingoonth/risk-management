@@ -86,10 +86,29 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
+  listShifts: (params: { member?: string; semester?: string; status?: string; event?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (params.member) q.set('member', params.member)
+    if (params.semester) q.set('semester', params.semester)
+    if (params.status) q.set('status', params.status)
+    if (params.event !== undefined) q.set('event', String(params.event))
+    const qs = q.toString()
+    return req<Shift[]>(`/shifts${qs ? `?${qs}` : ''}`)
+  },
+
   listSwaps: (state?: string) =>
     req<SwapRequest[]>(`/swaps${state ? `?state=${encodeURIComponent(state)}` : ''}`),
+  createSwap: (
+    body: { from_shift_id: number; to_shift_id?: number; counterparty_member_slug?: string },
+    semester?: string,
+  ) =>
+    req<SwapRequest>(`/swaps${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   acceptSwap: (id: number) => post(`/swaps/${id}/accept`),
   rejectSwap: (id: number) => post(`/swaps/${id}/reject`),
+  cancelSwap: (id: number) => post(`/swaps/${id}/cancel`),
 
   listStrikes: (member: string, semester?: string) =>
     req<NumberedStrike[]>(

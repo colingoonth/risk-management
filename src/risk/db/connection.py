@@ -56,11 +56,23 @@ def resolve_db_path(explicit: Path | None = None) -> Path:
     return DEFAULT_DB_PATH
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    """Open a connection with all canonical PRAGMAs applied."""
+def connect(db_path: Path, *, cross_thread: bool = False) -> sqlite3.Connection:
+    """Open a connection with all canonical PRAGMAs applied.
+
+    ``cross_thread=True`` (used by the API layer) relaxes sqlite3's
+    same-thread check. FastAPI runs sync dependencies and endpoints in a
+    threadpool and may place the connection's creation and its use on
+    different threads; since each request still owns its own connection,
+    this is safe. The CLI keeps the default strict check.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not db_path.exists() or db_path.stat().st_size == 0
-    conn = sqlite3.connect(db_path, isolation_level=None, timeout=BUSY_TIMEOUT_MS / 1000)
+    conn = sqlite3.connect(
+        db_path,
+        isolation_level=None,
+        timeout=BUSY_TIMEOUT_MS / 1000,
+        check_same_thread=not cross_thread,
+    )
     if is_new:
         db_path.chmod(0o600)
     conn.row_factory = sqlite3.Row

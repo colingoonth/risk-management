@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Events } from './pages/Events'
 import { Roster } from './pages/Roster'
 import { Strikes } from './pages/Strikes'
+import { Swaps } from './pages/Swaps'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             <Route path="events" element={<Events />} />
+            <Route path="swaps" element={<Swaps />} />
             <Route path="strikes" element={<Strikes />} />
             <Route path="roster" element={<Roster />} />
           </Route>

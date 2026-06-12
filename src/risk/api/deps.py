@@ -19,7 +19,10 @@ def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
     ``RISK_DB_PATH`` env + XDG defaults.
     """
     db_path = getattr(request.app.state, "db_path", None) or resolve_db_path(None)
-    conn = connect(db_path)
+    # cross_thread: FastAPI may run this dependency's setup and the endpoint on
+    # different threadpool threads; the per-request connection is still used by
+    # only one request at a time, so relaxing the same-thread check is safe.
+    conn = connect(db_path, cross_thread=True)
     ensure_schema(conn)
     try:
         yield conn

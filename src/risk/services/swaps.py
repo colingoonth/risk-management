@@ -57,6 +57,8 @@ def request_swap(
         )
     if to_shift_id is None and counterparty_member_id is None:
         raise ValueError("either to_shift_id or counterparty_member_id must be given")
+    if counterparty_member_id is not None and counterparty_member_id == initiator_member_id:
+        raise ValueError("cannot swap a shift to its current holder")
     # Guard: reject a second open request for the same from_shift.
     existing = conn.execute(
         "SELECT id FROM swap_requests WHERE from_shift_id = ? AND state = 'open'",
