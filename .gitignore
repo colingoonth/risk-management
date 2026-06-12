@@ -26,4 +26,4 @@ NEXT-SESSION-KICKOFF.md
 
 # frontend dev artifacts
 shots/
-web/shot.cjs
+web/shot*.cjs

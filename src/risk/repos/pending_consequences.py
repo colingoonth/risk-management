@@ -21,9 +21,16 @@ class PendingConsequence:
     state: str
     created_at: str
     resolved_at: str | None
+    # Populated only by queries that JOIN members (e.g. list_all_with_state);
+    # None on the bare SELECT * paths — see _row.
+    member_slug: str | None = None
 
 
 def _row(r: sqlite3.Row) -> PendingConsequence:
+    # member_slug is read defensively: most callers SELECT * (no join), so the
+    # column is absent there. Do NOT change this to a hard r["member_slug"] —
+    # it would IndexError on get_by_id / list_for_member_semester /
+    # list_pending_for_member / get_for_kind, which all SELECT *.
     return PendingConsequence(
         id=r["id"],
         member_id=r["member_id"],
@@ -33,6 +40,9 @@ def _row(r: sqlite3.Row) -> PendingConsequence:
         state=r["state"],
         created_at=r["created_at"],
         resolved_at=r["resolved_at"],
+        # NB: sqlite3.Row membership tests values, not keys, so .keys() is
+        # required here — `in r` would be wrong. (ruff SIM118 false positive.)
+        member_slug=r["member_slug"] if "member_slug" in r.keys() else None,  # noqa: SIM118
     )
 
 
@@ -107,13 +117,21 @@ def list_all_with_state(
 ) -> list[PendingConsequence]:
     if state is None:
         rows = conn.execute(
-            "SELECT * FROM pending_consequences ORDER BY semester_id, member_id, created_at, id"
+            """
+            SELECT pc.*, m.slug AS member_slug
+            FROM pending_consequences pc
+            JOIN members m ON m.id = pc.member_id
+            ORDER BY pc.semester_id, pc.member_id, pc.created_at, pc.id
+            """
         ).fetchall()
     else:
         rows = conn.execute(
             """
-            SELECT * FROM pending_consequences WHERE state = ?
-            ORDER BY semester_id, member_id, created_at, id
+            SELECT pc.*, m.slug AS member_slug
+            FROM pending_consequences pc
+            JOIN members m ON m.id = pc.member_id
+            WHERE pc.state = ?
+            ORDER BY pc.semester_id, pc.member_id, pc.created_at, pc.id
             """,
             (state,),
         ).fetchall()

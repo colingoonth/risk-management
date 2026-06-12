@@ -97,12 +97,33 @@ export interface SwapRequest {
 export interface PendingConsequence {
   id: number
   member_id: number
+  member_slug: string | null
   semester_id: number
   triggering_strike_id: number
   kind: string
   state: string
   created_at: string
   resolved_at: string | null
+}
+
+export interface NumberedStrike {
+  id: number
+  member_id: number
+  semester_id: number
+  strike_number: number
+  issued_on: string
+  reason: string
+}
+
+export interface RemovalMethod {
+  slug: string
+  display_name: string
+}
+
+export interface StrikeRemovalResult {
+  removal_id: number
+  closed_strike_ids: number[]
+  active_count_after: number
 }
 
 export interface Dashboard {

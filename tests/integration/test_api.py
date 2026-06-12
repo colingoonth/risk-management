@@ -190,6 +190,85 @@ def test_issue_strike_and_list(client: TestClient) -> None:
     assert len(listed) == 1
 
 
+def test_issue_strike_rejects_identical_duplicate(client: TestClient) -> None:
+    body = {"member_slug": "bro0", "issued_on": "2026-09-15", "reason": "no-show"}
+    first = client.post("/api/strikes?semester=FA26", json=body)
+    assert first.status_code == 201, first.text
+    dup = client.post("/api/strikes?semester=FA26", json=body)
+    assert dup.status_code == 400, dup.text
+    # The phantom strike never lands: still exactly one on the ladder.
+    listed = client.get("/api/strikes?member=bro0&semester=FA26").json()
+    assert len(listed) == 1
+
+
+def test_list_removal_methods(client: TestClient) -> None:
+    r = client.get("/api/removal-methods")
+    assert r.status_code == 200, r.text
+    methods = r.json()
+    slugs = {m["slug"] for m in methods}
+    assert "donation" in slugs  # seeded in migration 0002
+    assert all("display_name" in m for m in methods)
+
+
+def test_remove_strike_closes_and_recounts(client: TestClient) -> None:
+    for day in ("2026-09-15", "2026-09-22"):
+        client.post(
+            "/api/strikes?semester=FA26",
+            json={"member_slug": "bro0", "issued_on": day, "reason": "no-show"},
+        )
+    ladder = client.get("/api/strikes?member=bro0&semester=FA26").json()
+    assert len(ladder) == 2
+    target = ladder[0]["id"]
+    method = client.get("/api/removal-methods").json()[0]["slug"]
+    r = client.post(
+        "/api/strikes/remove",
+        json={
+            "member_slug": "bro0",
+            "removal_method_slug": method,
+            "performed_on": "2026-10-01",
+            "strike_ids": [target],
+            "semester": "FA26",
+        },
+    )
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["closed_strike_ids"] == [target]
+    assert out["active_count_after"] == 1
+    assert len(client.get("/api/strikes?member=bro0&semester=FA26").json()) == 1
+
+
+def test_remove_strike_rejects_foreign_id(client: TestClient) -> None:
+    client.post(
+        "/api/strikes?semester=FA26",
+        json={"member_slug": "bro0", "issued_on": "2026-09-15", "reason": "no-show"},
+    )
+    method = client.get("/api/removal-methods").json()[0]["slug"]
+    # Strike id 999 is not an open strike for bro0 in FA26 — guard must reject.
+    r = client.post(
+        "/api/strikes/remove",
+        json={
+            "member_slug": "bro0",
+            "removal_method_slug": method,
+            "performed_on": "2026-10-01",
+            "strike_ids": [999],
+            "semester": "FA26",
+        },
+    )
+    assert r.status_code == 400, r.text
+
+
+def test_consequences_carry_member_slug(client: TestClient) -> None:
+    # Cross expulsion-review (5 strikes) so a pending consequence is emitted.
+    for i in range(5):
+        client.post(
+            "/api/strikes?semester=FA26",
+            json={"member_slug": "bro0", "issued_on": f"2026-09-1{i}", "reason": f"r{i}"},
+        )
+    rows = client.get("/api/consequences?state=pending").json()
+    assert rows, "expected at least one pending consequence"
+    assert all(row["member_slug"] == "bro0" for row in rows)
+
+
 def test_swap_request_and_accept(client: TestClient) -> None:
     # Add a spare member who stays unassigned, to serve as swap counterparty.
     client.post(

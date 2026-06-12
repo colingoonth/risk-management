@@ -65,6 +65,23 @@ def issue_strike(
                 f"An active strike already exists for this member on shift {shift_id} "
                 f"(strike #{existing[0]})."
             )
+    else:
+        # Shift-less (manual) strikes have no shift to dedup on; guard against a
+        # double-submit creating a phantom duplicate (TODO T1-NEW) by rejecting an
+        # identical open (member, semester, issued_on, reason) strike.
+        dup = conn.execute(
+            """
+            SELECT id FROM strikes
+            WHERE member_id=? AND semester_id=? AND shift_id IS NULL
+              AND issued_on=? AND reason=? AND closed_at IS NULL
+            """,
+            (member_id, semester_id, issued_on, reason),
+        ).fetchone()
+        if dup:
+            raise ValueError(
+                f"An identical active strike was already issued for this member on "
+                f"{issued_on} (strike #{dup[0]})."
+            )
 
     strike_id = strike_repo.insert(
         conn,

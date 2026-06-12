@@ -4,6 +4,7 @@ import { SemesterProvider } from './lib/SemesterContext'
 import { Dashboard } from './pages/Dashboard'
 import { Events } from './pages/Events'
 import { Roster } from './pages/Roster'
+import { Strikes } from './pages/Strikes'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             <Route path="events" element={<Events />} />
+            <Route path="strikes" element={<Strikes />} />
             <Route path="roster" element={<Roster />} />
           </Route>
         </Routes>

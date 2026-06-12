@@ -175,7 +175,9 @@ export function Dashboard() {
             <ul className="mt-1">
               {pending_consequences.map((c) => (
                 <li key={c.id} className="flex items-center justify-between py-2">
-                  <span className="font-mono text-xs text-ink-300">member #{c.member_id}</span>
+                  <span className="font-mono text-xs text-ink-300">
+                    {c.member_slug ?? `member #${c.member_id}`}
+                  </span>
                   <span className="font-mono text-[11px] uppercase tracking-wider text-oxblood-300">
                     {c.kind}
                   </span>

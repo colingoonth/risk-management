@@ -75,12 +75,24 @@ class NumberedStrikeOut(_Out):
 class PendingConsequenceOut(_Out):
     id: int
     member_id: int
+    member_slug: str | None = None
     semester_id: int
     triggering_strike_id: int
     kind: str
     state: str
     created_at: str
     resolved_at: str | None
+
+
+class RemovalMethodOut(_Out):
+    slug: str
+    display_name: str
+
+
+class StrikeRemovalOut(_Out):
+    removal_id: int
+    closed_strike_ids: list[int]
+    active_count_after: int
 
 
 class SwapRequestOut(_Out):
@@ -187,6 +199,16 @@ class StrikeIn(BaseModel):
     member_slug: str
     issued_on: str
     reason: str
+
+
+class StrikeRemovalIn(BaseModel):
+    member_slug: str
+    removal_method_slug: str
+    performed_on: str
+    strike_ids: list[int]
+    semester: str | None = None
+    performed_by_slug: str | None = None
+    notes: str | None = None
 
 
 class SwapRequestIn(BaseModel):

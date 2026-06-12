@@ -6,9 +6,13 @@ import type {
   Dashboard,
   EventRow,
   Member,
+  NumberedStrike,
+  PendingConsequence,
+  RemovalMethod,
   RosterIngestResult,
   Semester,
   Shift,
+  StrikeRemovalResult,
   SwapRequest,
 } from './types'
 
@@ -86,6 +90,33 @@ export const api = {
     req<SwapRequest[]>(`/swaps${state ? `?state=${encodeURIComponent(state)}` : ''}`),
   acceptSwap: (id: number) => post(`/swaps/${id}/accept`),
   rejectSwap: (id: number) => post(`/swaps/${id}/reject`),
+
+  listStrikes: (member: string, semester?: string) =>
+    req<NumberedStrike[]>(
+      `/strikes?member=${encodeURIComponent(member)}${semester ? `&semester=${encodeURIComponent(semester)}` : ''}`,
+    ),
+  issueStrike: (
+    body: { member_slug: string; issued_on: string; reason: string },
+    semester?: string,
+  ) =>
+    req<NumberedStrike>(`/strikes${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  removeStrikes: (body: {
+    member_slug: string
+    removal_method_slug: string
+    performed_on: string
+    strike_ids: number[]
+    semester?: string
+    notes?: string
+  }) => req<StrikeRemovalResult>('/strikes/remove', { method: 'POST', body: JSON.stringify(body) }),
+  listRemovalMethods: () => req<RemovalMethod[]>('/removal-methods'),
+
+  listConsequences: (state = 'pending') =>
+    req<PendingConsequence[]>(`/consequences?state=${encodeURIComponent(state)}`),
+  resolveConsequence: (id: number, newState = 'served') =>
+    post(`/consequences/${id}/resolve?new_state=${encodeURIComponent(newState)}`),
 
   ingestRoster: (file: File, semester: string, dryRun: boolean) => {
     const form = new FormData()
