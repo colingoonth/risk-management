@@ -27,3 +27,8 @@ NEXT-SESSION-KICKOFF.md
 # frontend dev artifacts
 shots/
 web/shot*.cjs
+
+# icon render intermediates (keep icon.svg + RiskManagement.icns)
+packaging/icon/icon.iconset/
+packaging/icon/icon-*.png
+packaging/icon/icon.svg.png

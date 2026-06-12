@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- walnut ledger-cover field -->
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#33271d"/>
+      <stop offset="0.55" stop-color="#281e12"/>
+      <stop offset="1" stop-color="#1a130c"/>
+    </linearGradient>
+    <!-- brass ring sheen -->
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b58a52"/>
+      <stop offset="0.5" stop-color="#9c6a44"/>
+      <stop offset="1" stop-color="#674027"/>
+    </linearGradient>
+    <!-- wax body, lit upper-left -->
+    <radialGradient id="wax" cx="0.38" cy="0.34" r="0.85">
+      <stop offset="0" stop-color="#a8441f"/>
+      <stop offset="0.6" stop-color="#7c3318"/>
+      <stop offset="1" stop-color="#5e2611"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0.65" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.28"/>
+    </radialGradient>
+  </defs>
+
+  <!-- rounded-square app tile (macOS-style corner radius, slight inset) -->
+  <g>
+    <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#field)"/>
+
+    <!-- faint ledger rules + oxblood margin, clipped to the tile -->
+    <clipPath id="tile"><rect x="64" y="64" width="896" height="896" rx="200" ry="200"/></clipPath>
+    <g clip-path="url(#tile)">
+      <g stroke="#9c6a44" stroke-opacity="0.16" stroke-width="3">
+        <line x1="120" y1="300" x2="904" y2="300"/>
+        <line x1="120" y1="724" x2="904" y2="724"/>
+        <line x1="120" y1="804" x2="904" y2="804"/>
+        <line x1="120" y1="884" x2="904" y2="884"/>
+      </g>
+      <!-- vertical margin rule -->
+      <line x1="246" y1="64" x2="246" y2="960" stroke="#7c3318" stroke-opacity="0.5" stroke-width="4"/>
+      <rect x="64" y="64" width="896" height="896" rx="200" ry="200" fill="url(#vignette)"/>
+    </g>
+
+    <!-- wax seal -->
+    <g>
+      <!-- soft cast shadow -->
+      <ellipse cx="512" cy="566" rx="248" ry="232" fill="#000000" opacity="0.32"/>
+      <!-- brass collar -->
+      <circle cx="512" cy="512" r="246" fill="url(#brass)"/>
+      <!-- wax body -->
+      <circle cx="512" cy="512" r="226" fill="url(#wax)"/>
+      <!-- engraved inner ring -->
+      <circle cx="512" cy="512" r="196" fill="none" stroke="#5e2611" stroke-width="6" opacity="0.7"/>
+      <circle cx="512" cy="512" r="188" fill="none" stroke="#c79a5e" stroke-width="2" opacity="0.45"/>
+
+      <!-- embossed brass pen nib (the chair signs off duty) -->
+      <g fill="#d8b27a" stroke="#674027" stroke-width="4" stroke-linejoin="round">
+        <!-- nib body: elongated diamond pointing down -->
+        <path d="M512 372
+                 C 556 430, 588 520, 562 612
+                 L 512 672
+                 L 462 612
+                 C 436 520, 468 430, 512 372 Z"/>
+      </g>
+      <!-- nib slit + breather hole -->
+      <line x1="512" y1="470" x2="512" y2="648" stroke="#5e2611" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="512" cy="476" r="14" fill="#5e2611"/>
+      <!-- highlight on the wax -->
+      <ellipse cx="438" cy="430" rx="70" ry="44" fill="#ffffff" opacity="0.10" transform="rotate(-28 438 430)"/>
+    </g>
+  </g>
+</svg>

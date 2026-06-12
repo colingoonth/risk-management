@@ -77,7 +77,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="Risk Management.app",
-    icon=None,
+    icon=os.path.join(SPECPATH, "icon", "RiskManagement.icns"),
     bundle_identifier="com.colinguenther.risk-management",
     info_plist={
         "NSHighResolutionCapable": True,
