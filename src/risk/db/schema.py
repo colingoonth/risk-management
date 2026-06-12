@@ -15,9 +15,24 @@ by ``_ensure_columns``, which is a no-op once the column is present.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
-MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+def _migrations_dir() -> Path:
+    """Locate the migration SQL files.
+
+    Normally they sit next to this module. In a PyInstaller-frozen app the
+    package source lives inside the bundle, so the SQL is shipped as data and
+    found under ``sys._MEIPASS`` instead (the desktop build collects it to
+    ``risk/db/migrations``)."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base is not None:
+        return Path(base) / "risk" / "db" / "migrations"
+    return Path(__file__).parent / "migrations"
+
+
+MIGRATIONS_DIR = _migrations_dir()
 
 # Columns added after their table's original migration shipped. Each entry is
 # back-filled onto legacy DBs that predate the column. Fresh DBs already have it
