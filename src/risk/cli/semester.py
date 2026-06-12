@@ -298,8 +298,9 @@ def unarchive(
         return
     if not yes:
         msg = (
-            f"Unarchive semester {name!r}? This reverses the finalized archive "
-            "and reopens strikes / consequences / swaps."
+            f"Unarchive semester {name!r}? This only clears the archived marker. "
+            "It does NOT restore strikes / consequences / swaps that were disposed "
+            "during archive — those stay closed/cancelled/carried."
         )
         if not typer.confirm(msg):
             emit_error(

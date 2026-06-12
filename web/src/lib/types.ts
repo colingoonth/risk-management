@@ -5,8 +5,30 @@ export interface Semester {
   name: string
   starts_on: string
   ends_on: string
+  is_current: boolean
   pledge_takeover_starts_on: string | null
   archived_at: string | null
+}
+
+export interface ArchiveReport {
+  semester_id: number
+  semester_name: string
+  open_strike_count: number
+  pending_consequence_count: number
+  future_event_count: number
+  open_swap_count: number
+  blockers: string[]
+  is_blocked: boolean
+}
+
+export interface ArchiveResult {
+  semester_id: number
+  archived_at: string
+  strikes_closed: number
+  strikes_carried_forward: number
+  consequences_carried_forward: number
+  swaps_cancelled: number
+  carry_to_semester_id: number | null
 }
 
 export interface Member {

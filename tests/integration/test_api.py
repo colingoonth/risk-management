@@ -148,6 +148,44 @@ def test_auto_assign_bulk(client: TestClient) -> None:
     assert len(results) == 1
 
 
+def test_archive_check_reports_event_blocker(client: TestClient) -> None:
+    r = client.get("/api/semesters/FA26/archive-check")
+    assert r.status_code == 200, r.text
+    rep = r.json()
+    assert rep["future_event_count"] >= 1  # the seeded ZTA Mixer is non-terminal
+    assert rep["is_blocked"] is True
+
+
+def test_archive_refuses_current_term(client: TestClient) -> None:
+    r = client.post("/api/semesters/FA26/archive", json={"force": True})
+    assert r.status_code == 400, r.text
+    assert "current term" in r.json()["detail"]
+
+
+def test_archive_non_current_empty_term(client: TestClient) -> None:
+    client.post(
+        "/api/semesters",
+        json={"name": "SP27", "starts_on": "2027-01-15", "ends_on": "2027-05-10"},
+    )
+    # FA26 stays current; SP27 is non-current and empty → archivable cleanly.
+    r = client.post("/api/semesters/SP27/archive", json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["archived_at"]
+    # Idempotency: a second archive is a clean 400, not a 500.
+    again = client.post("/api/semesters/SP27/archive", json={})
+    assert again.status_code == 400, again.text
+
+
+def test_archive_blocked_by_non_terminal_event(client: TestClient) -> None:
+    client.post(
+        "/api/semesters",
+        json={"name": "SP27", "starts_on": "2027-01-15", "ends_on": "2027-05-10"},
+    )
+    client.post("/api/semesters/SP27/set-current")  # FA26 no longer current
+    r = client.post("/api/semesters/FA26/archive", json={"force": True})
+    assert r.status_code == 400, r.text  # the non-terminal event hard-blocks even under force
+
+
 def test_list_houses(client: TestClient) -> None:
     r = client.get("/api/houses")
     assert r.status_code == 200, r.text

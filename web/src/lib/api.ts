@@ -2,6 +2,8 @@
 // to the local risk-api server; same-origin in any future bundled deploy).
 
 import type {
+  ArchiveReport,
+  ArchiveResult,
   AutoAssignResult,
   Dashboard,
   EventRow,
@@ -69,6 +71,14 @@ export const api = {
   listHouseModes: (semester: string) =>
     req<HouseMode[]>(`/semesters/${encodeURIComponent(semester)}/house-modes`),
 
+  archiveCheck: (semester: string) =>
+    req<ArchiveReport>(`/semesters/${encodeURIComponent(semester)}/archive-check`),
+  archiveSemester: (semester: string, body: { force?: boolean; carry_to?: string | null }) =>
+    req<ArchiveResult>(`/semesters/${encodeURIComponent(semester)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   listHouses: () => req<House[]>('/houses'),
   listMembers: () => req<Member[]>('/members'),
 
@@ -83,6 +93,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   eventShifts: (eventId: number) => req<Shift[]>(`/events/${eventId}/shifts`),
+  setEventHost: (eventId: number, host_house_slug: string | null) =>
+    req<EventRow>(`/events/${eventId}/set-host`, {
+      method: 'POST',
+      body: JSON.stringify({ host_house_slug }),
+    }),
+  cancelEvent: (eventId: number) => post(`/events/${eventId}/cancel`),
   autoAssign: (eventId: number, body: { seed?: number; reassign?: boolean } = {}) =>
     req<AutoAssignResult>(`/events/${eventId}/auto-assign`, { method: 'POST', body: JSON.stringify(body) }),
   autoAssignBulk: (semester?: string, body: { seed?: number; reassign?: boolean } = {}) =>

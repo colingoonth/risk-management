@@ -22,6 +22,7 @@ class SemesterOut(_Out):
     name: str
     starts_on: str
     ends_on: str
+    is_current: bool
     pledge_takeover_starts_on: str | None
     archived_at: str | None
 
@@ -112,6 +113,27 @@ class HouseOut(_Out):
     display_name: str
 
 
+class ArchiveReportOut(_Out):
+    semester_id: int
+    semester_name: str
+    open_strike_count: int
+    pending_consequence_count: int
+    future_event_count: int
+    open_swap_count: int
+    blockers: list[str]
+    is_blocked: bool
+
+
+class ArchiveResultOut(_Out):
+    semester_id: int
+    archived_at: str
+    strikes_closed: int
+    strikes_carried_forward: int
+    consequences_carried_forward: int
+    swaps_cancelled: int
+    carry_to_semester_id: int | None
+
+
 class HouseModeOut(_Out):
     house_slug: str
     pledge_mode_slug: str
@@ -178,6 +200,11 @@ class SemesterIn(BaseModel):
 class HouseModeIn(BaseModel):
     house_slug: str
     pledge_mode_slug: str
+
+
+class ArchiveIn(BaseModel):
+    force: bool = False
+    carry_to: str | None = None
 
 
 class EventIn(BaseModel):
