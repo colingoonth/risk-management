@@ -148,6 +148,14 @@ def test_auto_assign_bulk(client: TestClient) -> None:
     assert len(results) == 1
 
 
+def test_list_houses(client: TestClient) -> None:
+    r = client.get("/api/houses")
+    assert r.status_code == 200, r.text
+    houses = r.json()
+    assert {h["slug"] for h in houses} == {"zta"}
+    assert all("display_name" in h for h in houses)
+
+
 def test_pledge_takeover_set_house_mode(client: TestClient) -> None:
     r = client.post(
         "/api/semesters/FA26/house-modes",

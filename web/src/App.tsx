@@ -3,6 +3,7 @@ import { Shell } from './components/Shell'
 import { SemesterProvider } from './lib/SemesterContext'
 import { Dashboard } from './pages/Dashboard'
 import { Events } from './pages/Events'
+import { PledgeTakeover } from './pages/PledgeTakeover'
 import { Roster } from './pages/Roster'
 import { Strikes } from './pages/Strikes'
 import { Swaps } from './pages/Swaps'
@@ -17,6 +18,7 @@ export default function App() {
             <Route path="events" element={<Events />} />
             <Route path="swaps" element={<Swaps />} />
             <Route path="strikes" element={<Strikes />} />
+            <Route path="pledges" element={<PledgeTakeover />} />
             <Route path="roster" element={<Roster />} />
           </Route>
         </Routes>

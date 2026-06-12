@@ -106,6 +106,16 @@ export interface PendingConsequence {
   resolved_at: string | null
 }
 
+export interface House {
+  slug: string
+  display_name: string
+}
+
+export interface HouseMode {
+  house_slug: string
+  pledge_mode_slug: string
+}
+
 export interface NumberedStrike {
   id: number
   member_id: number

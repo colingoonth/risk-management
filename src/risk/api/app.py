@@ -11,6 +11,7 @@ from risk import __version__
 from risk.api.routers import (
     dashboard,
     events,
+    houses,
     ingest,
     members,
     meta,
@@ -41,7 +42,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    for module in (meta, semesters, members, events, shifts, strikes, swaps, ingest, dashboard):
+    for module in (meta, semesters, members, events, houses, shifts, strikes, swaps, ingest, dashboard):
         app.include_router(module.router, prefix="/api")
 
     return app

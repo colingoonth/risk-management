@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
 import { ErrorNote } from '../components/ui'
-import { LedgerSection, PenButton } from '../components/ledger'
+import { LedgerSection, PenButton, SegmentedToggle } from '../components/ledger'
 import type { EventRow, Shift } from '../lib/types'
 
 type Target = 'counterparty' | 'open'
@@ -141,20 +141,15 @@ export function Swaps() {
               </label>
 
               {/* Target toggle — the two real swap shapes. */}
-              <div className="flex gap-1 pt-1">
-                {(['counterparty', 'open'] as Target[]).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTarget(t)}
-                    className={`flex-1 rounded-[2px] border py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors ${
-                      target === t
-                        ? 'border-brass-500 bg-brass-300/40 text-ink-100'
-                        : 'border-ink-700/40 text-ink-500 hover:text-ink-300'
-                    }`}
-                  >
-                    {t === 'counterparty' ? 'Swap with a brother' : 'Move to open slot'}
-                  </button>
-                ))}
+              <div className="pt-1">
+                <SegmentedToggle<Target>
+                  value={target}
+                  onChange={setTarget}
+                  options={[
+                    { value: 'counterparty', label: 'Swap with a brother' },
+                    { value: 'open', label: 'Move to open slot' },
+                  ]}
+                />
               </div>
 
               {target === 'counterparty' ? (

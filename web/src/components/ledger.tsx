@@ -75,6 +75,40 @@ export function PenButton({
   )
 }
 
+// Segmented selector — filled-active ledger chips (no pills). `value === null`
+// renders nothing highlighted (an "unset" state). Used for the swap-target
+// choice and per-house pledge mode.
+export function SegmentedToggle<T extends string>({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  options: { value: T; label: string }[]
+  value: T | null
+  onChange: (v: T) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex gap-1">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          disabled={disabled}
+          onClick={() => onChange(o.value)}
+          className={`flex-1 rounded-[2px] border py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors disabled:opacity-40 ${
+            value === o.value
+              ? 'border-brass-500 bg-brass-300/40 text-ink-100'
+              : 'border-ink-700/40 text-ink-500 hover:text-ink-300'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
 // Big mono day-numeral over a small month — the ledger's date column.

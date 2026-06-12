@@ -5,6 +5,8 @@ import type {
   AutoAssignResult,
   Dashboard,
   EventRow,
+  House,
+  HouseMode,
   Member,
   NumberedStrike,
   PendingConsequence,
@@ -64,7 +66,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ house_slug, pledge_mode_slug }),
     }),
+  listHouseModes: (semester: string) =>
+    req<HouseMode[]>(`/semesters/${encodeURIComponent(semester)}/house-modes`),
 
+  listHouses: () => req<House[]>('/houses'),
   listMembers: () => req<Member[]>('/members'),
 
   listEvents: (semester?: string) =>

@@ -107,6 +107,11 @@ class SwapRequestOut(_Out):
     resolved_at: str | None
 
 
+class HouseOut(_Out):
+    slug: str
+    display_name: str
+
+
 class HouseModeOut(_Out):
     house_slug: str
     pledge_mode_slug: str
