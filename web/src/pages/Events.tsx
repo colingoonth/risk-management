@@ -2,9 +2,18 @@ import { useState } from 'react'
 import { api } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
 import { useSemester } from '../lib/SemesterContext'
-import type { ArchiveReport, ArchiveResult, House, Shift } from '../lib/types'
+import type { ArchiveReport, ArchiveResult, AutoAssignResult, House, Shift } from '../lib/types'
 import { ErrorNote } from '../components/ui'
 import { DayStamp, LedgerField, LedgerSection, PenButton, StatusGlyph } from '../components/ledger'
+
+// Per-slot auto-assign reason → chair-readable label. pool_below_min is never
+// emitted as a slot reason (it surfaces in result.warnings), kept for safety.
+const REASON: Record<string, { label: string; cls: string }> = {
+  assigned: { label: 'auto-picked', cls: 'text-ink-300' },
+  preserved: { label: 'kept', cls: 'text-ink-500' },
+  pool_empty: { label: 'no eligible pool', cls: 'text-oxblood-300' },
+  pool_below_min: { label: 'pool below min', cls: 'text-oxblood-300' },
+}
 
 export function Events() {
   const { data: events, loading, error, reload } = useAsync(() => api.listEvents(), [])
@@ -116,6 +125,7 @@ function EventDrilldown({
   const [host, setHost] = useState(currentHost ?? '')
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [preview, setPreview] = useState<AutoAssignResult | null>(null)
 
   async function run(key: string, fn: () => Promise<unknown>) {
     setBusy(key)
@@ -123,6 +133,20 @@ function EventDrilldown({
     try {
       await fn()
       onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // A non-committing dry run: a preview of what auto-assign WOULD do now, with
+  // the per-slot reason. Pinned seed so repeated clicks are stable.
+  async function explain() {
+    setBusy('explain')
+    setErr(null)
+    try {
+      setPreview(await api.autoAssign(eventId, { seed: 42, reassign: false }, true))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -159,6 +183,39 @@ function EventDrilldown({
 
       {err && <ErrorNote message={err} />}
 
+      {preview && (
+        <div className="mt-3 border-t border-ink-700/20 pt-3">
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-ink-500">
+            auto-assign preview · why each slot lands (dry run)
+          </div>
+          <table className="w-full font-mono text-sm">
+            <tbody>
+              {preview.assignments.map((a) => {
+                const r = REASON[a.reason] ?? { label: a.reason, cls: 'text-ink-500' }
+                return (
+                  <tr key={`${a.shift_type_slug}-${a.slot_index}`} className="border-b border-ink-700/15 last:border-0">
+                    <td className="py-1.5 text-ink-500">
+                      {a.shift_type_slug} #{a.slot_index + 1}
+                    </td>
+                    <td className="py-1.5 text-ink-100">{a.member_slug ?? '—'}</td>
+                    <td className={`py-1.5 text-right text-[12px] ${r.cls}`}>{r.label}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {preview.warnings.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {preview.warnings.map((w, i) => (
+                <li key={i} className="font-mono text-[11px] text-oxblood-300">
+                  ⚠ {w}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {!cancelled && (
         <div className="mt-3 flex flex-col gap-3 border-t border-ink-700/20 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-end gap-2">
@@ -187,13 +244,22 @@ function EventDrilldown({
             </PenButton>
             <span className="pb-1.5 font-mono text-[10px] text-ink-500">flips re-assign</span>
           </div>
-          <button
-            disabled={busy !== null}
-            onClick={() => run('cancel', () => api.cancelEvent(eventId))}
-            className="self-start font-mono text-[11px] uppercase tracking-[0.15em] text-ink-500 transition-colors hover:text-oxblood-300 disabled:text-ink-700 sm:self-auto"
-          >
-            {busy === 'cancel' ? 'cancelling…' : '✕ cancel event'}
-          </button>
+          <div className="flex items-center gap-4 self-start sm:self-auto">
+            <button
+              disabled={busy !== null}
+              onClick={explain}
+              className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-500 transition-colors hover:text-brass-400 disabled:text-ink-700"
+            >
+              {busy === 'explain' ? 'explaining…' : 'explain (dry run)'}
+            </button>
+            <button
+              disabled={busy !== null}
+              onClick={() => run('cancel', () => api.cancelEvent(eventId))}
+              className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-500 transition-colors hover:text-oxblood-300 disabled:text-ink-700"
+            >
+              {busy === 'cancel' ? 'cancelling…' : '✕ cancel event'}
+            </button>
+          </div>
         </div>
       )}
     </div>

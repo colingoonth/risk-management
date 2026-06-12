@@ -101,8 +101,11 @@ export const api = {
       body: JSON.stringify({ host_house_slug }),
     }),
   cancelEvent: (eventId: number) => post(`/events/${eventId}/cancel`),
-  autoAssign: (eventId: number, body: { seed?: number; reassign?: boolean } = {}) =>
-    req<AutoAssignResult>(`/events/${eventId}/auto-assign`, { method: 'POST', body: JSON.stringify(body) }),
+  autoAssign: (eventId: number, body: { seed?: number; reassign?: boolean } = {}, dryRun = false) =>
+    req<AutoAssignResult>(`/events/${eventId}/auto-assign${dryRun ? '?dry_run=true' : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   autoAssignBulk: (semester?: string, body: { seed?: number; reassign?: boolean } = {}) =>
     req<AutoAssignResult[]>(
       `/events/auto-assign-bulk${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`,
