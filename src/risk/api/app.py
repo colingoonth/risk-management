@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from risk import __version__
 from risk.api.routers import (
     dashboard,
+    event_types,
     events,
     houses,
     ingest,
@@ -42,7 +43,19 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    for module in (meta, semesters, members, events, houses, shifts, strikes, swaps, ingest, dashboard):
+    for module in (
+        meta,
+        semesters,
+        members,
+        events,
+        event_types,
+        houses,
+        shifts,
+        strikes,
+        swaps,
+        ingest,
+        dashboard,
+    ):
         app.include_router(module.router, prefix="/api")
 
     return app

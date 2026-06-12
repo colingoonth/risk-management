@@ -369,12 +369,16 @@ function Counter({ n, label, alarm }: { n: number; label: string; alarm?: boolea
 }
 
 function CreateEvent({ onCreated }: { onCreated: () => void }) {
+  const eventTypes = useAsync(() => api.listEventTypes(), [])
   const [type, setType] = useState('')
   const [name, setName] = useState('')
   const [date, setDate] = useState('')
   const [host, setHost] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+
+  const picked = (eventTypes.data ?? []).find((t) => t.slug === type)
+  const noSlots = picked && !picked.has_shift_defaults
 
   async function submit() {
     setBusy(true)
@@ -403,7 +407,23 @@ function CreateEvent({ onCreated }: { onCreated: () => void }) {
   return (
     <LedgerSection title="Enter an Event" hint="ad-hoc addition">
       <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
-        <LedgerField label="Type" value={type} onChange={setType} placeholder="mixer / dage" />
+        <label className="block">
+          <span className="mb-1 block font-mono text-[10px] uppercase tracking-[0.18em] text-ink-500">
+            Type
+          </span>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="w-full border-b border-ink-700/50 bg-transparent px-1 py-1.5 text-sm text-ink-100 focus:border-brass-500 focus:outline-none"
+          >
+            <option value="">— select type —</option>
+            {(eventTypes.data ?? []).map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
         <LedgerField label="Name" value={name} onChange={setName} placeholder="ZTA Mixer" />
         <LedgerField label="Date" value={date} onChange={setDate} placeholder="2026-09-12" />
         <LedgerField label="Host" value={host} onChange={setHost} placeholder="zta (optional)" />
@@ -411,6 +431,11 @@ function CreateEvent({ onCreated }: { onCreated: () => void }) {
           {busy ? 'entering…' : 'enter event'}
         </PenButton>
       </div>
+      {noSlots && (
+        <p className="px-4 pb-3 font-mono text-[11px] text-oxblood-300">
+          ⚠ {picked!.display_name} has no shift slots configured — auto-assign will post nobody.
+        </p>
+      )}
       {err && <ErrorNote message={err} />}
     </LedgerSection>
   )

@@ -186,6 +186,16 @@ def test_archive_blocked_by_non_terminal_event(client: TestClient) -> None:
     assert r.status_code == 400, r.text  # the non-terminal event hard-blocks even under force
 
 
+def test_list_event_types(client: TestClient) -> None:
+    r = client.get("/api/event-types")
+    assert r.status_code == 200, r.text
+    types = r.json()
+    slugs = {t["slug"] for t in types}
+    assert {"mixer", "krush"} <= slugs
+    # All seeded types have shift-requirement defaults.
+    assert all(t["has_shift_defaults"] for t in types)
+
+
 def test_list_houses(client: TestClient) -> None:
     r = client.get("/api/houses")
     assert r.status_code == 200, r.text

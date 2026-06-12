@@ -7,6 +7,7 @@ import type {
   AutoAssignResult,
   Dashboard,
   EventRow,
+  EventType,
   House,
   HouseMode,
   Member,
@@ -80,6 +81,7 @@ export const api = {
     }),
 
   listHouses: () => req<House[]>('/houses'),
+  listEventTypes: () => req<EventType[]>('/event-types'),
   listMembers: () => req<Member[]>('/members'),
 
   listEvents: (semester?: string) =>

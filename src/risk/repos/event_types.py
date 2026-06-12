@@ -36,6 +36,18 @@ def get_by_slug(conn: sqlite3.Connection, slug: str) -> EventType | None:
     return _row(row) if row else None
 
 
+def ids_with_shift_defaults(conn: sqlite3.Connection) -> set[int]:
+    """Event-type ids that have at least one seeded shift-requirement default.
+
+    Types with none silently auto-assign nobody (TODO T1-NEW), so the create
+    form warns when one is picked.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT event_type_id FROM event_type_shift_defaults"
+    ).fetchall()
+    return {int(r["event_type_id"]) for r in rows}
+
+
 def allow_shift_type(conn: sqlite3.Connection, *, event_type_id: int, shift_type_id: int) -> None:
     conn.execute(
         """

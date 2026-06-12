@@ -128,6 +128,12 @@ export interface PendingConsequence {
   resolved_at: string | null
 }
 
+export interface EventType {
+  slug: string
+  display_name: string
+  has_shift_defaults: boolean
+}
+
 export interface House {
   slug: string
   display_name: string

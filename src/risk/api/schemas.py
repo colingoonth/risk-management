@@ -108,6 +108,12 @@ class SwapRequestOut(_Out):
     resolved_at: str | None
 
 
+class EventTypeOut(_Out):
+    slug: str
+    display_name: str
+    has_shift_defaults: bool
+
+
 class HouseOut(_Out):
     slug: str
     display_name: str
