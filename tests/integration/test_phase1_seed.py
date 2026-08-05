@@ -22,12 +22,21 @@ def test_pledge_modes_seeded(db: sqlite3.Connection) -> None:
 
 def test_shift_types_seeded(db: sqlite3.Connection) -> None:
     types = {t.slug for t in stypes_repo.list_all(db)}
-    assert types == {"driver", "door", "setup", "cleanup", "bar"}
+    assert types == {"driver", "door", "setup", "cleanup", "bar", "dj"}
 
 
 def test_event_types_seeded(db: sqlite3.Connection) -> None:
     types = {t.slug for t in etypes_repo.list_all(db)}
-    assert types == {"mixer", "krush", "other_party", "philanthropy"}
+    assert types == {
+        "mixer",
+        "krush",
+        "other_party",
+        "philanthropy",
+        "dage",
+        "quad",
+        "open",
+        "rush",
+    }
 
 
 def test_allow_list_mixer_excludes_bar(db: sqlite3.Connection) -> None:
@@ -51,17 +60,19 @@ def test_removal_methods_seeded(db: sqlite3.Connection) -> None:
     assert expected.issubset(methods)
 
 
-def test_mixer_driver_default_is_2_3(db: sqlite3.Connection) -> None:
+def test_mixer_defaults_match_spec(db: sqlite3.Connection) -> None:
+    """FA26 mixer profile: 2 driver, 2 door, 0 bar, 4 setup, 4 cleanup, 1 dj."""
     mixer = etypes_repo.get_by_slug(db, "mixer")
     assert mixer is not None
     defaults = {
         d.shift_type_slug: (d.min_count, d.target_count)
         for d in defaults_repo.list_for_event_type(db, mixer.id)
     }
-    assert defaults["driver"] == (2, 3)
-    assert defaults["door"] == (2, 3)
+    assert defaults["driver"] == (2, 2)
+    assert defaults["door"] == (2, 2)
     assert defaults["setup"] == (4, 4)
     assert defaults["cleanup"] == (4, 4)
+    assert defaults["dj"] == (1, 1)
     assert "bar" not in defaults
 
 
@@ -74,3 +85,5 @@ def test_krush_includes_bar_2_2(db: sqlite3.Connection) -> None:
     }
     assert defaults["bar"] == (2, 2)
     assert defaults["driver"] == (3, 3)
+    assert defaults["door"] == (2, 2)
+    assert defaults["dj"] == (1, 1)

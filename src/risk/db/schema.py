@@ -40,6 +40,12 @@ MIGRATIONS_DIR = _migrations_dir()
 # byte-identical to a from-files replay).
 _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("members", "pledge_class", "TEXT"),
+    # Phase 7 unavailability v2. Back-filled without the CHECK constraints the
+    # CREATE TABLE carries — SQLite cannot add a CHECK via ALTER. Format is
+    # validated in the service layer, so legacy DBs are guarded there instead.
+    ("unavailability", "starts_at_time", "TEXT"),
+    ("unavailability", "ends_at_time", "TEXT"),
+    ("unavailability", "repeats_weekday", "INTEGER"),
 )
 
 
@@ -52,13 +58,25 @@ def load_schema() -> str:
 
 
 def _ensure_columns(conn: sqlite3.Connection) -> None:
-    """Back-fill post-hoc columns onto DBs created before they were declared."""
+    """Back-fill post-hoc columns onto DBs created before they were declared.
+
+    A table missing entirely means this is a fresh DB and the migrations have
+    not run yet; its ``CREATE TABLE`` already declares the column, so there is
+    nothing to back-fill and the ALTER would fail on a non-existent table.
+    """
     for table, column, decl in _RECONCILED_COLUMNS:
-        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
+        cols = list(conn.execute(f"PRAGMA table_info({table})"))
+        if not cols:
+            continue
+        if column not in {row["name"] for row in cols}:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(load_schema())
+    # Back-fill BEFORE replaying the migrations: a later migration may build an
+    # index over a reconciled column (unavailability's time/recurrence columns
+    # do exactly this), and on a pre-existing DB that column would not yet be
+    # there if we reconciled afterwards. On a fresh DB every table is absent at
+    # this point, so this is a no-op and the CREATE TABLEs supply the columns.
     _ensure_columns(conn)
+    conn.executescript(load_schema())

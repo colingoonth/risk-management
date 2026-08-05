@@ -33,12 +33,16 @@ def _bare(db_path: Path) -> None:
 
 
 def test_role_add_happy(tmp_path: Path) -> None:
+    # The slug must be one the migrations do NOT seed, or this tests nothing but
+    # the duplicate path (which is test_role_add_duplicate_errors' job, and it
+    # uses a seeded slug on purpose). 'social_chair' used to be safe here and
+    # stopped being so the moment 0013 seeded it for real.
     db_path = tmp_path / "r.db"
     _bare(db_path)
     res = _run_cli(
-        db_path, "config", "role", "add", "social_chair",
-        "--display-name", "Social Chair",
-        "--automation-key", "social-chair",
+        db_path, "config", "role", "add", "test_only_role",
+        "--display-name", "Test Only Role",
+        "--automation-key", "test-only-role",
         "--exclude-soft",
         "--default-excluded",
     )

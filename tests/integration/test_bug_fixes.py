@@ -162,7 +162,13 @@ class TestBug1DateValidation:
 
 class TestBug2NoShiftReqWarning:
     def _seed_empty_event_type(self, db_path: Path) -> None:
-        """Seed a custom event type 'dage' with NO default shift requirements."""
+        """Seed a chair-added event type 'formal' with NO default shift requirements.
+
+        The slug must be one the migrations do NOT seed — every seeded type
+        carries defaults, so a seeded slug cannot exercise the warning. This
+        stands in for any type the chair adds by hand and has not yet given
+        counts to.
+        """
         conn = connect(db_path)
         ensure_schema(conn)
         sem_id = semesters_repo.insert(
@@ -171,24 +177,24 @@ class TestBug2NoShiftReqWarning:
         conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
         # Insert event type with no rows in event_type_shift_defaults.
         conn.execute(
-            "INSERT INTO event_types (slug, display_name) VALUES ('dage', 'DAGE')"
+            "INSERT INTO event_types (slug, display_name) VALUES ('formal', 'Formal')"
         )
         conn.close()
 
     def test_add_event_with_no_reqs_warns(self, tmp_path: Path) -> None:
-        """Creating a 'dage' event with no shift defaults produces a warnings list."""
+        """Creating a 'formal' event with no shift defaults produces a warnings list."""
         db_path = tmp_path / "r.db"
         self._seed_empty_event_type(db_path)
 
         res = _run(
             db_path, "event", "add",
-            "--name", "DAGE 1", "--type", "dage", "--date", "2026-04-01",
+            "--name", "Formal 1", "--type", "formal", "--date", "2026-04-01",
         )
         assert res.returncode == 0, res.stdout + res.stderr
         data = json.loads(res.stdout)["data"]
         assert data["requirements"] == []
         assert len(data["warnings"]) > 0
-        assert "dage" in data["warnings"][0]
+        assert "formal" in data["warnings"][0]
         assert "no shift requirements" in data["warnings"][0]
 
     def test_add_event_with_reqs_no_warning(self, tmp_path: Path) -> None:
@@ -226,7 +232,7 @@ class TestBug2NoShiftReqWarning:
                 conn, slug=f"m{i}", display_name=f"M{i}", status_id=active.id, class_year=2027
             )
         # Look up the IDs we need.
-        et = etypes_repo.get_by_slug(conn, "dage")
+        et = etypes_repo.get_by_slug(conn, "formal")
         assert et is not None
         sem = semesters_repo.get_by_name(conn, "SP26")
         assert sem is not None
@@ -235,7 +241,7 @@ class TestBug2NoShiftReqWarning:
                 conn,
                 semester_id=sem.id,
                 event_type_id=et.id,
-                display_name="DAGE 1",
+                display_name="Formal 1",
                 date="2026-04-01",
             )
         conn.close()

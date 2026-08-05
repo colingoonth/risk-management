@@ -201,7 +201,12 @@ def test_unavailability_add_duplicate(tmp_path: Path) -> None:
 
 
 def _seed_with_auto_assign(db_path: Path) -> None:
-    """Seed SP26 + 1 mixer + 15 members + auto-assign."""
+    """Seed SP26 + 1 mixer + 18 members + auto-assign.
+
+    The roster must exceed the mixer's total target slots (13: driver 2, door 2,
+    setup 4, cleanup 4, dj 1) so the stale-guard test below has a member holding
+    no shift to reassign to.
+    """
     conn = connect(db_path)
     ensure_schema(conn)
     sem_id = semesters_repo.insert(
@@ -221,7 +226,7 @@ def _seed_with_auto_assign(db_path: Path) -> None:
     )
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    for i in range(15):
+    for i in range(18):
         members_repo.insert(
             conn,
             slug=f"member-{i}",

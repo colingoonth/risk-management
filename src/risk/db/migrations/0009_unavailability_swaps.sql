@@ -1,16 +1,30 @@
 -- Phase 6: unavailability windows + swap requests.
 -- Schema per canonical plan §2.5. All STRICT.
 
+-- starts_at_time/ends_at_time added in Phase 7 (both NULL = all day, which is
+-- what every pre-Phase-7 row means). repeats_weekday NULL = a one-off range;
+-- 0-6 (Mon-Sun) = every such weekday between starts_on and ends_on.
+-- Declared here so fresh DBs get the CHECKs; legacy DBs are back-filled by
+-- ``_ensure_columns`` (see risk/db/schema.py).
 CREATE TABLE IF NOT EXISTS unavailability (
   id INTEGER PRIMARY KEY,
   member_id INTEGER NOT NULL REFERENCES members(id),
   semester_id INTEGER NOT NULL REFERENCES semesters(id),
   starts_on TEXT NOT NULL,
   ends_on TEXT NOT NULL,
+  starts_at_time TEXT NULL,
+  ends_at_time TEXT NULL,
+  repeats_weekday INTEGER NULL,
   reason TEXT NULL,
   CHECK (ends_on >= starts_on),
   CHECK (starts_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-  CHECK (ends_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
+  CHECK (ends_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  CHECK (starts_at_time IS NULL OR starts_at_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+  CHECK (ends_at_time IS NULL OR ends_at_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+  -- both times or neither; a half-specified window is always a data bug
+  CHECK ((starts_at_time IS NULL) = (ends_at_time IS NULL)),
+  CHECK (starts_at_time IS NULL OR ends_at_time > starts_at_time),
+  CHECK (repeats_weekday IS NULL OR repeats_weekday BETWEEN 0 AND 6)
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS unavailability_member_semester

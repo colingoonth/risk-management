@@ -15,7 +15,7 @@ from risk.services import ingest as ingest_svc
 from risk.services import shift_requirements as reqs_svc
 
 ROSTER = """Full Name,Rising Class,PC,EC
-Alex Rojas,Rising Senior,Zeta,Yes
+one brother,Rising Senior,Zeta,Yes
 Ben Carter,Rising Junior,Eta,No
 Caleb Nguyen,Rising Sophomore,Theta,No
 Dev Patel,Rising Senior,Zeta,Yes
