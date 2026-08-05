@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
+import { todayLocal } from '../lib/dates'
 import { ErrorNote } from '../components/ui'
 import { DayStamp, LedgerField, LedgerSection, PenButton } from '../components/ledger'
 
-const TODAY = new Date().toISOString().slice(0, 10)
+const TODAY = todayLocal()
 const PROBATION_AT = 4
 const EXPULSION_REVIEW_AT = 5
 

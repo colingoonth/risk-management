@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
 import { useAsync } from '../lib/useAsync'
+import { todayLocal } from '../lib/dates'
 import { ErrorNote } from '../components/ui'
 import { DayStamp, FillBar, StatusGlyph, Tally } from '../components/ledger'
 
-const TODAY = new Date().toISOString().slice(0, 10)
+const TODAY = todayLocal()
 
 export function Dashboard() {
   const { data, loading, error, reload } = useAsync(() => api.dashboard(), [])
