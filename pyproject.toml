@@ -90,3 +90,15 @@ sigterm = true
 [tool.coverage.paths]
 # Merge multi-process coverage data under one canonical source tree.
 source = ["src/risk", "*/src/risk"]
+
+[tool.ruff.lint.per-file-ignores]
+# Forensic scripts, kept for provenance: they document how the FA26 roster and
+# schedule were derived from the source spreadsheets. Preserved close to as-run
+# rather than restyled, because their value is being a faithful record — a
+# rewrite to satisfy naming and formatting rules risks quietly changing what
+# they did. Only path handling was changed, so they take input as arguments
+# instead of hardcoding one machine's Desktop.
+# New code does not get these exemptions; scripts/load_*.py are lint-clean.
+"scripts/analyze_strict.py" = ["B007", "C408", "C416", "E702", "E731", "N816"]
+"scripts/check_roster.py" = ["B007", "C408", "C416", "E702", "E731", "N816"]
+"scripts/reconcile.py" = ["B007", "C408", "C416", "E702", "E731", "N816"]
