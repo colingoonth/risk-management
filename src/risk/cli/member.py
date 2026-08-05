@@ -13,9 +13,11 @@ from risk.cli.output import attr_table, emit_error, emit_success, simple_lookup_
 from risk.db.connection import transaction
 from risk.repos import houses as houses_repo
 from risk.repos import member_house_assignments as mha_repo
+from risk.repos import member_qualifications as mq_repo
 from risk.repos import member_roles as mr_repo
 from risk.repos import member_statuses as statuses_repo
 from risk.repos import members as repo
+from risk.repos import qualifications as quals_repo
 from risk.repos import roles as roles_repo
 from risk.repos import semesters as semesters_repo
 
@@ -180,15 +182,18 @@ def show(
     sem_id = _resolve_semester(conn, mode, semester) if semester is not None else None
     if sem_id is not None:
         roles = mr_repo.list_for_member_in_semester(conn, member_id=m.id, semester_id=sem_id)
+        quals = mq_repo.list_for_member_in_semester(conn, member_id=m.id, semester_id=sem_id)
         house = mha_repo.get_for_member_in_semester(conn, member_id=m.id, semester_id=sem_id)
     else:
         roles = mr_repo.list_for_member(conn, m.id)
+        quals = mq_repo.list_for_member(conn, m.id)
         house = None
     emit_success(
         {
             "member": asdict(m),
             "aliases": [asdict(a) for a in aliases],
             "roles": [asdict(r) for r in roles],
+            "qualifications": [asdict(q) for q in quals],
             "house": asdict(house) if house else None,
         },
         mode=mode,
@@ -250,6 +255,112 @@ def unset_role(
     with transaction(conn):
         affected = mr_repo.unset_role(conn, member_id=m.id, role_id=r.id, semester_id=sem_id)
     emit_success({"removed": affected}, mode=mode)
+
+
+def _resolve_qualification(conn: sqlite3.Connection, mode: Any, slug: str) -> Any:
+    """Resolve a qualification slug, listing the valid ones when it misses."""
+    q = quals_repo.get_by_slug(conn, slug)
+    if q is None:
+        known = ", ".join(x.slug for x in quals_repo.list_all(conn)) or "(none seeded)"
+        emit_error(
+            "qualification.not_found",
+            f"No qualification with slug {slug!r}. Known qualifications: {known}.",
+            mode=mode,
+        )
+    return q
+
+
+@app.command("qualify")
+def qualify(
+    ctx: typer.Context,
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    qualification: Annotated[
+        str, typer.Argument(help="Qualification slug (e.g. over-21, dj).")
+    ],
+    semester: Annotated[str | None, typer.Option("--semester")] = None,
+) -> None:
+    """Grant a qualification to a member for a semester.
+
+    Semester-scoped on purpose: a brother who turns 21 in October is not
+    retroactively qualified for September's bar shifts.
+
+    Example:
+        risk member qualify colin-guenther over-21
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    m = repo.resolve(conn, member)
+    if m is None:
+        emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+        return
+    q = _resolve_qualification(conn, mode, qualification)
+    if q is None:
+        return
+    sem_id = _resolve_semester(conn, mode, semester)
+    with transaction(conn):
+        granted = mq_repo.grant(
+            conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id
+        )
+    emit_success(
+        {
+            "member": m.slug,
+            "qualification": q.slug,
+            "semester_id": sem_id,
+            # 0 means the member already held it — a no-op, not a failure.
+            "granted": bool(granted),
+        },
+        mode=mode,
+    )
+
+
+@app.command("unqualify")
+def unqualify(
+    ctx: typer.Context,
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    qualification: Annotated[str, typer.Argument(help="Qualification slug to remove.")],
+    semester: Annotated[str | None, typer.Option("--semester")] = None,
+) -> None:
+    """Revoke a qualification from a member for a semester."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    m = repo.resolve(conn, member)
+    if m is None:
+        emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+        return
+    q = _resolve_qualification(conn, mode, qualification)
+    if q is None:
+        return
+    sem_id = _resolve_semester(conn, mode, semester)
+    with transaction(conn):
+        removed = mq_repo.revoke(
+            conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id
+        )
+    emit_success({"removed": removed}, mode=mode)
+
+
+@app.command("set-notes")
+def set_notes(
+    ctx: typer.Context,
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    notes: Annotated[
+        str, typer.Argument(help="Free-text note, e.g. why the member is exempt.")
+    ],
+    clear: Annotated[
+        bool, typer.Option("--clear", help="Clear the note instead of setting it.")
+    ] = False,
+) -> None:
+    """Set the free-text note on a member (the written reason for an exemption)."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    m = repo.resolve(conn, member)
+    if m is None:
+        emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+        return
+    with transaction(conn):
+        repo.update_notes(conn, member_id=m.id, notes=None if clear else notes)
+    updated = repo.get_by_id(conn, m.id)
+    assert updated is not None
+    emit_success({"member": updated.slug, "notes": updated.notes}, mode=mode)
 
 
 @app.command("add-alias")

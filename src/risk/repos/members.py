@@ -142,3 +142,16 @@ def update_status(conn: sqlite3.Connection, *, member_id: int, status_id: int) -
         (status_id, member_id),
     )
     return cur.rowcount
+
+
+def update_notes(conn: sqlite3.Connection, *, member_id: int, notes: str | None) -> int:
+    """Set the free-text note on a member. ``None`` clears it.
+
+    Notes carry the written reason a member is exempt, so the chair can answer
+    "why isn't he working?" months later without remembering.
+    """
+    cur = conn.execute(
+        "UPDATE members SET notes = ? WHERE id = ?",
+        (notes, member_id),
+    )
+    return cur.rowcount
