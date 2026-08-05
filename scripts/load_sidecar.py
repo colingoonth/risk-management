@@ -48,6 +48,16 @@ class _DryRunRollbackError(Exception):
     """Abort the transaction on --dry-run so nothing is written."""
 
 
+class _LoadError(Exception):
+    """Abort the transaction on a data error so nothing is half-written.
+
+    Must be raised, never returned. ``transaction()`` rolls back on an exception
+    and commits on any normal exit, so a bare ``return 1`` from inside the block
+    reports failure while committing every row applied up to that point — which
+    contradicted this script's own promise that a bad slug applies nothing.
+    """
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("sidecar_path", type=Path, help="Sidecar JSON to apply.")
@@ -129,8 +139,7 @@ def main() -> int:
             m = resolve(name)
             role = by_key.get(role_key)
             if role is None:
-                print(f"ERROR: no role with automation_key {role_key!r}", file=sys.stderr)
-                return 1
+                raise _LoadError(f"no role with automation_key {role_key!r}")
             held = {
                 r.role_slug
                 for r in mr_repo.list_for_member_in_semester(
@@ -165,8 +174,7 @@ def main() -> int:
             for qslug in quals:
                 q = by_slug.get(qslug)
                 if q is None:
-                    print(f"ERROR: no qualification {qslug!r}", file=sys.stderr)
-                    return 1
+                    raise _LoadError(f"no qualification {qslug!r}")
                 if qslug in held:
                     skipped["qualifications"] += 1
                     continue
@@ -191,3 +199,6 @@ if __name__ == "__main__":
     except _DryRunRollbackError:
         print("dry run — rolled back, nothing written")
         raise SystemExit(0) from None
+    except _LoadError as exc:
+        print(f"ERROR: {exc} — rolled back, nothing written", file=sys.stderr)
+        raise SystemExit(1) from None

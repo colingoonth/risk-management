@@ -63,6 +63,15 @@ class _DryRunRollbackError(Exception):
     """Abort the transaction on --dry-run so nothing is written."""
 
 
+class _LoadError(Exception):
+    """Abort the transaction on a data error so nothing is half-written.
+
+    Must be raised, never returned. ``transaction()`` rolls back on an exception
+    and commits on any normal exit, so a bare ``return 1`` from inside the block
+    reports failure while committing every row loaded up to that point.
+    """
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("csv_path", type=Path, help="Events CSV to load.")
@@ -117,8 +126,7 @@ def main() -> int:
         for spec in args.house:
             slug, _, display = spec.partition("=")
             if not display:
-                print(f"ERROR: --house wants SLUG=NAME, got {spec!r}", file=sys.stderr)
-                return 1
+                raise _LoadError(f"--house wants SLUG=NAME, got {spec!r}")
             if houses_repo.get_by_slug(conn, slug) is None:
                 houses_made += 1
                 if not args.dry_run:
@@ -127,16 +135,14 @@ def main() -> int:
         for p in planned:
             et = etypes_repo.get_by_slug(conn, str(p["type"]))
             if et is None:
-                print(f"ERROR: no event type {p['type']!r}", file=sys.stderr)
-                return 1
+                raise _LoadError(f"no event type {p['type']!r}")
             host_id = None
             if p["host"] is not None:
                 h = houses_repo.get_by_slug(conn, str(p["host"]))
                 # On a dry run the houses above were not really inserted, so a
                 # missing host is expected rather than fatal.
                 if h is None and not args.dry_run:
-                    print(f"ERROR: no house {p['host']!r}", file=sys.stderr)
-                    return 1
+                    raise _LoadError(f"no house {p['host']!r}")
                 host_id = h.id if h else None
 
             if events_repo.get_by_semester_and_name(
@@ -179,3 +185,6 @@ if __name__ == "__main__":
     except _DryRunRollbackError:
         print("dry run — rolled back, nothing written")
         raise SystemExit(0) from None
+    except _LoadError as exc:
+        print(f"ERROR: {exc} — rolled back, nothing written", file=sys.stderr)
+        raise SystemExit(1) from None
