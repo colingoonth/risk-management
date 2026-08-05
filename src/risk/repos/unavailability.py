@@ -122,12 +122,35 @@ def delete(conn: sqlite3.Connection, win_id: int) -> int:
 def member_ids_unavailable_on(
     conn: sqlite3.Connection, *, semester_id: int, date: str
 ) -> set[int]:
-    """Member ids with an unavailability window covering ``date`` (inclusive)."""
+    """Member ids with an unavailability window covering ``date`` (inclusive).
+
+    A one-off row (``repeats_weekday IS NULL``) covers every day in its range. A
+    recurring row covers only the days in that range whose weekday matches, so
+    "busy every Thursday, all semester" blocks Thursday parties and leaves the
+    Friday ones alone. Same rule as ``services.availability._applies_on``; the
+    two must agree, because this is the coarse filter in front of it.
+
+    SQLite's ``strftime('%w')`` counts from Sunday=0 and ``repeats_weekday``
+    stores Python's Monday=0, hence the ``+ 6) % 7`` rotation. A ``date`` that
+    is not a parseable ISO date makes ``strftime`` return NULL, which matches no
+    recurring row — one-off rows still compare as plain strings, exactly as
+    before.
+
+    NOTE: this is date granularity, so a row carrying ``starts_at_time`` /
+    ``ends_at_time`` still blocks the whole day here. Narrowing that needs the
+    per-shift-type window from ``services.availability`` and is a separate piece
+    of work; blocking the day is the conservative direction in the meantime.
+    """
     rows = conn.execute(
         """
         SELECT DISTINCT member_id FROM unavailability
-        WHERE semester_id = ? AND starts_on <= ? AND ends_on >= ?
+        WHERE semester_id = ?
+          AND starts_on <= ? AND ends_on >= ?
+          AND (
+            repeats_weekday IS NULL
+            OR repeats_weekday = (CAST(strftime('%w', ?) AS INTEGER) + 6) % 7
+          )
         """,
-        (semester_id, date, date),
+        (semester_id, date, date, date),
     ).fetchall()
     return {int(r["member_id"]) for r in rows}
