@@ -14,8 +14,11 @@ from risk.repos import semesters as semesters_repo
 from risk.services import ingest as ingest_svc
 from risk.services import shift_requirements as reqs_svc
 
+# Every name below is invented. This repo is public and the demo DB feeds the
+# README screenshots, so a name here is a name on the internet — check any edit
+# against the real roster before committing it.
 ROSTER = """Full Name,Rising Class,PC,EC
-one brother,Rising Senior,Zeta,Yes
+Avery Sandoval,Rising Senior,Zeta,Yes
 Ben Carter,Rising Junior,Eta,No
 Caleb Nguyen,Rising Sophomore,Theta,No
 Dev Patel,Rising Senior,Zeta,Yes
