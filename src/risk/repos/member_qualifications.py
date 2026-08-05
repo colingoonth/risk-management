@@ -1,9 +1,8 @@
 """Per-entity repository for ``member_qualifications`` (member × qual × semester).
 
-Deliberately semester-scoped: a member who turns 21 in October is not
-retroactively qualified for September's bar shifts, and the DJ job changing
-hands does not rewrite who was qualified last term. That is why granting is a
-normal operation with a CLI rather than one-off setup data.
+Deliberately semester-scoped: the DJ job changing hands does not rewrite who was
+qualified last term. That is why granting is a normal operation with a CLI
+rather than one-off setup data.
 
 The table has no surrogate key — its primary key is the triple itself — so
 grant/revoke work on the triple directly.

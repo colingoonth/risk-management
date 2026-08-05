@@ -1,9 +1,16 @@
 """Per-entity repository for ``qualifications`` (the lookup table).
 
-Qualifications gate which members may fill which shift types — ``over-21`` for
-bar, ``dj`` for the DJ slot (see ``shift_type_required_qualification``, seeded
-in migration 0012). This module is the lookup half; the member × qualification
-× semester join lives in ``member_qualifications``.
+Qualifications gate which members may fill which shift types. ``dj`` is the only
+gate that exists — two people in the chapter can actually DJ (see
+``shift_type_required_qualification``, seeded in migration 0012).
+
+``over-21`` is NOT a gate. It is informational data carried on 41 members from
+the roster load: the 21+ list is about who can purchase alcohol, not who may
+work the bar. Migration 0014 removed the bar requirement it was briefly wired
+to. Do not treat holding ``over-21`` as a permission.
+
+This module is the lookup half; the member × qualification × semester join lives
+in ``member_qualifications``.
 """
 
 from __future__ import annotations

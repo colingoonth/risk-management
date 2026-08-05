@@ -5,7 +5,7 @@
 --      event date. Drives both availability checking and the "can this member
 --      hold two shifts at one event" rule.
 --   2. qualifications      — gates which members may fill which shift types
---      (21+ for bar, dj for DJ). Replaces the earlier idea of modelling DJ as
+--      (dj for the DJ slot). Replaces the earlier idea of modelling DJ as
 --      a soft-excluded role.
 --   3. unavailability v2   — time-of-day + weekly recurrence, so the Google
 --      Form can capture "busy Thursdays 6-11pm" and "busy Oct 3, 2-6pm".
@@ -157,7 +157,8 @@ FROM (
   -- door: same as rides. Lateness is tolerated occasionally in practice,
   -- but the schedule is planned as though everyone is there at 8pm.
   UNION ALL SELECT 'door',    0,  0, '20:00', '23:59', NULL, 1, 0
-  -- bar: event night, 21+ only, and only on parties that actually have a bar
+  -- bar: event night, on the parties that actually have a bar. No age gate —
+  -- see the qualifications section below for why.
   UNION ALL SELECT 'bar',     0,  0, '20:00', '23:59', NULL, 1, 0
   -- dj: event night. Blocks door/rides/bar, but NOT setup or cleanup.
   UNION ALL SELECT 'dj',      0,  0, '20:00', '23:59', NULL, 1, 0
@@ -178,6 +179,11 @@ CREATE TABLE IF NOT EXISTS qualifications (
   display_name TEXT NOT NULL
 ) STRICT;
 
+-- `dj` GATES a shift type. `over-21` does NOT gate anything — it is retained as
+-- informational data only (41 members carry it from the FA26 roster load).
+-- Working the bar has no age requirement: the 21+ list is about who PURCHASES
+-- alcohol, which belongs to the juice task the chair does not track. Do not
+-- re-add a bar row to shift_type_required_qualification below.
 INSERT OR IGNORE INTO qualifications (slug, display_name) VALUES
   ('over-21', 'Over 21'),
   ('dj',      'Qualified DJ');
@@ -200,12 +206,19 @@ CREATE TABLE IF NOT EXISTS shift_type_required_qualification (
   PRIMARY KEY (shift_type_id, qualification_id)
 ) STRICT;
 
+-- DJ is the ONLY gated shift type: two people in the chapter can actually DJ.
+--
+-- `bar` was gated on `over-21` here originally. That constraint was invented,
+-- not asked for: the 21+ list tracks who can PURCHASE alcohol (the juice task,
+-- which is deliberately not modelled), and has nothing to do with standing the
+-- bar shift. Gating it cut the bar pool from 57 to 41 for no reason. Removed.
+--
+-- Note for anyone reading an older database: this seed cannot retract the row
+-- it used to insert, because INSERT OR IGNORE only adds. Migration 0014 carries
+-- the DELETE.
 INSERT OR IGNORE INTO shift_type_required_qualification (shift_type_id, qualification_id)
 SELECT st.id, q.id
-FROM (
-            SELECT 'bar' AS st_slug, 'over-21' AS q_slug
-  UNION ALL SELECT 'dj',             'dj'
-) AS v
+FROM (SELECT 'dj' AS st_slug, 'dj' AS q_slug) AS v
 JOIN shift_types st   ON st.slug = v.st_slug
 JOIN qualifications q ON q.slug  = v.q_slug;
 

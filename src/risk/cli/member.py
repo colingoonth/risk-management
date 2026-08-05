@@ -281,11 +281,11 @@ def qualify(
 ) -> None:
     """Grant a qualification to a member for a semester.
 
-    Semester-scoped on purpose: a brother who turns 21 in October is not
-    retroactively qualified for September's bar shifts.
+    Semester-scoped on purpose: the DJ job changing hands mid-year does not
+    rewrite who was qualified last term.
 
     Example:
-        risk member qualify colin-guenther over-21
+        risk member qualify first-last dj
     """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)

@@ -126,7 +126,8 @@ def test_member_set_house_unknown_house_errors(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# qualifications (Phase 8) — over-21 gates bar, dj gates the DJ slot.
+# qualifications (Phase 8) — `dj` gates the DJ slot; it is the only gate.
+# `over-21` is informational only (bar has NO age requirement — see 0014).
 # Semester-scoped, so these must NOT leak across semesters.
 # ---------------------------------------------------------------------------
 
@@ -180,8 +181,8 @@ def test_member_qualify_unknown_member_errors(tmp_path: Path) -> None:
 def test_member_qualification_is_semester_scoped(tmp_path: Path) -> None:
     """A member qualified in one semester is not qualified in another.
 
-    This is the whole reason the table carries semester_id: someone who turns
-    21 in October must not be retroactively eligible for September's bar.
+    This is the whole reason the table carries semester_id: the DJ job changing
+    hands must not rewrite who was qualified in a prior term.
     """
     db_path = tmp_path / "r.db"
     _seed(db_path)
