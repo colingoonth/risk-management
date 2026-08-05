@@ -17,6 +17,12 @@ semester. Layers (all evaluated):
         exclude_is_soft = 1``. Excluded by default; included only if their
         ``automation_key`` appears in the caller-supplied ``allowed_keys`` set.
 
+``eligible_for`` answers "may this member work THIS EVENT", which is a question
+about the person. Whether they may work a particular SHIFT TYPE at that event is
+a second, narrower question, and it lives in :func:`filter_for_shift_type` —
+because the answer differs per slot and ``eligible_for`` returns one pool for
+the whole event.
+
 The function returns ``EligibleMember`` rows, which carry the per-member info
 fairness needs (class_year + whether the member is a pledge in this semester).
 """
@@ -43,6 +49,15 @@ class EligibleMember:
     class_year: int | None
     pledge_class: str | None
     is_pledge: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ShiftTypePool:
+    """The event pool narrowed to those who may work one specific shift type."""
+
+    eligible: list[EligibleMember]
+    required_qualification_slugs: tuple[str, ...]
+    excluded_by_qualification: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,4 +190,58 @@ def eligible_for(
         excluded_by_hard_role=excluded_by_hard_role,
         excluded_by_soft_role=excluded_by_soft_role,
         excluded_by_unavailability=excluded_by_unavailability,
+    )
+
+
+def filter_for_shift_type(
+    conn: sqlite3.Connection,
+    *,
+    pool: list[EligibleMember],
+    shift_type_id: int,
+    semester_id: int,
+) -> ShiftTypePool:
+    """Narrow an event pool to the members who may work ``shift_type_id``.
+
+    Reads ``shift_type_required_qualification``, which has declared since
+    migration 0012 that ``dj`` requires the ``dj`` qualification. Nothing acted
+    on it until now, so auto-assign would put a member who cannot DJ on the DJ
+    slot — the requirement was documented in the schema and unenforced in code.
+
+    A member must hold EVERY qualification the shift type requires. Only ``dj``
+    is gated today, so the conjunction is academic, but a shift type carrying two
+    requirements should mean both and not either.
+
+    Qualifications are semester-scoped on purpose (the DJ job changes hands), so
+    this needs ``semester_id`` and cannot be answered from the member alone.
+
+    ``over-21`` gates NOTHING. It is informational data on 41 members recording
+    who purchases alcohol; migration 0014 retracted the bar requirement it was
+    briefly wired to. This function will only ever gate ``bar`` again if someone
+    re-inserts that row, which they should not.
+    """
+    from risk.repos import member_qualifications as _mq
+    from risk.repos import qualifications as _quals
+
+    required = _quals.required_for_shift_type(conn, shift_type_id)
+    if not required:
+        return ShiftTypePool(
+            eligible=list(pool),
+            required_qualification_slugs=(),
+            excluded_by_qualification=0,
+        )
+
+    holders: set[int] | None = None
+    for qual in required:
+        ids = _mq.member_ids_with(
+            conn, semester_id=semester_id, qualification_slug=qual.slug
+        )
+        holders = ids if holders is None else (holders & ids)
+        if not holders:
+            break
+
+    qualified = [m for m in pool if m.member_id in (holders or set())]
+    return ShiftTypePool(
+        eligible=qualified,
+        required_qualification_slugs=tuple(q.slug for q in required),
+        excluded_by_qualification=len(pool) - len(qualified),
     )

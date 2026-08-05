@@ -15,11 +15,13 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from risk.repos import auto_assign_runs as runs_repo
 from risk.repos import event_shift_requirements as req_repo
 from risk.repos import events as events_repo
+from risk.repos import qualifications as quals_repo
 from risk.repos import shifts as shifts_repo
 from risk.services import eligibility, fairness, pledge_mode
 from risk.services.eligibility import EligibilityResult
@@ -60,6 +62,35 @@ def _pool_for_mode(
     if mode_slug == MODE_FULL:
         return [m for m in pool if m.is_pledge]
     return list(pool)
+
+
+def _fill_order_key(
+    gated_shift_type_ids: frozenset[int],
+) -> Callable[[req_repo.EventShiftRequirement], tuple[int, str]]:
+    """Sort key for the per-shift-type fill loop: gated types first.
+
+    The loop is greedy and consumes the shared pool as it goes, so whichever
+    shift type runs first gets the pick of the chapter. Filling in slug order
+    put ``cleanup`` (4 slots) ahead of ``dj`` (1 slot, 2 qualified people in the
+    whole chapter) — cleanup would take a DJ as one of its four bodies and the
+    DJ slot then came up empty, with a qualified member sitting in the cleanup
+    crew. Most-constrained-first is the fix.
+
+    Slug remains the secondary key, so the order among ungated types is exactly
+    what it was before the gate existed.
+
+    Note this reads the CONSTRAINT rather than measuring the pool: pool size
+    changes run to run, and a fill order that moves with it would make the
+    schedule harder for the chair to predict.
+    """
+
+    def key(req: req_repo.EventShiftRequirement) -> tuple[int, str]:
+        return (
+            0 if req.shift_type_id in gated_shift_type_ids else 1,
+            req.shift_type_slug,
+        )
+
+    return key
 
 
 def auto_assign(
@@ -153,8 +184,26 @@ def auto_assign(
         by_type_slot.pop((stale.shift_type_id, stale.slot_index), None)
     pledges_first = resolved.resolved_slug == MODE_PARTIAL
 
-    for req in sorted(requirements, key=lambda r: r.shift_type_slug):
+    fill_order = _fill_order_key(
+        frozenset(quals_repo.shift_type_ids_with_requirements(conn))
+    )
+    for req in sorted(requirements, key=fill_order):
         type_pool = _pool_for_mode(pool, resolved.resolved_slug)
+        # Qualification gate. Only `dj` is gated, and the chapter has two DJs, so
+        # this pool is tiny — which is exactly why _fill_order runs it first.
+        narrowed = eligibility.filter_for_shift_type(
+            conn,
+            pool=type_pool,
+            shift_type_id=req.shift_type_id,
+            semester_id=event.semester_id,
+        )
+        if narrowed.required_qualification_slugs and not narrowed.eligible:
+            warnings.append(
+                f"{req.shift_type_slug}: nobody in the pool holds "
+                f"{'+'.join(narrowed.required_qualification_slugs)} — "
+                f"{narrowed.excluded_by_qualification} member(s) filtered out"
+            )
+        type_pool = narrowed.eligible
         # One shift per member per event — spreads load even when the partial
         # unique index would technically allow door+setup for the same person.
         # Chair can still manually multi-assign via `risk shift assign`.

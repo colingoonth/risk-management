@@ -42,3 +42,41 @@ def list_all(conn: sqlite3.Connection) -> list[Qualification]:
 def get_by_slug(conn: sqlite3.Connection, slug: str) -> Qualification | None:
     row = conn.execute("SELECT * FROM qualifications WHERE slug = ?", (slug,)).fetchone()
     return _row(row) if row else None
+
+
+def required_for_shift_type(
+    conn: sqlite3.Connection, shift_type_id: int
+) -> list[Qualification]:
+    """Qualifications a member must hold to work ``shift_type_id``.
+
+    Empty for every shift type but ``dj``. The primary key on
+    ``shift_type_required_qualification`` is the pair, so a shift type may carry
+    more than one requirement; callers treat the list as a conjunction — hold
+    all of them or you cannot work the slot.
+
+    An empty list means ungated, NOT "unknown". A shift type with no row has no
+    requirement, which is the normal case, so this deliberately does not raise
+    the way ``shift_type_windows`` does.
+    """
+    rows = conn.execute(
+        """
+        SELECT q.id, q.slug, q.display_name
+        FROM shift_type_required_qualification r
+        JOIN qualifications q ON q.id = r.qualification_id
+        WHERE r.shift_type_id = ?
+        ORDER BY q.slug
+        """,
+        (shift_type_id,),
+    ).fetchall()
+    return [_row(r) for r in rows]
+
+
+def shift_type_ids_with_requirements(conn: sqlite3.Connection) -> set[int]:
+    """Shift type ids that are gated on at least one qualification.
+
+    Lets a caller ask "is this type scarce?" without a query per shift type.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT shift_type_id FROM shift_type_required_qualification"
+    ).fetchall()
+    return {int(r["shift_type_id"]) for r in rows}
