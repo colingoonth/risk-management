@@ -191,8 +191,10 @@ def test_unavailability_add_duplicate(tmp_path: Path) -> None:
         "SELECT COUNT(*) FROM unavailability WHERE starts_on='2025-10-15' AND ends_on='2025-10-20'"
     ).fetchone()[0]
     conn.close()
-    # First insert always creates exactly 1 row.
-    assert count >= 1
+    # Exactly one, not "at least one" — the first insert alone satisfies >= 1,
+    # so the loose form passed even with the uniqueness index removed entirely
+    # and could never have caught the duplicate this test is named for.
+    assert count == 1
 
 
 # ---------------------------------------------------------------------------
