@@ -16,7 +16,7 @@ import json
 import secrets
 import sqlite3
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from risk.repos import auto_assign_runs as runs_repo
 from risk.repos import event_shift_requirements as req_repo
@@ -180,8 +180,26 @@ def auto_assign(
         )
         if commit:
             shifts_repo.unassign(conn, shift_id=stale.id)
-        # The slot will be re-filled in the per-shift loop below.
-        by_type_slot.pop((stale.shift_type_id, stale.slot_index), None)
+        # Clear the assignment IN THE MAP rather than dropping the entry. The
+        # slot is free but the ROW still exists — `unassign` nulls the member and
+        # sets status 'open', it does not delete. Dropping the entry made the
+        # fill loop below believe there was no row and call `insert_open`, which
+        # collides with UNIQUE(event_id, shift_type_id, slot_index): the whole
+        # run raised IntegrityError, rolled back with the stale assignment still
+        # in place, and then failed identically on every subsequent run. Keeping
+        # the entry means the loop finds the row and reuses its id.
+        #
+        # Done in memory, not re-read, so a dry run models exactly what the real
+        # run would do — `unassign` above is skipped when commit=False.
+        by_type_slot[(stale.shift_type_id, stale.slot_index)] = replace(
+            stale,
+            assigned_member_id=None,
+            assigned_member_slug=None,
+            effective_pledge_mode_id=None,
+            effective_pledge_mode_slug=None,
+            status="open",
+            assigned_at=None,
+        )
     pledges_first = resolved.resolved_slug == MODE_PARTIAL
 
     fill_order = _fill_order_key(
