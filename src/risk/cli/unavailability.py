@@ -71,7 +71,7 @@ def add(
             )
     except sqlite3.IntegrityError as exc:
         exc_str = str(exc)
-        if "unavailability_member_semester_range" in exc_str or "UNIQUE" in exc_str.upper():
+        if "unavailability_member_semester_window" in exc_str or "UNIQUE" in exc_str.upper():
             emit_error(
                 "unavailability.duplicate",
                 f"An unavailability window already exists for {m.slug} from {starts} to {ends}.",

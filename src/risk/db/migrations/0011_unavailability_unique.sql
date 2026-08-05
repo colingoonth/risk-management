@@ -1,6 +1,31 @@
 -- Phase 6 follow-up: enforce uniqueness on unavailability windows.
 -- Prevents duplicate rows when the same member/semester/date range is added twice.
 -- Option A from ADR: schema-enforced uniqueness is stronger than a pre-insert check.
-
-CREATE UNIQUE INDEX IF NOT EXISTS unavailability_member_semester_range
-  ON unavailability(member_id, semester_id, starts_on, ends_on);
+--
+-- SUPERSEDED BY 0012. The index this file used to create,
+--
+--   CREATE UNIQUE INDEX IF NOT EXISTS unavailability_member_semester_range
+--     ON unavailability(member_id, semester_id, starts_on, ends_on);
+--
+-- is deliberately gone, and must not come back. 0012 replaced it with
+-- unavailability_member_semester_window, which also covers starts_at_time,
+-- ends_at_time and repeats_weekday — because a member saying "busy 09:00-11:00"
+-- AND "busy 18:00-22:00" on the same date is two legitimate rows sharing one
+-- date range, which is the entire point of unavailability v2.
+--
+-- Leaving the CREATE here was not merely redundant. There is no
+-- _schema_migrations table, so ensure_schema replays EVERY migration on EVERY
+-- connect: 0011 recreated the narrow index, then 0012 dropped it again, on each
+-- connection. That was invisible while the table held no such pair — and the
+-- moment it did, 0011's CREATE UNIQUE INDEX aborted against the existing rows,
+-- ensure_schema raised IntegrityError, and the database could never be opened
+-- again with the chapter's data inside it.
+--
+-- The general rule this cost us: a migration is only replay-safe if it is safe
+-- against the DATA a later migration permits, not just against an empty schema.
+-- Constraints that a later migration widens have to be removed here, not merely
+-- dropped there.
+--
+-- The de-dup guarantee itself is unchanged and still enforced — by the wider
+-- index in 0012. This file is intentionally inert; it is kept rather than
+-- deleted so the migration sequence stays stable.
