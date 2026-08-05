@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Shell } from './components/Shell'
 import { SemesterProvider } from './lib/SemesterContext'
+import { Calendar } from './pages/Calendar'
 import { Dashboard } from './pages/Dashboard'
 import { Events } from './pages/Events'
 import { PledgeTakeover } from './pages/PledgeTakeover'
@@ -16,6 +17,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route index element={<Dashboard />} />
             <Route path="events" element={<Events />} />
+            <Route path="calendar" element={<Calendar />} />
             <Route path="swaps" element={<Swaps />} />
             <Route path="strikes" element={<Strikes />} />
             <Route path="pledges" element={<PledgeTakeover />} />

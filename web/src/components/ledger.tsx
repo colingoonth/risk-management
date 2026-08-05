@@ -124,6 +124,50 @@ export function DayStamp({ iso }: { iso: string }) {
   )
 }
 
+// Cell-scale sibling of FillBar: same two tokens, same meaning, proportional
+// instead of per-slot-segmented.
+//
+// Two reasons it is not just FillBar. A 16-segment bar (h-3 w-1.5 + gaps) plus
+// its label runs ~155px and a calendar day cell is ~140px. And segment COUNT
+// encodes the total rather than the fraction, so a 4/4 cleanup crew and a 4/16
+// krush would open with the same four dark marks — misleading at a glance, which
+// is the one job this has.
+//
+// Reach for FillBar wherever the individual slots are readable; FillRule only in
+// the grid.
+export function FillRule({
+  filled,
+  total,
+  muted,
+}: {
+  filled: number
+  total: number
+  muted?: boolean
+}) {
+  // "Nothing is required" is not "nothing is staffed" — an event type with no
+  // shift defaults must not render a full-width alarm.
+  if (total <= 0) return null
+  // Clamped so an orphaned over-assignment cannot overflow the bar. The numerals
+  // beside it still read 13/10, which is where that anomaly belongs.
+  const pct = Math.round((Math.min(filled, total) / total) * 100)
+  return (
+    <span
+      className="mt-auto flex h-[3px] w-full overflow-hidden"
+      role="img"
+      aria-label={`${filled} of ${total} slots posted`}
+    >
+      <span
+        style={{ width: `${pct}%` }}
+        className={muted ? 'bg-ink-700/50' : 'bg-ink-300'}
+      />
+      <span
+        style={{ width: `${100 - pct}%` }}
+        className={muted ? 'bg-ink-700/50' : 'bg-oxblood-600'}
+      />
+    </span>
+  )
+}
+
 export function FillBar({ filled, total }: { filled: number; total: number }) {
   const segs = Array.from({ length: Math.max(total, 1) }, (_, i) => i < filled)
   return (

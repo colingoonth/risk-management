@@ -56,6 +56,34 @@ export interface EventRow {
   host_house_slug: string | null
 }
 
+export interface ShiftSlotGroup {
+  shift_type_slug: string
+  target_count: number
+  assigned_count: number
+}
+
+// A strict superset of EventRow — the backend model is declared field-for-field
+// against EventOut for exactly this reason, so the two cannot drift.
+export interface EventSummaryRow extends EventRow {
+  target_slots: number // SUM(event_shift_requirements.target_count)
+  assigned_slots: number // RAW — may exceed target_slots when slots are orphaned
+  open_slots: number // clamped at 0. The alarm number.
+  orphan_slots: number // clamped at 0. Surfaced rather than hidden.
+  by_type: ShiftSlotGroup[]
+}
+
+// WHEN a shift type is worked, relative to the event date. Static, six rows.
+// The calendar reads cleanup's +1 from here rather than hardcoding it.
+export interface ShiftTypeWindow {
+  shift_type_slug: string
+  offset_days_start: number
+  offset_days_end: number
+  window_start_time: string
+  window_end_time: string
+  min_contiguous_minutes: number | null
+  occupies_event_night: boolean
+}
+
 export interface Shift {
   id: number
   event_id: number

@@ -5,6 +5,9 @@ import { WaxSeal } from './ledger'
 const NAV = [
   { to: '/', label: 'Register', end: true },
   { to: '/events', label: 'Events' },
+  // Events is where you author the schedule; Calendar is how you read it.
+  // Adjacent so the pair reads as one idea.
+  { to: '/calendar', label: 'Calendar' },
   { to: '/swaps', label: 'Swaps' },
   { to: '/strikes', label: 'Strikes' },
   { to: '/pledges', label: 'Pledges' },

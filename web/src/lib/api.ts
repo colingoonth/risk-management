@@ -7,6 +7,7 @@ import type {
   AutoAssignResult,
   Dashboard,
   EventRow,
+  EventSummaryRow,
   EventType,
   House,
   HouseMode,
@@ -17,6 +18,7 @@ import type {
   RosterIngestResult,
   Semester,
   Shift,
+  ShiftTypeWindow,
   StrikeRemovalResult,
   SwapRequest,
 } from './types'
@@ -86,6 +88,14 @@ export const api = {
 
   listEvents: (semester?: string) =>
     req<EventRow[]>(`/events${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`),
+  // Every event in the term WITH its staffing rollup — what the calendar paints
+  // from. Deliberately not folded into listEvents: the rollup costs two extra
+  // aggregates and only one page needs it.
+  listEventSummaries: (semester?: string) =>
+    req<EventSummaryRow[]>(
+      `/events/summary${semester ? `?semester=${encodeURIComponent(semester)}` : ''}`,
+    ),
+  listShiftTypeWindows: () => req<ShiftTypeWindow[]>('/shift-type-windows'),
   createEvent: (
     body: { event_type_slug: string; display_name: string; date: string; host_house_slug?: string | null },
     semester?: string,
