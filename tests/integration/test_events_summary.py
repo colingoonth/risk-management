@@ -303,6 +303,54 @@ def test_by_type_breaks_the_rollup_down_per_shift_type(
     )
 
 
+def test_by_type_still_reports_a_shift_type_whose_requirement_is_gone(
+    world: tuple[TestClient, dict[str, int], Path],
+) -> None:
+    """The whole reason the query is a CROSS JOIN rather than a plain join.
+
+    Driving from ``event_shift_requirements`` would report only what is still
+    required, so a crew that was assigned and then had its requirement lowered or
+    cleared would silently vanish from the breakdown — which is exactly the crew
+    the chair needs to see, because those members still think they are working.
+    It must come back at n/0.
+    """
+    client, ids, db_path = world
+    row = _by_id(client.get("/api/events/summary").json())[ids["orphan"]]
+    setup = next((g for g in row["by_type"] if g["shift_type_slug"] == "setup"), None)
+    assert setup is not None, "setup must still be listed after its target went to 0"
+    assert setup["target_count"] == 0
+    assert setup["assigned_count"] > 0, "these are the orphaned assignments"
+
+    # And with the requirement row DELETED outright, not merely zeroed.
+    conn = connect(db_path)
+    try:
+        with transaction(conn):
+            conn.execute(
+                "DELETE FROM event_shift_requirements "
+                "WHERE event_id = ? AND shift_type_id = "
+                "(SELECT id FROM shift_types WHERE slug = 'setup')",
+                (ids["orphan"],),
+            )
+    finally:
+        conn.close()
+
+    row = _by_id(client.get("/api/events/summary").json())[ids["orphan"]]
+    setup = next((g for g in row["by_type"] if g["shift_type_slug"] == "setup"), None)
+    assert setup is not None, "a deleted requirement must not hide assigned crew"
+    assert (setup["target_count"], setup["assigned_count"] > 0) == (0, True)
+
+
+def test_by_type_omits_shift_types_that_are_neither_required_nor_assigned(
+    world: tuple[TestClient, dict[str, int], Path],
+) -> None:
+    """The CROSS JOIN must not report all six types for every event."""
+    client, ids, _ = world
+    row = _by_id(client.get("/api/events/summary").json())[ids["never"]]
+    slugs = {g["shift_type_slug"] for g in row["by_type"]}
+    assert "bar" not in slugs, "a mixer has no bar — it should not appear at 0/0"
+    assert len(slugs) < 6
+
+
 def test_summary_route_is_not_swallowed_by_the_event_id_route(
     world: tuple[TestClient, dict[str, int], Path],
 ) -> None:
