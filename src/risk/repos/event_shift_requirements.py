@@ -25,6 +25,71 @@ class RequirementWithSource(EventShiftRequirement):
     written_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class SlotGroup:
+    """Target vs assigned for one (event, shift_type) pair."""
+
+    event_id: int
+    shift_type_slug: str
+    target_count: int
+    assigned_count: int
+
+
+def list_slot_groups_for_semester(
+    conn: sqlite3.Connection, semester_id: int
+) -> list[SlotGroup]:
+    """Per-(event, shift type) targets and assignments across a whole semester.
+
+    The calendar needs this to know that *this* mixer wants *four* cleanup slots —
+    a semester-wide scalar cannot say which shift types an event actually carries,
+    and cleanup is worked the morning AFTER the party, so the calendar has to place
+    it on a different day from the event itself.
+
+    Driven from ``events CROSS JOIN shift_types`` rather than from
+    ``event_shift_requirements``, so a shift type holding assigned shifts but no
+    requirement row — the orphaned lowered-target case — is still reported, at
+    n/0. Driving from the requirements table would hide exactly the rows a chair
+    most needs to see.
+
+    The WHERE clause keeps the cross join honest: a pair is returned only if it
+    has a target or has shifts, so this is ~5 rows per event, not 6 x every type.
+    """
+    rows = conn.execute(
+        """
+        SELECT
+          e.id AS event_id,
+          st.slug AS shift_type_slug,
+          COALESCE(r.target_count, 0) AS target_count,
+          (SELECT COUNT(*)
+             FROM shifts sh
+            WHERE sh.event_id = e.id
+              AND sh.shift_type_id = st.id
+              AND sh.assigned_member_id IS NOT NULL) AS assigned_count
+        FROM events e
+        CROSS JOIN shift_types st
+        LEFT JOIN event_shift_requirements r
+               ON r.event_id = e.id AND r.shift_type_id = st.id
+        WHERE e.semester_id = ?
+          AND (
+            COALESCE(r.target_count, 0) > 0
+            OR EXISTS (SELECT 1 FROM shifts s2
+                        WHERE s2.event_id = e.id AND s2.shift_type_id = st.id)
+          )
+        ORDER BY e.id, st.id
+        """,
+        (semester_id,),
+    ).fetchall()
+    return [
+        SlotGroup(
+            event_id=int(r["event_id"]),
+            shift_type_slug=r["shift_type_slug"],
+            target_count=int(r["target_count"]),
+            assigned_count=int(r["assigned_count"]),
+        )
+        for r in rows
+    ]
+
+
 def upsert(
     conn: sqlite3.Connection,
     *,

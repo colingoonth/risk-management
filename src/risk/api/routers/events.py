@@ -15,11 +15,14 @@ from risk.api.schemas import (
     AutoAssignOut,
     EventIn,
     EventOut,
+    EventSummaryOut,
     ProposedAssignmentOut,
     SetHostIn,
     ShiftOut,
+    ShiftSlotGroupOut,
 )
 from risk.db.connection import transaction
+from risk.repos import event_shift_requirements as req_repo
 from risk.repos import event_types as etypes_repo
 from risk.repos import events as events_repo
 from risk.repos import houses as houses_repo
@@ -78,6 +81,41 @@ def list_events(
         sem = resolve_semester(conn, semester)
     rows = events_repo.list_for_semester(conn, sem.id, status=status)
     return [EventOut.model_validate(r) for r in rows]
+
+
+@router.get("/summary", response_model=list[EventSummaryOut])
+def list_event_summaries(
+    semester: str | None = None,
+    status: str | None = None,
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> list[EventSummaryOut]:
+    """Every event in a semester with its staffing rollup — two queries, one trip.
+
+    Feeds the calendar, which needs 43 events, their targets and their assigned
+    counts before it can paint a single cell. The per-event loop in the dashboard
+    router would be 87 queries for the same answer.
+
+    MUST stay declared ABOVE ``GET /{event_id}``. FastAPI matches routes in
+    declaration order, so below it the literal path "summary" is parsed as an int
+    event_id and the endpoint 422s instead of ever being reached.
+
+    Query params mirror ``GET /events`` so the two stay interchangeable. The
+    calendar passes no ``status`` on purpose — it wants cancelled events too, in
+    order to draw them struck through rather than silently omit a night the chair
+    remembers scheduling.
+    """
+    with service_errors():
+        sem = resolve_semester(conn, semester)
+    rows = events_repo.list_for_semester_with_fill(conn, sem.id, status=status)
+    groups: dict[int, list[ShiftSlotGroupOut]] = {}
+    for g in req_repo.list_slot_groups_for_semester(conn, sem.id):
+        groups.setdefault(g.event_id, []).append(ShiftSlotGroupOut.model_validate(g))
+    return [
+        EventSummaryOut.model_validate(r).model_copy(
+            update={"by_type": groups.get(r.id, [])}
+        )
+        for r in rows
+    ]
 
 
 @router.post("", response_model=EventOut, status_code=201)

@@ -52,6 +52,59 @@ class EventOut(_Out):
     host_house_slug: str | None
 
 
+class ShiftSlotGroupOut(_Out):
+    shift_type_slug: str
+    target_count: int
+    assigned_count: int
+
+
+class EventSummaryOut(_Out):
+    """``EventOut`` plus the staffing rollup the calendar reads at a glance.
+
+    Deliberately a field-for-field SUPERSET of ``EventOut`` so the TypeScript
+    client can declare ``extends EventRow`` and the two DTOs cannot drift apart.
+
+    Kept as a separate model rather than adding the rollup to ``EventOut``:
+    ``EventOut`` is validated straight off the ``events_repo.Event`` dataclass and
+    is the return type of four mutation endpoints, so adding fill fields there
+    would either weld a staffing rollup into the hot read path or mint a DTO whose
+    numbers mean "the real target" on one route and "0, we didn't look" on four
+    others.
+    """
+
+    # --- identical to EventOut ---
+    id: int
+    semester_id: int
+    display_name: str
+    date: str
+    start_time: str | None
+    end_time: str | None
+    status: str
+    resync_pending: bool
+    notes: str | None
+    semester_name: str
+    event_type_slug: str
+    host_house_slug: str | None
+    # --- the rollup ---
+    target_slots: int  # SUM(target_count). Independent of whether shifts exist.
+    assigned_slots: int  # RAW, UNCLAMPED — may exceed target_slots.
+    open_slots: int  # max(target - assigned, 0). The alarm number.
+    orphan_slots: int  # max(assigned - target, 0). Surfaced, never hidden.
+    by_type: list[ShiftSlotGroupOut] = []
+
+
+class ShiftTypeWindowOut(_Out):
+    """WHEN a shift type is worked, relative to the event date."""
+
+    shift_type_slug: str
+    offset_days_start: int
+    offset_days_end: int
+    window_start_time: str
+    window_end_time: str
+    min_contiguous_minutes: int | None
+    occupies_event_night: bool
+
+
 class ShiftOut(_Out):
     id: int
     event_id: int
