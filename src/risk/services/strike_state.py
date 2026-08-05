@@ -139,12 +139,18 @@ def apply_removal(
             raise ValueError(
                 f"strike {sid} belongs to member {strike.member_id}, not {member_id}"
             )
+        # Derived from every strike the caller NAMED, not just the ones this
+        # call closes. Deriving it below the `continue` meant a removal that
+        # closed nothing — re-running the same command, say — left it None and
+        # reported active_count_after=0: "in good standing" for a member who
+        # still had open strikes. The semester is a property of the strikes
+        # pointed at, and those are all validated by this point.
+        semester_id = strike.semester_id
         if strike.closed_at is not None:
             continue
         removal_repo.link_strike(conn, removal_id=removal_id, strike_id=sid)
         strike_repo.close(conn, sid, closed_at=performed_on)
         closed.append(sid)
-        semester_id = strike.semester_id
     active_after = (
         strike_repo.count_active(conn, member_id=member_id, semester_id=semester_id)
         if semester_id is not None
