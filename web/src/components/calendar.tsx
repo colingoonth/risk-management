@@ -9,7 +9,7 @@ import { FillRule, LedgerSection } from './ledger'
 
 const WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
-function EventLine({ entry, today }: { entry: Extract<DayEntry, { kind: 'event' }>; today: string }) {
+function EventLine({ entry }: { entry: Extract<DayEntry, { kind: 'event' }> }) {
   const { ev } = entry
   const cancelled = ev.status === 'cancelled'
   const provisional = planningOf(ev.notes) !== null && planningOf(ev.notes) !== 'confirmed'
@@ -38,8 +38,6 @@ function EventLine({ entry, today }: { entry: Extract<DayEntry, { kind: 'event' 
       ) : (
         <span className="block font-mono text-[10px] italic text-ink-500">no slots configured</span>
       )}
-      {/* aria-hidden: the cell's own label already carries all of this. */}
-      <span className="sr-only">{isOverdue(ev, today) ? 'overdue' : ''}</span>
     </span>
   )
 }
@@ -85,13 +83,13 @@ export function DayCell({
 }) {
   const events = entries.filter((e): e is Extract<DayEntry, { kind: 'event' }> => e.kind === 'event')
   const ghosts = entries.filter((e): e is Extract<DayEntry, { kind: 'ghost' }> => e.kind === 'ghost')
-  const overdue = events.some((e) => isOverdue(e.ev, today))
   const isToday = iso === today
   // Inert only when it is BOTH out of term and empty: FA26's last cleanup crew
   // works the day after the term ends, and greying that out would hide four real
   // slots from the only view that shows them.
   const inert = !inTerm && entries.length === 0
 
+  const overdue = events.some((e) => isOverdue(e.ev, today))
   const posted = events.reduce((n, e) => n + e.ev.assigned_slots, 0)
   const target = events.reduce((n, e) => n + e.ev.target_slots, 0)
   const ghostSlots = ghosts.reduce((n, g) => n + g.target, 0)
@@ -109,6 +107,10 @@ export function DayCell({
     said.push(`${ghostPosted} of ${ghostSlots} carried-in crew slots posted`)
   }
   if (said.length === 0) said.push('nothing scheduled')
+  // An aria-label on a <button> REPLACES its subtree, so an sr-only span inside
+  // the cell is never read. The alarm has to be in the label itself or it is
+  // colour-only — invisible to a screen reader and to anyone colour-blind.
+  if (overdue) said.unshift('overdue')
   const label = `${dayNumeral(iso)}, ${said.join(', ')}`
 
   const shown = events.slice(0, 2)
@@ -127,7 +129,7 @@ export function DayCell({
       onClick={() => onSelect(iso)}
       className={`group relative flex min-h-24 w-full flex-col items-stretch gap-1 border-b border-r border-ink-700/30 px-2 py-1.5 text-left transition-colors ${
         inert ? 'cursor-default' : 'hover:bg-char-850/40'
-      } ${selected ? 'bg-brass-300/40' : ''}`}
+      } ${selected ? 'bg-brass-300/40 outline outline-2 -outline-offset-2 outline-ink-300' : ''}`}
     >
       {/* The one binary alarm on the page: past-dated and still open. Same 3px
           oxblood edge, same meaning, as the Register's overdue rows. */}
@@ -148,7 +150,7 @@ export function DayCell({
         {dayNumeral(iso)}
       </span>
       {shown.map((e) => (
-        <EventLine key={e.ev.id} entry={e} today={today} />
+        <EventLine key={e.ev.id} entry={e} />
       ))}
       {ghosts.slice(0, 2).map((g, i) => (
         <GhostLine key={`${g.parent.id}-${g.shiftTypeSlug}-${i}`} entry={g} />

@@ -40,7 +40,7 @@ export function Calendar() {
   const windows = useAsync(() => api.listShiftTypeWindows(), [])
   const houses = useAsync(() => api.listHouses(), [])
   const [params, setParams] = useSearchParams()
-  const [note, setNote] = useState<string | null>(null)
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null)
   const dockRef = useRef<HTMLDivElement | null>(null)
 
   const selected = params.get('d')
@@ -162,10 +162,10 @@ export function Calendar() {
     try {
       const r = await api.autoAssign(eventId)
       const filled = r.assignments.filter((a) => a.reason === 'assigned').length
-      setNote(`${r.event_name}: ${filled} posted (mode ${r.resolved_mode}).`)
+      setNote({ text: `${r.event_name}: ${filled} posted (mode ${r.resolved_mode}).`, error: false })
       reload()
     } catch (e) {
-      setNote(e instanceof Error ? e.message : String(e))
+      setNote({ text: e instanceof Error ? e.message : String(e), error: true })
     }
   }
 
@@ -186,7 +186,12 @@ export function Calendar() {
   return (
     <div className="space-y-10">
       <h1 className="text-3xl font-semibold tracking-tight text-ink-100">Calendar</h1>
-      {note && <ErrorNote message={note} />}
+      {note &&
+        (note.error ? (
+          <ErrorNote message={note.text} />
+        ) : (
+          <p className="font-mono text-[11px] text-ink-500">{note.text}</p>
+        ))}
       {error && <ErrorNote message={error} />}
 
       <LedgerSection
@@ -343,9 +348,9 @@ function DayDock({
         action={
           <button
             onClick={onClose}
-            className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-500 transition-colors hover:text-oxblood-300"
+            className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-500 transition-colors hover:text-ink-100"
           >
-            close ✕
+            close
           </button>
         }
       >
