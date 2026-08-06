@@ -29,10 +29,42 @@ uv run pyinstaller packaging/RiskManagement.spec \
 rm -rf "/Applications/Risk Management.app"
 cp -R "packaging/dist/Risk Management.app" "/Applications/Risk Management.app"
 codesign --force --deep --sign - "/Applications/Risk Management.app"
+
+# 4. Delete the build copy — DO NOT SKIP. See below.
+rm -rf "packaging/dist/Risk Management.app"
 ```
 The Dock entry points at `/Applications/Risk Management.app`, so replacing it in
 place keeps the Dock icon valid. A locally-built bundle carries no
 `com.apple.quarantine` flag, so it launches with no Gatekeeper prompt.
+
+### Why step 4 matters
+
+PyInstaller writes a **fully launchable** `.app` into `packaging/dist`, and
+Spotlight indexes it like any other application. Searching "risk" then returns
+**two** identical-looking results with no way to tell them apart, and the repo one
+is whatever you last froze — which is *not* what step 3 installed if you ever
+build without installing. That is how a two-month-old bundle stayed in use: the
+stale copy still launched, still opened the real database, and still looked right.
+Its migrations stopped at `0011`, so it silently re-created the index that `0012`
+replaced.
+
+Two defences, both cheap:
+
+- **Step 4 removes the duplicate** as soon as it has been installed. The bundle is
+  a build artifact — `packaging/dist` is gitignored and every build regenerates it.
+- **`packaging/dist/.metadata_never_index`** tells Spotlight to skip that whole
+  tree, so a build you have not installed yet never shows up in search. PyInstaller
+  removes only the `.app` on `--noconfirm`, so the marker survives rebuilds. It is
+  inside a gitignored directory and therefore not tracked — recreate it with
+  `touch packaging/dist/.metadata_never_index` on a fresh clone.
+
+To check what is actually installed at any time:
+
+```sh
+ls "/Applications/Risk Management.app/Contents/Resources/risk/db/migrations" | tail -1
+```
+If that is not the highest-numbered file in `src/risk/db/migrations`, the Dock app
+is behind the source and needs a rebuild.
 
 ## Icon
 `icon/icon.svg` is the source; rebuild `icon/RiskManagement.icns` with:
