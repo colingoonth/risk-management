@@ -187,11 +187,39 @@ def test_cleanup_is_reported_on_the_morning_after_the_party(
     cleanups = [r for r in exported.by_brother if r.shift_type == "CLEANUP"]
     assert cleanups
     for r in cleanups:
-        assert r.worked_on > r.date, "cleanup is worked AFTER the party"
+        assert r.worked_on_date > r.date, "cleanup is worked AFTER the party"
+        # And it has to SAY so. The date alone is not enough: a brother reading
+        # a Friday row does not stop to notice the date in a neighbouring column
+        # is a Saturday. "before 12:00" is the other half — the window is
+        # 00:00-12:00, which is a deadline, and rendering it literally invites
+        # somebody to read "00:00" as "be there at midnight".
+        assert "before 12:00" in r.worked_on, r.worked_on
+        assert r.worked_on.startswith(r.worked_on_date), (
+            "the ISO date must lead so the column still sorts"
+        )
     setups = [r for r in exported.by_brother if r.shift_type == "SETUP"]
     assert setups
     for r in setups:
-        assert r.worked_on <= r.date, "setup is worked before or on the day"
+        assert r.worked_on_date <= r.date, "setup is worked before or on the day"
+        assert "any 2h block" in r.worked_on, r.worked_on
+
+
+def test_the_cleanup_column_header_names_the_day(
+    exported: export_svc.SemesterExport,
+) -> None:
+    """The grid is what gets printed and pinned up.
+
+    A reader scanning down the CLEANUP block will not look back across seven
+    columns to work out which day it means, so the day rides in the heading. The
+    phrasing is derived from shift_type_windows rather than hardcoded — move
+    cleanup to noon-to-four and the header follows.
+    """
+    assert exported.column_headers["cleanup"] == "CLEANUP (NEXT MORNING, before 12:00)"
+    assert exported.column_headers["setup"] == "SETUP (BEFORE the party)"
+    # Jobs worked on the night of the party keep their bare label; qualifying
+    # every column would make the two that matter stop standing out.
+    assert exported.column_headers["door"] == "DOOR"
+    assert exported.column_headers["driver"] == "RIDES"
 
 
 def test_column_widths_come_from_the_data(exported: export_svc.SemesterExport) -> None:

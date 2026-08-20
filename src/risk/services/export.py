@@ -104,6 +104,9 @@ class ShiftRow:
     shift_type: str
     slot_index: int
     worked_on: str
+    """Human phrasing, ISO-prefixed so the column still sorts."""
+    worked_on_date: str
+    """The bare ISO date, for anything that needs to compare rather than read."""
     is_strike: bool
 
 
@@ -114,6 +117,7 @@ class SemesterExport:
     tally: list[TallyRow]
     by_brother: list[ShiftRow]
     shift_type_columns: list[tuple[str, int]] = field(default_factory=list)
+    column_headers: dict[str, str] = field(default_factory=dict)
     senior_target: float = 0.0
     underclass_target: float = 0.0
 
@@ -141,6 +145,77 @@ def _weekday(iso: str) -> str:
 
 def _shift(iso: str, days: int) -> str:
     return (_date.fromisoformat(iso) + timedelta(days=days)).isoformat()
+
+
+def _pretty_date(iso: str) -> str:
+    """``2026-08-29`` -> ``Sat 29 Aug``. For humans, beside the ISO date."""
+    d = _date.fromisoformat(iso)
+    return f"{_WEEKDAYS[d.weekday()]} {d.day} {d.strftime('%b')}"
+
+
+def _describe_window(win: sqlite3.Row | None, event_date: str) -> str:
+    """When a shift is actually worked, in words, derived from the window row.
+
+    Every text surface in this app prints shifts against the PARTY date. For
+    four of the six jobs that is right. For the other two it is wrong in
+    opposite directions: setup runs up to two days BEFORE, and cleanup is the
+    morning AFTER. Telling four people to turn up on the night of the party for
+    a shift that happens the next morning manufactures no-shows, and a no-show
+    is a strike — so this is the app inventing discipline problems.
+
+    Phrasing is derived from ``shift_type_windows``, never hardcoded, so if the
+    chapter moves cleanup to noon-to-four the label moves with it. The three
+    shapes below are read off the times rather than the slug:
+
+      starts at midnight   -> "before HH:MM"   (a deadline, not a shift start)
+      runs to 23:59        -> "from HH:MM"     (an open-ended evening)
+      anything else        -> "HH:MM-HH:MM"
+
+    ``00:00-12:00`` is technically an accurate rendering of the cleanup window
+    and a terrible thing to put in front of 67 people, most of whom will read
+    "00:00" as "be there at midnight".
+    """
+    if win is None:
+        return ""
+    start = str(win["window_start_time"])
+    end = str(win["window_end_time"])
+    if start == "00:00":
+        when = f"before {end}"
+    elif end == "23:59":
+        when = f"from {start}"
+    else:
+        when = f"{start}-{end}"
+
+    first = _shift(event_date, int(win["offset_days_start"]))
+    last = _shift(event_date, int(win["offset_days_end"]))
+    days = _pretty_date(first) if first == last else f"{_pretty_date(first)} - {_pretty_date(last)}"
+
+    minutes = win["min_contiguous_minutes"]
+    if minutes:
+        hours = int(minutes) // 60
+        return f"{days}, {when}, any {hours}h block"
+    return f"{days}, {when}"
+
+
+def _window_header(win: sqlite3.Row | None, label: str) -> str:
+    """The column heading for a job whose window is not the night of the party.
+
+    Carried in the header rather than left to the per-row window column, because
+    the grid is what gets printed and pinned to a wall, and a reader scanning
+    down the CLEANUP block will never look back across seven columns to find out
+    which day it means.
+    """
+    if win is None:
+        return label
+    offset = int(win["offset_days_start"])
+    if offset > 0:
+        end = str(win["window_end_time"])
+        return (
+            f"{label} (NEXT MORNING, before {end})" if offset == 1 else f"{label} (+{offset} days)"
+        )
+    if int(win["offset_days_end"]) < 0 or offset < 0:
+        return f"{label} (BEFORE the party)"
+    return label
 
 
 def _class_label(class_year: int | None, *, term_start_year: int, term_is_fall: bool) -> str:
@@ -176,7 +251,7 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
         for r in conn.execute(
             """
             SELECT st.slug, w.offset_days_start, w.offset_days_end,
-                   w.window_start_time, w.window_end_time
+                   w.window_start_time, w.window_end_time, w.min_contiguous_minutes
             FROM shift_type_windows w JOIN shift_types st ON st.id = w.shift_type_id
             """
         )
@@ -199,6 +274,10 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
     ).fetchall()
     widths = {r["slug"]: int(r["w"]) for r in width_rows}
     shift_type_columns = [(s, widths[s]) for s in _DISPLAY_ORDER if s in widths]
+    column_headers = {
+        slug: _window_header(windows.get(slug), _DISPLAY_LABEL.get(slug, slug.upper()))
+        for slug, _ in shift_type_columns
+    }
 
     # One pass over every REQUIRED slot. Driven from requirements CROSS JOIN the
     # slot index, not from `shifts`: shift rows are created lazily by the fill,
@@ -265,20 +344,11 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
                 event_type=event.event_type_slug,
                 host_house=event.host_house_slug or "(off-site)",
                 planning_status=event.planning_status,
-                setup_window=(
-                    f"{_shift(event.date, int(setup_w['offset_days_start']))} to {event.date}"
-                    if setup_w
-                    else ""
-                ),
+                setup_window=_describe_window(setup_w, event.date),
                 # Cleanup is the MORNING AFTER. Every text surface in this app
                 # prints shifts against the event date, which quietly tells four
                 # people to turn up a day early — and a missed shift is a strike.
-                cleanup_window=(
-                    f"{_shift(event.date, int(cleanup_w['offset_days_start']))} "
-                    f"{cleanup_w['window_start_time']}-{cleanup_w['window_end_time']}"
-                    if cleanup_w
-                    else ""
-                ),
+                cleanup_window=_describe_window(cleanup_w, event.date),
                 needed=needed,
                 filled=filled,
                 cells=cells,
@@ -301,6 +371,7 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
         tally=tally,
         by_brother=by_brother,
         shift_type_columns=shift_type_columns,
+        column_headers=column_headers,
         senior_target=senior_target,
         underclass_target=underclass_target,
     )
@@ -384,6 +455,11 @@ def _build_member_rows(
                 per_type[r["shift_slug"]] = per_type.get(r["shift_slug"], 0) + 1
             offset = windows.get(r["shift_slug"])
             worked = _shift(r["date"], int(offset["offset_days_start"])) if offset else r["date"]
+            # ISO first so the column still sorts, then the same phrase the
+            # Schedule tab uses. A brother finding his own row needs the day and
+            # the deadline in the cell he is already looking at, not a lookup
+            # back to a header seven columns away.
+            worked_label = f"{worked}  {_describe_window(offset, r['date'])}" if offset else worked
             by_brother.append(
                 ShiftRow(
                     display_name=m["display_name"],
@@ -393,7 +469,8 @@ def _build_member_rows(
                     event=r["event_name"].split(" (2")[0],
                     shift_type=_DISPLAY_LABEL.get(r["shift_slug"], r["shift_slug"].upper()),
                     slot_index=r["slot_index"],
-                    worked_on=worked,
+                    worked_on=worked_label,
+                    worked_on_date=worked,
                     is_strike=is_strike,
                 )
             )

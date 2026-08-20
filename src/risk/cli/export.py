@@ -71,7 +71,10 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
     row1: list[str] = list(header_a)
     row2: list[str] = [""] * len(header_a)
     for slug, width in data.shift_type_columns:
-        label = export_svc._DISPLAY_LABEL.get(slug, slug.upper())
+        # The header carries the DAY for anything not worked on the night of
+        # the party. A reader scanning down the CLEANUP block will not look back
+        # across seven columns to find out it means the next morning.
+        label = data.column_headers.get(slug, export_svc._DISPLAY_LABEL.get(slug, slug.upper()))
         for i in range(width):
             row1.append(label if i == 0 else "")
             row2.append(str(i + 1))
@@ -124,8 +127,17 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         if row.filled < row.needed:
             ws.cell(row=r, column=len(values)).font = st["alarm"]
 
+    # Merge each job's heading across its slot columns. Without this the long
+    # "(NEXT MORNING, before 12:00)" is clipped at the first column's width and
+    # the one thing it exists to say is the part that gets cut off.
+    col = len(header_a) + 1
+    for _slug, width in data.shift_type_columns:
+        if width > 1:
+            ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + width - 1)
+        col += width
+
     ws.freeze_panes = "D3"
-    widths = [11, 5, 30, 15, 12, 24, 22] + [18] * (len(row1) - 9) + [8, 7]
+    widths = [11, 5, 30, 15, 12, 30, 30] + [18] * (len(row1) - 9) + [8, 7]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
