@@ -125,3 +125,36 @@ def test_transaction_rollback_on_exception(tmp_path: Path) -> None:
     count = conn.execute("SELECT COUNT(*) FROM semesters").fetchone()[0]
     assert count == 0
     conn.close()
+
+
+def test_the_cli_and_the_app_resolve_to_the_same_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One definition of where the chapter lives, not two.
+
+    These were separate constants until they drifted: the desktop launcher
+    hardcoded ``~/Library/Application Support/risk-management/risk.db`` while
+    ``connection`` resolved to ``~/.local/share/risk/risk.db``. The app and the
+    shell therefore opened DIFFERENT databases on the same machine — and since
+    ``ensure_schema`` creates whatever it is handed, the first bare ``risk``
+    command did not fail, it silently created an empty second chapter. Running
+    ``risk member list`` against a fully loaded app then printed nothing, which
+    is indistinguishable from having lost the roster.
+
+    Caught by running the real ingest against the real machine, not by the suite,
+    which is why it is now in the suite.
+    """
+    from risk.db.connection import resolve_db_path
+    from risk.desktop.__main__ import _default_db_path
+
+    monkeypatch.delenv("RISK_DB_PATH", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    assert resolve_db_path() == _default_db_path()
+
+
+def test_xdg_data_home_still_wins_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A user who sets XDG_DATA_HOME means it, on any platform."""
+    from risk.db.connection import _default_db_path
+
+    monkeypatch.setenv("XDG_DATA_HOME", "/tmp/xdg-test")
+    assert _default_db_path() == Path("/tmp/xdg-test") / "risk" / "risk.db"

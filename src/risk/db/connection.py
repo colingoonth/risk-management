@@ -21,8 +21,35 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-_xdg_data = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-DEFAULT_DB_PATH = _xdg_data / "risk" / "risk.db"
+
+def _default_db_path() -> Path:
+    """Where the chapter's database lives when nobody says otherwise.
+
+    On macOS this is ``~/Library/Application Support/risk-management/risk.db``,
+    which is where the packaged app has always put it. Everywhere else it is the
+    XDG location.
+
+    THIS USED TO DISAGREE WITH THE APP, and the disagreement was silent. The
+    desktop launcher hardcoded the Application Support path while this module
+    resolved to ``~/.local/share/risk/risk.db`` — the same fact written down in
+    two places, in two different ways. So the Dock app and the ``risk`` CLI
+    opened DIFFERENT DATABASES on the same machine, and because ``ensure_schema``
+    creates whatever it is pointed at, the first bare CLI command silently
+    created a second, empty chapter rather than failing. ``risk member list``
+    then printed nothing at all, which reads exactly like data loss.
+
+    One definition now, imported by the launcher, so the two cannot drift again.
+    ``XDG_DATA_HOME`` still wins if it is set, since a user who sets it means it.
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "risk" / "risk.db"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "risk-management" / "risk.db"
+    return Path.home() / ".local" / "share" / "risk" / "risk.db"
+
+
+DEFAULT_DB_PATH = _default_db_path()
 
 BUSY_TIMEOUT_MS = 5000
 RETRY_MAX_ATTEMPTS = 3

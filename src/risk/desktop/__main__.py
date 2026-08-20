@@ -43,8 +43,17 @@ def _free_port() -> int:
 
 
 def _default_db_path() -> Path:
-    """Stable macOS user-data location for the packaged app's database."""
-    return Path.home() / "Library" / "Application Support" / "risk-management" / "risk.db"
+    """Where the packaged app keeps the chapter's database.
+
+    Delegates to ``db.connection`` rather than restating the path. It used to
+    restate it, and the two definitions drifted: the CLI resolved to the XDG
+    location while this resolved to Application Support, so the app and the
+    shell opened different databases on the same machine and the first bare
+    ``risk`` command silently created an empty second chapter.
+    """
+    from risk.db.connection import DEFAULT_DB_PATH
+
+    return DEFAULT_DB_PATH
 
 
 def _bundled_static_dir() -> Path | None:
