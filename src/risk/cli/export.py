@@ -83,6 +83,112 @@ def _styles() -> dict[str, object]:
     }
 
 
+NOTES_TAB = "Risk Notes"
+"""The one tab a re-push must never touch.
+
+Everything else in this workbook is derived from the database and regenerated
+wholesale on every export. This tab is the opposite: it is the only place in the
+system where the chair writes something the database does not know, and it is
+the input side of the loop — he types "Nico is out Oct 10", the schedule is
+rebuilt around it, and the note is what explains WHY the rebuild differs.
+
+Which makes it exactly the thing a careless push destroys. `gog drive upload
+--replace` swaps the entire file, so the obvious way to keep the sheet's URL
+stable is also the way to silently delete his notes. `risk export push` updates
+the three generated tabs by name instead, and never names this one.
+"""
+
+
+def _write_notes(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
+    """The template for the notes tab, written only on a first export.
+
+    Seeded with the contract rather than left blank, because a blank tab
+    labelled "Risk Notes" invites notes on the Schedule tab too — and those
+    ARE destroyed on the next push. The header says which tabs survive.
+    """
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    rows: list[tuple[str, ...]] = [
+        (f"RISK NOTES — {data.semester_name}",),
+        (),
+        ("Write anything here. Before rebuilding the schedule, Claude reads this tab first.",),
+        ("This tab is never overwritten by an export.",),
+        (
+            "The Schedule / Tally / By Brother tabs ARE regenerated on every push — "
+            "notes written there will be lost.",
+        ),
+        (),
+        ("ONE-OFF NOTES", "", "", "things to action once, then mark done"),
+        ("Added", "Note", "Status", ""),
+        ("2026-08-20", "example: Nico can't do Oct 10, family thing", "", ""),
+        ("", "", "", ""),
+        ("", "", "", ""),
+        ("", "", "", ""),
+        (),
+        ("STANDING RULES", "", "", "things that should apply to every rebuild"),
+        ("Added", "Rule", "Active", ""),
+        ("2026-08-20", "example: don't put Mateus on cleanup, he opens the house", "", ""),
+        ("", "", "", ""),
+        ("", "", "", ""),
+        (),
+        ("OPEN ITEMS — from Claude", "", "", "answered here, or just tell me"),
+        ("Raised", "Item", "Answer", ""),
+        (
+            "2026-08-20",
+            "Unavailability is only checked against the PARTY date, so a Sunday-morning "
+            "conflict does not protect a Saturday cleanup crew. 172 slots. Want it wired?",
+            "",
+            "",
+        ),
+        (
+            "2026-08-20",
+            "Pledge takeover cannot execute yet — the pledge role is unseeded and 20 of 21 "
+            "post-cutoff events have no host house. Build it when you know the PC size.",
+            "",
+            "",
+        ),
+        (
+            "2026-08-20",
+            "member_house_assignments is empty, so nobody is being excluded from monitoring "
+            "their own house. Send the Arena/Blur resident lists and I'll fold them in.",
+            "",
+            "",
+        ),
+    ]
+    for row in rows:
+        ws.append(list(row) if row else [])
+
+    ws.cell(row=1, column=1).font = Font(name="Helvetica Neue", size=14, bold=True, color=_INK)
+    for r in (3, 4, 5):
+        ws.cell(row=r, column=1).font = st["body"]
+    for r, _label in ((7, "ONE-OFF NOTES"), (14, "STANDING RULES"), (20, "OPEN ITEMS")):
+        cell = ws.cell(row=r, column=1)
+        cell.font = Font(name="Helvetica Neue", size=11, bold=True, color=_BRASS)
+        ws.cell(row=r, column=4).font = st["body"]
+    for r in (8, 15, 21):
+        for c in range(1, 4):
+            cell = ws.cell(row=r, column=c)
+            cell.font = st["header"]
+            cell.fill = PatternFill("solid", fgColor=_HEADER_BG)
+            cell.border = st["border"]
+    # The examples are dimmed so they read as prompts rather than real entries.
+    for r in (9, 16):
+        for c in range(1, 4):
+            ws.cell(row=r, column=c).font = Font(
+                name="Helvetica Neue", size=10, italic=True, color="9A9186"
+            )
+    for r in (22, 23, 24):
+        ws.cell(row=r, column=2).alignment = st["wrap"]
+        ws.cell(row=r, column=2).font = st["body"]
+        ws.cell(row=r, column=1).font = st["body"]
+
+    for i, w in enumerate([12, 86, 14, 40], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    for r in (22, 23, 24):
+        ws.row_dimensions[r].height = 32
+
+
 def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
@@ -342,6 +448,9 @@ def sheet(
     wb.active.title = "Schedule"
     _write_tally(wb.create_sheet("Tally"), data, st)
     _write_by_brother(wb.create_sheet("By Brother"), data, st)
+    # Last, so it sits at the right-hand end of the tab strip — it is the tab
+    # the chair writes in, not one the chapter reads.
+    _write_notes(wb.create_sheet(NOTES_TAB), data, st)
 
     out = out.expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -353,7 +462,7 @@ def sheet(
         {
             "semester": sem.name,
             "path": str(out),
-            "tabs": ["Schedule", "Tally", "By Brother"],
+            "tabs": ["Schedule", "Tally", "By Brother", NOTES_TAB],
             "events": len(data.schedule),
             "members": len(data.tally),
             "shift_rows": len(data.by_brother),
@@ -365,3 +474,265 @@ def sheet(
         },
         mode=mode,
     )
+
+
+GENERATED_TABS = ("Schedule", "Tally", "By Brother")
+"""Tabs a push rebuilds. Deliberately a list of names, not "everything".
+
+The whole point is that it does NOT include ``Risk Notes``.
+"""
+
+
+def _gog(args: list[str], *, account: str) -> tuple[int, str]:
+    """Run a gog command, returning (exit code, combined output).
+
+    Resolved through ``shutil.which`` rather than assumed on PATH. This runs
+    from a terminal today, where /opt/homebrew/bin is present — but the moment
+    anything calls it from a GUI-launched process it would not be, and a
+    FileNotFoundError three layers down is a worse error than the one below.
+    """
+    import shutil
+    import subprocess
+
+    binary = shutil.which("gog")
+    if binary is None:
+        return 127, "gog not found on PATH (brew install gogcli, or add /opt/homebrew/bin)"
+    proc = subprocess.run(  # noqa: S603
+        [binary, *args, "-a", account],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+@app.command("push")
+def push(
+    ctx: typer.Context,
+    sheet_id: Annotated[str, typer.Option("--sheet-id", help="Target Google Sheet ID.")],
+    account: Annotated[str, typer.Option("--account", help="gog account to push as.")],
+    semester: Annotated[
+        str | None, typer.Option("--semester", help="Defaults to the current semester.")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print what would be pushed, write nothing.")
+    ] = False,
+) -> None:
+    """Refresh the generated tabs of an existing Google Sheet, in place.
+
+    Updates Schedule, Tally and By Brother by name and leaves every other tab
+    alone — which is the entire reason this exists rather than
+    ``gog drive upload --replace``. That flag swaps the whole FILE: it keeps the
+    URL and the sharing, and it deletes the chair's notes tab in the same
+    breath, silently, on a command whose name suggests it is updating content.
+
+    The sheet keeps its ID, so the link shared with the chapter stays good all
+    semester.
+
+    Example:
+        risk export push --sheet-id 1MXNIz8... --account colin@example.com
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+
+    if semester is not None:
+        sem = semesters_repo.get_by_name(conn, semester)
+        if sem is None:
+            emit_error("semester.not_found", f"No semester named {semester!r}.", mode=mode)
+            return
+    else:
+        sem = semesters_repo.get_current(conn)
+        if sem is None:
+            emit_error(
+                "semester.no_current",
+                "No --semester given and no current semester set.",
+                mode=mode,
+            )
+            return
+
+    data = export_svc.build(conn, semester_id=sem.id)
+    tabs = _tab_values(data)
+
+    # Refuse to touch a sheet whose tabs are not the ones we think they are.
+    # Pushing "Schedule" into a workbook that has no Schedule tab would create
+    # one and leave the real grid stale beside it.
+    code, meta = _gog(["sheets", "metadata", sheet_id, "-p"], account=account)
+    if code != 0:
+        emit_error("push.metadata_failed", meta, mode=mode)
+        return
+    # `gog sheets metadata -p` prints a TSV table whose first row is the literal
+    # header "ID<tab>TITLE<tab>ROWS<tab>COLS". Keeping only rows whose first
+    # field is a sheet id drops it — otherwise "TITLE" is reported back to the
+    # chair as a tab that was left untouched, which is the kind of small lie
+    # that makes someone stop trusting the rest of the output.
+    present = {
+        line.split("\t")[1]
+        for line in meta.splitlines()
+        if line.count("\t") >= 2 and line.split("\t")[0].strip().isdigit()
+    }
+    missing = [t for t in GENERATED_TABS if t not in present]
+    if missing:
+        emit_error(
+            "push.tab_missing",
+            f"sheet {sheet_id} has no tab(s) {missing}. Create the sheet with "
+            f"`risk export sheet` + `gog drive upload --convert-to sheet` first.",
+            mode=mode,
+        )
+        return
+
+    plan = [
+        {"tab": name, "rows": len(rows), "cols": max(len(r) for r in rows)}
+        for name, rows in tabs.items()
+    ]
+    if dry_run:
+        emit_success(
+            {
+                "sheet_id": sheet_id,
+                "dry_run": True,
+                "would_update": plan,
+                "left_untouched": sorted(present - set(GENERATED_TABS)),
+            },
+            mode=mode,
+        )
+        return
+
+    import json
+    import tempfile
+
+    for name, rows in tabs.items():
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(rows, fh)
+            payload = fh.name
+        # Clear first: the new grid can be SHORTER than the old one (an event
+        # cancelled, a brother gone alumni), and update alone leaves the tail of
+        # the previous push sitting underneath as if it were current data.
+        code, out = _gog(["sheets", "clear", sheet_id, f"'{name}'!A:Z", "-y"], account=account)
+        if code != 0:
+            emit_error("push.clear_failed", f"{name}: {out}", mode=mode)
+            return
+        code, out = _gog(
+            [
+                "sheets",
+                "update",
+                sheet_id,
+                f"'{name}'!A1",
+                # RAW, not the USER_ENTERED default: under USER_ENTERED, Sheets
+                # reinterprets what it is given — ISO dates get reformatted to
+                # the sheet locale and stop sorting as text, "88%" becomes 0.88,
+                # and any cell starting with = + or - is parsed as a formula.
+                "--input",
+                "RAW",
+                "--values-json",
+                f"@{payload}",
+            ],
+            account=account,
+        )
+        if code != 0:
+            emit_error("push.update_failed", f"{name}: {out}", mode=mode)
+            return
+
+    emit_success(
+        {
+            "sheet_id": sheet_id,
+            "url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit",
+            "updated": plan,
+            "left_untouched": sorted(present - set(GENERATED_TABS)),
+        },
+        mode=mode,
+    )
+
+
+def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
+    """The generated tabs as plain string grids, for the Sheets API.
+
+    Values only — a push refreshes WHAT the sheet says, not how it looks. The
+    fills and merges were set when the workbook was first converted and Sheets
+    keeps them on a values update, so the chapter's colour key survives every
+    refresh without being re-sent 43 rows at a time.
+    """
+    header_a = ["Date", "Day", "Event", "House", "Status", "Setup window", "Cleanup window"]
+    row1 = list(header_a)
+    row2 = [""] * len(header_a)
+    for slug, width in data.shift_type_columns:
+        label = data.column_headers.get(slug, export_svc._DISPLAY_LABEL.get(slug, slug.upper()))
+        for i in range(width):
+            row1.append(label if i == 0 else "")
+            row2.append(str(i + 1))
+    row1 += ["Needed", "Filled"]
+    row2 += ["", ""]
+
+    legend = [
+        "TUESDAY",
+        "FRIDAY",
+        "SATURDAY",
+        "PLACEHOLDER",
+        "PLEDGING",
+        "UNFILLED",
+        "(strike) = make-up shift, does not count",
+    ]
+    schedule: list[list[str]] = [
+        [f"RISK {data.semester_name}"],
+        legend,
+        [""] * len(legend),
+        [],
+        row1,
+        row2,
+    ]
+    for row in data.schedule:
+        values = [
+            row.date,
+            row.weekday,
+            row.display_name,
+            row.host_house,
+            row.planning_status,
+            row.setup_window,
+            row.cleanup_window,
+        ]
+        for slug, width in data.shift_type_columns:
+            values.extend(row.cells.get((slug, i), "") for i in range(width))
+        values += [str(row.needed), str(row.filled)]
+        schedule.append(values)
+
+    types = [slug for slug, _ in data.shift_type_columns if slug != "dj"]
+    tally: list[list[str]] = [
+        ["Brother", "PC", "Class"]
+        + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
+        + ["TOTAL", "Target", "vs target", "DJ (uncounted)", "Strike (uncounted)", "Note"]
+    ]
+    for row in data.tally:
+        vs = (
+            f"{row.counted_total / row.target * 100:.0f}%"
+            if row.target > 0
+            else ("exempt" if row.exempt else "")
+        )
+        tally.append(
+            [row.display_name, row.pledge_class, row.class_label]
+            + [str(row.per_type.get(s, 0)) for s in types]
+            + [
+                str(row.counted_total),
+                f"{row.target:.1f}" if row.target else "",
+                vs,
+                str(row.dj_shifts),
+                str(row.strike_shifts),
+                row.note,
+            ]
+        )
+
+    by_brother: list[list[str]] = [
+        ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"]
+    ]
+    for row in data.by_brother:
+        by_brother.append(
+            [
+                row.display_name,
+                row.pledge_class,
+                row.class_label,
+                row.date,
+                row.event,
+                row.shift_type + (export_svc.STRIKE_MARKER if row.is_strike else ""),
+                str(row.slot_index + 1),
+                row.worked_on,
+            ]
+        )
+
+    return {"Schedule": schedule, "Tally": tally, "By Brother": by_brother}
