@@ -12,6 +12,7 @@ import pytest
 from risk.db.connection import connect
 from risk.db.schema import ensure_schema
 
+
 def pytest_configure(config: pytest.Config) -> None:
     """Arm subprocess coverage, but only when this run is measuring coverage.
 
