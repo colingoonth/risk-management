@@ -44,6 +44,25 @@ _RULE = "C9C0B2"
 _STRIKE_BG = "F2E6CE"
 _HEADER_BG = "EFE9DD"
 
+# Lifted from the SP26 sheet, read back off the live document rather than
+# guessed. The chapter has read this colour scheme for a year: the DATE cell is
+# tinted by weekday, and the rest of the row is banded lavender.
+#
+# These are not colours anyone would choose from scratch, and that is the point.
+# Matching what people already scan for is worth more than a nicer palette they
+# have to learn — a chair pointing at "the magenta ones" is understood
+# immediately. The two functional marks the app adds on top (oxblood for an
+# unfilled slot, a warm fill for a strike make-up) are the only new signals, so
+# they stand out against a scheme everybody already reads past.
+_LEGACY_DAY_FILL = {
+    "Tue": "FF00FF",
+    "Fri": "00FF00",
+    "Sat": "FF9900",
+}
+_LEGACY_ROW_BAND = "D9D2E9"
+_LEGACY_PLACEHOLDER = "C27BA0"
+_LEGACY_PLEDGING = "93C47D"
+
 
 def _styles() -> dict[str, object]:
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -65,6 +84,7 @@ def _styles() -> dict[str, object]:
 
 
 def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
+    from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     header_a = ["Date", "Day", "Event", "House", "Status", "Setup window", "Cleanup window"]
@@ -81,9 +101,34 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
     row1 += ["Needed", "Filled"]
     row2 += ["", ""]
 
+    # Title + legend, in the SP26 sheet's shape: labels on one row, colour
+    # swatches directly under them. Reproduced rather than improved on, because
+    # the chapter has scanned this key for a year and "the magenta ones" is
+    # understood instantly in a way a better palette would not be.
+    ws.append([f"RISK {data.semester_name}"])
+    ws.cell(row=1, column=1).font = Font(name="Helvetica Neue", size=14, bold=True, color=_INK)
+
+    legend = [
+        ("TUESDAY", _LEGACY_DAY_FILL["Tue"]),
+        ("FRIDAY", _LEGACY_DAY_FILL["Fri"]),
+        ("SATURDAY", _LEGACY_DAY_FILL["Sat"]),
+        ("PLACEHOLDER", _LEGACY_PLACEHOLDER),
+        ("PLEDGING", _LEGACY_PLEDGING),
+        ("UNFILLED", _OXBLOOD),
+        ("(strike) = make-up shift, does not count", _STRIKE_BG),
+    ]
+    ws.append([label for label, _ in legend])
+    ws.append([""] * len(legend))
+    for i, (_label, colour) in enumerate(legend, start=1):
+        ws.cell(row=2, column=i).font = st["header"]
+        ws.cell(row=2, column=i).alignment = st["center"]
+        ws.cell(row=3, column=i).fill = PatternFill("solid", fgColor=colour)
+    ws.append([])  # a blank rule between the key and the grid, as SP26 had
+
+    header_top = 5
     ws.append(row1)
     ws.append(row2)
-    for r in (1, 2):
+    for r in (header_top, header_top + 1):
         for c in range(1, len(row1) + 1):
             cell = ws.cell(row=r, column=c)
             cell.font = st["header"]
@@ -108,11 +153,17 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         ws.append(values)
 
         r = ws.max_row
+        band = PatternFill("solid", fgColor=_LEGACY_ROW_BAND)
         for c in range(1, len(values) + 1):
             cell = ws.cell(row=r, column=c)
             cell.font = st["body"]
             cell.border = st["border"]
             cell.alignment = st["left"]
+            # SP26 banded the whole party row lavender and left the DATE cell to
+            # carry the weekday colour. Same here, so the eye lands on column A
+            # to find "which Tuesday" exactly as it did last year.
+            if c > 1:
+                cell.fill = band
             text = cell.value
             if isinstance(text, str):
                 if text == export_svc.UNFILLED:
@@ -120,10 +171,15 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
                 elif text.endswith(export_svc.STRIKE_MARKER):
                     cell.fill = st["strike_fill"]
                     cell.font = st["brass"]
-        # A placeholder is dimmer than a real party, because half of them will
-        # not happen and the reader needs to know which half he is looking at.
+
+        # The DATE cell, tinted by weekday against the legend above. Days the
+        # chapter does not normally throw parties on stay white, which is what
+        # SP26 did with its one Thursday — an unusual night should look unusual.
+        day_fill = _LEGACY_DAY_FILL.get(row.weekday)
+        if day_fill:
+            ws.cell(row=r, column=1).fill = PatternFill("solid", fgColor=day_fill)
         if row.planning_status == "placeholder":
-            ws.cell(row=r, column=5).font = st["brass"]
+            ws.cell(row=r, column=5).fill = PatternFill("solid", fgColor=_LEGACY_PLACEHOLDER)
         if row.filled < row.needed:
             ws.cell(row=r, column=len(values)).font = st["alarm"]
 
@@ -133,10 +189,15 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
     col = len(header_a) + 1
     for _slug, width in data.shift_type_columns:
         if width > 1:
-            ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + width - 1)
+            ws.merge_cells(
+                start_row=header_top,
+                start_column=col,
+                end_row=header_top,
+                end_column=col + width - 1,
+            )
         col += width
 
-    ws.freeze_panes = "D3"
+    ws.freeze_panes = "D7"
     widths = [11, 5, 30, 15, 12, 30, 30] + [18] * (len(row1) - 9) + [8, 7]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
