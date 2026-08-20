@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS shift_types (
   id INTEGER PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
+  -- Whether working this post counts as risk work for fairness purposes.
+  -- DJ does not: it is a different job, and counting it let two qualified
+  -- members absorb all 43 DJ nights, price themselves out of every other pool,
+  -- and then top the chapter's shift ledger having stood no risk shifts at all.
+  -- Added in 0016, which also seeds dj to 0; see that file.
+  counts_toward_tally INTEGER NOT NULL DEFAULT 1
+    CHECK (counts_toward_tally IN (0, 1)),
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*')
 ) STRICT;
 

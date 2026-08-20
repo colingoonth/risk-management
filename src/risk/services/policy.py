@@ -53,17 +53,99 @@ def in_bad_standing(active_strike_count: int) -> bool:
 
 # --- Fairness weights (Phase 4) ---
 
-SENIORITY_PHANTOM_SHIFTS_PER_YEAR = 1.0
-"""How many phantom shifts each year of seniority adds to a member's score.
+SENIOR_QUOTA_RATIO = 0.43
+"""Shifts a senior is expected to work per shift an underclassman works.
 
-Higher score = picked less. Older members (closer to graduation) carry more
-phantom shifts and get assigned proportionally less often.
+Seniors work less. The question is HOW they work less, and the two answers are
+not interchangeable.
+
+The rejected answer was a phantom: add N imaginary shifts to a senior's tally so
+he sorts behind everyone. That DEFERS him — he is picked last early in the term
+and only surfaces once the underclassmen have caught up, which stacks his real
+work into the back half of the calendar. Fine in a vacuum. Not fine here,
+because the back half of this calendar is where pledging starts and the
+brothers get dropped. A deferred senior's shifts evaporate at the cutoff, and
+he ends the term having worked almost nothing while a sophomore worked twelve.
+
+A ratio RATE-LIMITS instead. Every class advances through its own quota in
+parallel, so at any date each class has completed the same FRACTION of its
+season. Truncate the calendar anywhere — and the pledge date moved twice in one
+conversation — and every class is cut at the same percentage. That invariance is
+the entire reason this constant exists; see ``quota_targets``.
+
+0.43 comes from the FA26 pool: 30 eligible seniors against 27 eligible
+juniors/sophomores over the counted calendar. HANDOFF states the intended
+outcome as "Senior 6, Jr/Soph 13.5".
 """
 
-SENIORITY_CAP_YEARS = 4
-"""Cap on years-of-seniority so a 5th-year doesn't get an unbounded score.
 
-Freshman → 0, sophomore → 1, junior → 2, senior → 3, super-senior → 4 (capped).
+def is_senior_in_term(class_year: int | None, *, term_start_year: int, term_is_fall: bool) -> bool:
+    """True when ``class_year`` graduates at the end of THIS academic year.
+
+    ``class_year`` is the expected GRADUATION year, and an academic year spans
+    two calendar years: 2026-27 runs from fall 2026 to spring 2027. So the same
+    person is a senior in both halves, and the graduating year is one ahead of
+    the calendar year in the fall and equal to it in the spring.
+
+    Getting this wrong is not hypothetical. ``seniority_phantom_shifts`` was
+    written for spring semesters and reads a 2027 graduate as a junior in a fall
+    2026 term. That was harmless there because it shifted every class uniformly
+    and only ranking mattered — but a quota is an absolute target, not a rank,
+    so the same mistake here would hand seniors the underclassman quota.
+
+    ``<=`` rather than ``==`` so a fifth-year, whose graduation year has already
+    passed, is still a senior rather than falling through to the larger quota.
+    An unknown ``class_year`` is treated as an underclassman: it is the higher
+    target, so an unrecorded member is over-worked rather than under-worked, and
+    an over-worked brother complains where an under-worked one stays quiet.
+    """
+    if class_year is None:
+        return False
+    graduating_year = term_start_year + 1 if term_is_fall else term_start_year
+    return class_year <= graduating_year
+
+
+def quota_targets(
+    *, rotation_slots: int, senior_count: int, underclass_count: int
+) -> tuple[float, float]:
+    """Season shift targets as ``(senior_target, underclass_target)``.
+
+    Solves for the pair that both (a) sits at ``SENIOR_QUOTA_RATIO``, and
+    (b) sums across the actual pool to exactly the slots that must be staffed::
+
+        senior_count * (ratio * U) + underclass_count * U = rotation_slots
+
+    Derived from live counts rather than hardcoded so that the targets follow
+    the roster. A brother going alumni, an event being cancelled, or the strike
+    make-up shifts coming off the top all change ``rotation_slots`` or a pool
+    size, and a hardcoded "Senior 6 / Jr-Soph 13.5" would quietly stop summing
+    to the work that actually exists — which is precisely the failure that makes
+    a published target indefensible.
+
+    Returns ``(0.0, 0.0)`` when there is nobody to work, rather than dividing by
+    zero. Callers must treat a zero target as "never pick this member" instead
+    of dividing by it.
+    """
+    denominator = senior_count * SENIOR_QUOTA_RATIO + underclass_count
+    if denominator <= 0 or rotation_slots <= 0:
+        return (0.0, 0.0)
+    underclass_target = rotation_slots / denominator
+    return (underclass_target * SENIOR_QUOTA_RATIO, underclass_target)
+
+
+DJ_PHANTOM_SHIFTS = 2.0
+"""Phantom shifts carried by a member qualified to DJ.
+
+A DJ night does not count toward the tally — it is a different job, and counting
+it would let two people absorb 43 nights and then appear as the hardest-working
+brothers in the chapter having stood zero risk shifts. But NOT counting it at
+all leaves a DJ looking permanently idle, so the fill hands him a full
+underclassman quota on top of DJing every party.
+
+The phantom is the middle: it says "this member is already carrying something",
+so he is picked after equally-placed members, and still picked when the pool is
+genuinely short. Two is deliberately small — this is a thumb on the scale, not
+an exemption. HANDOFF: "DJs carry a phantom of 2 so they aren't overloaded."
 """
 
 
@@ -73,9 +155,30 @@ GREEK_PLEDGE_CLASS_ORDER: dict[str, int] = {
     name: ordinal
     for ordinal, name in enumerate(
         (
-            "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta",
-            "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron",
-            "pi", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+            "alpha",
+            "beta",
+            "gamma",
+            "delta",
+            "epsilon",
+            "zeta",
+            "eta",
+            "theta",
+            "iota",
+            "kappa",
+            "lambda",
+            "mu",
+            "nu",
+            "xi",
+            "omicron",
+            "pi",
+            "rho",
+            "sigma",
+            "tau",
+            "upsilon",
+            "phi",
+            "chi",
+            "psi",
+            "omega",
         ),
         start=1,
     )
@@ -94,28 +197,3 @@ def pledge_class_ordinal(pledge_class: str | None) -> int | None:
     if pledge_class is None:
         return None
     return GREEK_PLEDGE_CLASS_ORDER.get(pledge_class.strip().lower())
-
-
-def seniority_phantom_shifts(class_year: int | None, event_year: int) -> float:
-    """Phantom-shift score contribution from class_year.
-
-    ``class_year`` is the member's expected graduation year. Mapping for an
-    event in year Y:
-
-      - Freshman  (class_year = Y + 3) → 0 phantom shifts
-      - Sophomore (class_year = Y + 2) → 1
-      - Junior    (class_year = Y + 1) → 2
-      - Senior    (class_year = Y    ) → 3
-      - 5th-year  (class_year = Y - 1) → 4 (capped at SENIORITY_CAP_YEARS)
-
-    Returns ``0`` when ``class_year`` is unknown — unknown class year should
-    not push members up or down the fairness queue.
-    """
-    if class_year is None:
-        return 0.0
-    years_of_seniority = (event_year + 3) - class_year
-    if years_of_seniority < 0:
-        return 0.0
-    if years_of_seniority > SENIORITY_CAP_YEARS:
-        years_of_seniority = SENIORITY_CAP_YEARS
-    return float(years_of_seniority) * SENIORITY_PHANTOM_SHIFTS_PER_YEAR

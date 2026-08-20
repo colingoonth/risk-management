@@ -202,9 +202,12 @@ def auto_assign(
         )
     pledges_first = resolved.resolved_slug == MODE_PARTIAL
 
-    fill_order = _fill_order_key(
-        frozenset(quals_repo.shift_type_ids_with_requirements(conn))
-    )
+    # Season targets, derived once. Every score in this run divides by them, and
+    # they are a property of the semester rather than of any one slot.
+    quota = fairness.build_quota_context(conn, semester_id=event.semester_id)
+
+    gated_shift_type_ids = frozenset(quals_repo.shift_type_ids_with_requirements(conn))
+    fill_order = _fill_order_key(gated_shift_type_ids)
     for req in sorted(requirements, key=fill_order):
         type_pool = _pool_for_mode(pool, resolved.resolved_slug)
         # Qualification gate. Only `dj` is gated, and the chapter has two DJs, so
@@ -231,6 +234,14 @@ def auto_assign(
             pool=type_pool,
             semester_id=event.semester_id,
             event_date=event.date,
+            quota=quota,
+            # Gated types rank by their own turn count first. The gated pool is
+            # tiny — two DJs for 43 parties — and once DJ nights stopped
+            # counting toward the tally, nothing else in the chain ever
+            # separated them: one would have taken all 43 and the other none.
+            rotation_shift_type_id=(
+                req.shift_type_id if req.shift_type_id in gated_shift_type_ids else None
+            ),
         )
         if pledges_first:
             # Stable secondary sort: pledges before brothers, preserving the

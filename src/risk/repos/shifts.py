@@ -180,10 +180,71 @@ def open_slots_for_event(
 def count_assignments_in_semester_through_date(
     conn: sqlite3.Connection, *, member_id: int, semester_id: int, on_or_before: str
 ) -> int:
-    """Count shifts assigned to ``member_id`` in ``semester_id`` for events
-    dated ``on_or_before`` or earlier.
+    """Count ROTATION shifts for ``member_id`` in ``semester_id``, on or before
+    ``on_or_before``.
 
     Used by fairness to compute "shifts so far" pinned to event.date (ADR-009).
+
+    Two kinds of shift are deliberately excluded, because the chapter does not
+    consider either of them a turn in the rotation:
+
+    ``counts_toward_tally = 0`` — DJ. A different job, not risk work. Counting
+    it let the two qualified members absorb all 43 DJ nights, price themselves
+    out of every other pool by roughly the sixth party, and then top the shift
+    ledger having stood no risk shifts at all. See migration 0016.
+
+    Shifts serving a strike. A make-up shift is a penalty, so counting it would
+    refund the penalty: the extra work would push the member down the queue and
+    take a rotation shift off him, leaving his season load unchanged and the
+    strike costing him nothing. ``strikes.shift_id`` is the link, and it is what
+    that column was declared for.
+
+    Both exclusions are joins rather than slug tests so the rule lives in data.
+    NOT EXISTS rather than a LEFT JOIN because a shift could in principle serve
+    more than one strike, and a join would then count the row twice — in the one
+    direction that silently under-counts the member's real load.
+    """
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM shifts s
+        JOIN events e ON e.id = s.event_id
+        JOIN shift_types st ON st.id = s.shift_type_id
+        WHERE s.assigned_member_id = ?
+          AND e.semester_id = ?
+          AND e.date <= ?
+          AND st.counts_toward_tally = 1
+          AND NOT EXISTS (SELECT 1 FROM strikes k WHERE k.shift_id = s.id)
+        """,
+        (member_id, semester_id, on_or_before),
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def count_of_shift_type_in_semester_through_date(
+    conn: sqlite3.Connection,
+    *,
+    member_id: int,
+    semester_id: int,
+    shift_type_id: int,
+    on_or_before: str,
+) -> int:
+    """How many times ``member_id`` has worked ONE shift type this semester.
+
+    The rotation key for gated shift types, and it is not optional.
+
+    Removing DJ from the fairness tally has a consequence that is easy to miss:
+    the tally was the only thing alternating the two DJs. Once DJ nights stop
+    counting, both DJs stay tied on every other key for the whole term, and a
+    stable sort hands every single one of the 43 nights to whichever of them
+    sorts first — verified, 43 to 0. That is strictly worse than the bug it was
+    meant to fix.
+
+    Ranking the gated pool by its own type's count restores the alternation
+    without putting DJ back into the general tally. Unlike the tally, this
+    counts every shift of the type including strike make-ups: the question here
+    is "whose turn is it to DJ", and a night spent DJing is a night spent DJing
+    whatever else it also settled.
     """
     row = conn.execute(
         """
@@ -192,9 +253,10 @@ def count_assignments_in_semester_through_date(
         JOIN events e ON e.id = s.event_id
         WHERE s.assigned_member_id = ?
           AND e.semester_id = ?
+          AND s.shift_type_id = ?
           AND e.date <= ?
         """,
-        (member_id, semester_id, on_or_before),
+        (member_id, semester_id, shift_type_id, on_or_before),
     ).fetchone()
     return int(row["n"]) if row else 0
 

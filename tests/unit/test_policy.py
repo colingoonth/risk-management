@@ -25,32 +25,82 @@ def test_strike_thresholds_strictly_increase() -> None:
 
 
 @pytest.mark.parametrize(
-    ("class_year", "event_year", "expected"),
+    ("class_year", "term_start_year", "term_is_fall", "expected"),
     [
-        # Standard 4-year track in spring 2026
-        (2029, 2026, 0.0),  # freshman
-        (2028, 2026, 1.0),  # sophomore
-        (2027, 2026, 2.0),  # junior
-        (2026, 2026, 3.0),  # senior in spring
-        (2025, 2026, 4.0),  # super-senior (capped at SENIORITY_CAP_YEARS)
-        (2024, 2026, 4.0),  # alumnus-ish — capped
-        # Future graduations (gap year, transferred-in late) → no penalty
-        (2030, 2026, 0.0),
-        (2099, 2026, 0.0),
-        # Unknown class_year → no contribution either direction
-        (None, 2026, 0.0),
+        # FA26 — the term this model was written for. class_year is the
+        # GRADUATION year, and a fall-2026 senior graduates in May 2027.
+        (2027, 2026, True, True),  # senior
+        (2028, 2026, True, False),  # junior
+        (2029, 2026, True, False),  # sophomore
+        (2026, 2026, True, True),  # fifth-year — already past graduating, still senior
+        # The same people, one term later. A senior in the fall is a senior in
+        # the spring: it is one academic year. The replaced phantom got this
+        # wrong in exactly one direction and read the 2027 as a junior.
+        (2027, 2027, False, True),
+        (2028, 2027, False, False),
+        # Future graduation (transferred in late, gap year) is not a senior.
+        (2030, 2026, True, False),
+        (2099, 2026, True, False),
+        # Unknown reads as underclassman: the LARGER quota, so an unrecorded
+        # member is over-worked rather than under-worked. Over-worked gets
+        # reported; under-worked stays quiet and never gets fixed.
+        (None, 2026, True, False),
     ],
 )
-def test_seniority_phantom_shifts(class_year: int | None, event_year: int, expected: float) -> None:
-    assert policy.seniority_phantom_shifts(class_year, event_year) == expected
+def test_is_senior_in_term(
+    class_year: int | None, term_start_year: int, term_is_fall: bool, expected: bool
+) -> None:
+    assert (
+        policy.is_senior_in_term(
+            class_year, term_start_year=term_start_year, term_is_fall=term_is_fall
+        )
+        is expected
+    )
 
 
-def test_seniority_phantom_shifts_monotone_in_class_year() -> None:
-    """For a fixed event year, older members (lower class_year) score >= younger."""
-    event_year = 2026
-    scores = [policy.seniority_phantom_shifts(cy, event_year) for cy in range(2030, 2024, -1)]
-    for a, b in zip(scores, scores[1:], strict=False):
-        assert a <= b, f"non-monotone: {scores}"
+def test_quota_targets_hit_the_handoff_numbers_for_fa26() -> None:
+    """The ratified outcome, checked against the real FA26 pool.
+
+    HANDOFF states the intended targets as "Senior 6, Jr/Soph 13.5" over the
+    counted calendar. 30 eligible seniors, 27 eligible juniors and sophomores,
+    543 counted slots. Pinning the arithmetic here means a change to
+    SENIOR_QUOTA_RATIO has to be a deliberate act with a failing test attached,
+    rather than a constant someone nudges.
+    """
+    senior, underclass = policy.quota_targets(
+        rotation_slots=543, senior_count=30, underclass_count=27
+    )
+    assert senior == pytest.approx(5.85, abs=0.01)
+    assert underclass == pytest.approx(13.61, abs=0.01)
+
+
+def test_quota_targets_survive_an_empty_pool() -> None:
+    """Nobody to work, or no work to do — return zeros, do not divide by zero.
+
+    Reachable on a fresh database: a semester exists, the roster has not been
+    imported, and something asks for the targets.
+    """
+    assert policy.quota_targets(rotation_slots=100, senior_count=0, underclass_count=0) == (
+        0.0,
+        0.0,
+    )
+    assert policy.quota_targets(rotation_slots=0, senior_count=30, underclass_count=27) == (
+        0.0,
+        0.0,
+    )
+
+
+def test_quota_targets_absorb_the_strike_carve_out() -> None:
+    """Make-up shifts come off the top, and the targets follow.
+
+    21 strike shifts are penalties owed on top of a normal season, so they are
+    not part of anyone's quota. Taking them out of rotation_slots lowers every
+    target slightly — which is correct, because those 21 bodies are staffing
+    parties that the rotation therefore does not have to.
+    """
+    full, _ = policy.quota_targets(rotation_slots=543, senior_count=30, underclass_count=27)
+    carved, _ = policy.quota_targets(rotation_slots=543 - 21, senior_count=30, underclass_count=27)
+    assert carved < full
 
 
 # --- Pledge-class ordinal (seniority-inverted tiebreaker) ---

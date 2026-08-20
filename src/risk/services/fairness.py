@@ -1,12 +1,25 @@
 """Fairness scoring for auto-assign.
 
-Goal: members with fewer shifts go first, with seniors carrying phantom
-shifts so they're picked less than freshmen all else equal. Score is the
-sort key; lower score = picked first.
+Members further behind their season quota go first. Score is the sort key;
+lower score = picked first.
+
+    score = (rotation shifts so far + phantoms) / season target for that member
+
+The denominator is what makes this a *ratio* model rather than the phantom model
+it replaced, and the difference is not cosmetic. A phantom pushes seniors to the
+back of the queue, so they surface only once everyone else has caught up and
+their real work stacks into the back half of the term. The back half of this
+calendar is where pledging starts and the brothers are dropped, so a deferred
+senior's shifts evaporate at the cutoff. A ratio rate-limits instead: every
+class advances through its own quota in parallel, each has completed the same
+FRACTION of its season at any date, and truncating the calendar anywhere cuts
+every class by the same percentage. The pledge date moved twice in one
+conversation, which is exactly why that invariance is worth the extra machinery.
+See ``policy.SENIOR_QUOTA_RATIO``.
 
 Pinned to ``event.date`` (ADR-009): "shifts so far" counts shifts for events
-dated on-or-before the current event in the same semester. Reruns on the
-same event therefore see the same scores regardless of wall-clock time.
+dated on-or-before the current event in the same semester. Reruns on the same
+event therefore see the same scores regardless of wall-clock time.
 
 Tiebreaker chain (R3.2-A), applied in order once fairness ``score`` ties:
 
@@ -18,6 +31,12 @@ Tiebreaker chain (R3.2-A), applied in order once fairness ``score`` ties:
   3. ``last_assigned_at`` ASC NULLS FIRST (ADR-013) — never-assigned before
      just-assigned. Pinned to ``event.date``, so it carries no wall-clock.
   4. ``member_slug`` ASC — final deterministic stabilizer.
+
+The chain does most of the deciding. Measured over the FA26 fill, the top score
+was tied among 2 to 53 pool members in 179 of 224 fills, so roughly four picks
+in five are settled below the score. That is not a defect — with 57 members and
+13 slots a night, ties are the normal case — but it does mean "why him?" is
+usually answered by the chain, not by the number.
 """
 
 from __future__ import annotations
@@ -27,20 +46,203 @@ from dataclasses import dataclass
 
 from risk.repos import shifts as shifts_repo
 from risk.services.eligibility import EligibleMember
-from risk.services.policy import pledge_class_ordinal, seniority_phantom_shifts
+from risk.services.policy import (
+    DJ_PHANTOM_SHIFTS,
+    is_senior_in_term,
+    pledge_class_ordinal,
+    quota_targets,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class QuotaContext:
+    """Season-level facts every score in one run shares.
+
+    Built once per auto-assign call rather than recomputed per member: the
+    targets are a property of the semester, and deriving them 14,700 times
+    (57 members x 6 shift types x 43 events) would be the same three aggregates
+    over and over.
+
+    Holding it as an explicit value passed down the call chain, rather than
+    caching it on the connection, keeps ``score_member`` a pure function of its
+    arguments — which is what makes a score reproducible from the audit row
+    months later without re-deriving the whole semester.
+    """
+
+    senior_target: float
+    underclass_target: float
+    rotation_slots: int
+    senior_count: int
+    underclass_count: int
+    term_start_year: int
+    term_is_fall: bool
+    dj_qualified: frozenset[int]
+
+    def target_for(self, class_year: int | None) -> float:
+        if is_senior_in_term(
+            class_year,
+            term_start_year=self.term_start_year,
+            term_is_fall=self.term_is_fall,
+        ):
+            return self.senior_target
+        return self.underclass_target
+
+
+def _term_start_year_and_season(starts_on: str) -> tuple[int, bool]:
+    """``(year, is_fall)`` for a semester, from its start date.
+
+    A term starting in July or later is a fall term. July rather than August
+    because a chapter that opens its calendar with a summer rush week should
+    not have every senior silently re-graded as a junior.
+    """
+    year, month = int(starts_on[:4]), int(starts_on[5:7])
+    return year, month >= 7
+
+
+def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaContext:
+    """Derive this semester's quota targets from the work and the roster.
+
+    ``rotation_slots`` is the work the rotation actually has to absorb: every
+    counted slot on a non-cancelled event, minus the strike make-up shifts,
+    which are penalties owed on top of a normal season and so are not part of
+    anyone's quota.
+
+    The pool is counted the way the season counts it — status-eligible and not
+    hard-excluded — and deliberately NOT per-event. Host-house exclusion moves
+    with the party and would make the season target wobble from event to event;
+    a quota that changes depending on who is hosting is not a quota.
+
+    Requirements are the source for the slot count, never ``shifts``: shift rows
+    are created lazily by the fill, so on an unassigned calendar ``shifts`` is
+    empty and the targets would come out at zero for everyone.
+    """
+    sem = conn.execute("SELECT starts_on FROM semesters WHERE id = ?", (semester_id,)).fetchone()
+    if sem is None:
+        raise LookupError(f"semester {semester_id} not found")
+    term_start_year, term_is_fall = _term_start_year_and_season(sem["starts_on"])
+
+    counted_slots = int(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(r.target_count), 0) AS n
+            FROM event_shift_requirements r
+            JOIN events e ON e.id = r.event_id
+            JOIN shift_types st ON st.id = r.shift_type_id
+            WHERE e.semester_id = ?
+              AND e.status <> 'cancelled'
+              AND st.counts_toward_tally = 1
+            """,
+            (semester_id,),
+        ).fetchone()["n"]
+    )
+    strike_slots = int(
+        conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM strikes
+            WHERE semester_id = ? AND closed_at IS NULL
+            """,
+            (semester_id,),
+        ).fetchone()["n"]
+    )
+
+    pool = conn.execute(
+        """
+        SELECT m.class_year
+        FROM members m
+        JOIN member_statuses ms ON ms.id = m.status_id
+        WHERE ms.excludes_from_assignment = 0
+          AND NOT EXISTS (
+                SELECT 1 FROM member_roles mr
+                JOIN roles r ON r.id = mr.role_id
+                WHERE mr.member_id = m.id
+                  AND mr.semester_id = ?
+                  AND r.default_excluded_from_assignment = 1
+                  AND r.exclude_is_soft = 0
+              )
+        """,
+        (semester_id,),
+    ).fetchall()
+    senior_count = sum(
+        1
+        for r in pool
+        if is_senior_in_term(
+            r["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+        )
+    )
+    underclass_count = len(pool) - senior_count
+
+    dj_qualified = frozenset(
+        int(r["member_id"])
+        for r in conn.execute(
+            """
+            SELECT mq.member_id
+            FROM member_qualifications mq
+            JOIN qualifications q ON q.id = mq.qualification_id
+            WHERE mq.semester_id = ? AND q.slug = 'dj'
+            """,
+            (semester_id,),
+        )
+    )
+
+    rotation_slots = max(counted_slots - strike_slots, 0)
+    senior_target, underclass_target = quota_targets(
+        rotation_slots=rotation_slots,
+        senior_count=senior_count,
+        underclass_count=underclass_count,
+    )
+    return QuotaContext(
+        senior_target=senior_target,
+        underclass_target=underclass_target,
+        rotation_slots=rotation_slots,
+        senior_count=senior_count,
+        underclass_count=underclass_count,
+        term_start_year=term_start_year,
+        term_is_fall=term_is_fall,
+        dj_qualified=dj_qualified,
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class ScoredMember:
     member: EligibleMember
     shifts_so_far: int
-    seniority_bonus: float
+    target: float
+    phantom: float
     score: float
     last_assigned_at: str | None
 
 
-def _event_year(event_date: str) -> int:
-    return int(event_date.split("-")[0])
+def score_member(
+    conn: sqlite3.Connection,
+    *,
+    member: EligibleMember,
+    semester_id: int,
+    event_date: str,
+    quota: QuotaContext,
+) -> ScoredMember:
+    """Compute the fairness score for one member relative to one event."""
+    shifts_so_far = shifts_repo.count_assignments_in_semester_through_date(
+        conn,
+        member_id=member.member_id,
+        semester_id=semester_id,
+        on_or_before=event_date,
+    )
+    target = quota.target_for(member.class_year)
+    phantom = DJ_PHANTOM_SHIFTS if member.member_id in quota.dj_qualified else 0.0
+    # A zero target means there is no work, or nobody to do it. Sorting such a
+    # member to the very back is the safe direction: the alternative is a
+    # ZeroDivisionError mid-fill, and the one after that is treating "no quota"
+    # as "infinite appetite" and handing them every slot.
+    score = float("inf") if target <= 0 else (shifts_so_far + phantom) / target
+    last = shifts_repo.last_assigned_at(conn, member.member_id)
+    return ScoredMember(
+        member=member,
+        shifts_so_far=shifts_so_far,
+        target=target,
+        phantom=phantom,
+        score=score,
+        last_assigned_at=last,
+    )
 
 
 def _younger_first_rank(class_year: int | None) -> float:
@@ -58,29 +260,14 @@ def _newer_pc_first_rank(pledge_class: str | None) -> float:
     return float(-ordinal)
 
 
-def score_member(
-    conn: sqlite3.Connection,
-    *,
-    member: EligibleMember,
-    semester_id: int,
-    event_date: str,
-) -> ScoredMember:
-    """Compute the fairness score for one member relative to one event."""
-    shifts_so_far = shifts_repo.count_assignments_in_semester_through_date(
-        conn,
-        member_id=member.member_id,
-        semester_id=semester_id,
-        on_or_before=event_date,
-    )
-    seniority_bonus = seniority_phantom_shifts(member.class_year, _event_year(event_date))
-    score = float(shifts_so_far) + seniority_bonus
-    last = shifts_repo.last_assigned_at(conn, member.member_id)
-    return ScoredMember(
-        member=member,
-        shifts_so_far=shifts_so_far,
-        seniority_bonus=seniority_bonus,
-        score=score,
-        last_assigned_at=last,
+def _tiebreak_key(scored: ScoredMember) -> tuple:
+    """The R3.2-A chain, below whatever primary key the caller put first."""
+    return (
+        _younger_first_rank(scored.member.class_year),
+        _newer_pc_first_rank(scored.member.pledge_class),
+        # NULLS FIRST: never-assigned (None) sorts before any timestamp.
+        (0, "") if scored.last_assigned_at is None else (1, scored.last_assigned_at),
+        scored.member.member_slug,
     )
 
 
@@ -90,26 +277,44 @@ def sort_by_fairness(
     pool: list[EligibleMember],
     semester_id: int,
     event_date: str,
+    quota: QuotaContext,
+    rotation_shift_type_id: int | None = None,
 ) -> list[ScoredMember]:
-    """Score the pool and return it sorted by the R3.2-A tiebreaker chain.
+    """Score the pool and return it sorted, fairest-first.
 
-    Sort order (all ASC on the computed keys): ``score`` → ``class_year``
-    younger-first → ``pledge_class`` newer-first → ``last_assigned_at`` NULLS
-    FIRST → ``member_slug``. Every key is derived from member attributes or
-    ``event.date``, so results are fully deterministic and reproducible across
-    re-runs and chairs (no wall-clock, no seed dependence for natural ties).
+    Sort order: ``score`` → the R3.2-A tiebreak chain. Every key is derived from
+    member attributes or ``event.date``, so results are fully deterministic and
+    reproducible across re-runs and chairs (no wall-clock, no seed dependence).
+
+    ``rotation_shift_type_id`` puts a per-type turn-count AHEAD of the score, and
+    is passed for gated shift types. Without it, removing DJ from the tally
+    leaves the two DJs tied on every key for the whole term and a stable sort
+    gives all 43 nights to whichever sorts first — verified, 43 to 0, which is
+    worse than the double-counting it replaced. With it, they alternate.
     """
     scored = [
-        score_member(conn, member=m, semester_id=semester_id, event_date=event_date) for m in pool
-    ]
-    scored.sort(
-        key=lambda s: (
-            s.score,
-            _younger_first_rank(s.member.class_year),
-            _newer_pc_first_rank(s.member.pledge_class),
-            # NULLS FIRST: never-assigned (None) sorts before any timestamp.
-            (0, "") if s.last_assigned_at is None else (1, s.last_assigned_at),
-            s.member.member_slug,
+        score_member(
+            conn,
+            member=m,
+            semester_id=semester_id,
+            event_date=event_date,
+            quota=quota,
         )
-    )
+        for m in pool
+    ]
+    if rotation_shift_type_id is None:
+        scored.sort(key=lambda s: (s.score, *_tiebreak_key(s)))
+        return scored
+
+    turns = {
+        s.member.member_id: shifts_repo.count_of_shift_type_in_semester_through_date(
+            conn,
+            member_id=s.member.member_id,
+            semester_id=semester_id,
+            shift_type_id=rotation_shift_type_id,
+            on_or_before=event_date,
+        )
+        for s in scored
+    }
+    scored.sort(key=lambda s: (turns[s.member.member_id], s.score, *_tiebreak_key(s)))
     return scored

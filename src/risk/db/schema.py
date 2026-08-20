@@ -53,6 +53,11 @@ _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # notes. NULL is the signal 0015's back-fill keys on, and it is also what
     # makes that back-fill fire exactly once instead of on every connect.
     ("events", "planning_status", "TEXT"),
+    # Unlike planning_status above, this one CAN carry its default: every
+    # existing shift type is a risk post and should count, so 1 is right for
+    # every legacy row. 0016 then flips dj to 0 exactly once. The CHECK is
+    # still lost to ALTER's limitations, as always.
+    ("shift_types", "counts_toward_tally", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 
