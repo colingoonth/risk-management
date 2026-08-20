@@ -5,6 +5,28 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+PLANNING_STATUSES: frozenset[str] = frozenset({"confirmed", "potential", "placeholder"})
+"""How real an event is — mirrors the CHECK in migration 0006.
+
+Validated here as well as in the database because ``schema._ensure_columns``
+back-fills the column onto legacy databases via ALTER TABLE, which SQLite
+cannot attach a CHECK to. On those databases this is the only guard there is.
+"""
+
+FILL_LAST_PLANNING_STATUSES: frozenset[str] = frozenset({"placeholder"})
+"""Planning statuses whose events are staffed after everything else.
+
+A placeholder is a date the social chair is holding that may never become a
+party, so staffing it early would let a party that never happens consume slots
+and shift everyone's fairness scores. Deferring it means the confirmed calendar
+is filled exactly as though the placeholder did not exist, and deleting a
+cancelled placeholder afterwards disturbs nothing.
+
+``potential`` is deliberately NOT in here. There is one such event (Sep 5) and
+both source workbooks call it a real party that is merely unconfirmed, so it
+sorts with the confirmed calendar.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class Event:
@@ -17,6 +39,7 @@ class Event:
     start_time: str | None
     end_time: str | None
     status: str
+    planning_status: str
     resync_pending: bool
     notes: str | None
     semester_name: str
@@ -28,7 +51,7 @@ _SELECT_JOINED = """
 SELECT
   e.id, e.semester_id, e.event_type_id, e.host_house_id,
   e.display_name, e.date, e.start_time, e.end_time,
-  e.status, e.resync_pending, e.notes,
+  e.status, e.planning_status, e.resync_pending, e.notes,
   s.name AS semester_name,
   et.slug AS event_type_slug,
   h.slug AS host_house_slug
@@ -79,7 +102,7 @@ _SELECT_WITH_FILL = """
 SELECT
   e.id, e.semester_id, e.event_type_id, e.host_house_id,
   e.display_name, e.date, e.start_time, e.end_time,
-  e.status, e.resync_pending, e.notes,
+  e.status, e.planning_status, e.resync_pending, e.notes,
   s.name AS semester_name,
   et.slug AS event_type_slug,
   h.slug AS host_house_slug,
@@ -108,6 +131,7 @@ def _row(r: sqlite3.Row) -> Event:
         start_time=r["start_time"],
         end_time=r["end_time"],
         status=r["status"],
+        planning_status=r["planning_status"],
         resync_pending=bool(r["resync_pending"]),
         notes=r["notes"],
         semester_name=r["semester_name"],
@@ -127,13 +151,18 @@ def insert(
     start_time: str | None = None,
     end_time: str | None = None,
     notes: str | None = None,
+    planning_status: str = "confirmed",
 ) -> int:
+    if planning_status not in PLANNING_STATUSES:
+        raise ValueError(
+            f"planning_status must be one of {sorted(PLANNING_STATUSES)}, got {planning_status!r}"
+        )
     cur = conn.execute(
         """
         INSERT INTO events
           (semester_id, event_type_id, display_name, date,
-           host_house_id, start_time, end_time, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           host_house_id, start_time, end_time, notes, planning_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             semester_id,
@@ -144,6 +173,7 @@ def insert(
             start_time,
             end_time,
             notes,
+            planning_status,
         ),
     )
     assert cur.lastrowid is not None
@@ -202,6 +232,7 @@ def _row_with_fill(r: sqlite3.Row) -> EventWithFill:
         start_time=r["start_time"],
         end_time=r["end_time"],
         status=r["status"],
+        planning_status=r["planning_status"],
         resync_pending=bool(r["resync_pending"]),
         notes=r["notes"],
         semester_name=r["semester_name"],
@@ -238,8 +269,7 @@ def list_for_semester_with_fill(
         ).fetchall()
     else:
         rows = conn.execute(
-            f"{_SELECT_WITH_FILL} WHERE e.semester_id = ? "
-            "ORDER BY e.date, e.start_time, e.id",
+            f"{_SELECT_WITH_FILL} WHERE e.semester_id = ? ORDER BY e.date, e.start_time, e.id",
             (semester_id,),
         ).fetchall()
     return [_row_with_fill(r) for r in rows]
@@ -247,6 +277,23 @@ def list_for_semester_with_fill(
 
 def update_status(conn: sqlite3.Connection, *, event_id: int, status: str) -> int:
     cur = conn.execute("UPDATE events SET status = ? WHERE id = ?", (status, event_id))
+    return cur.rowcount
+
+
+def update_planning_status(conn: sqlite3.Connection, *, event_id: int, planning_status: str) -> int:
+    """Promote a placeholder to a real party, or demote one that fell through.
+
+    Validated here rather than relying on the CHECK because legacy databases got
+    this column by ALTER TABLE and carry no CHECK at all (see PLANNING_STATUSES).
+    """
+    if planning_status not in PLANNING_STATUSES:
+        raise ValueError(
+            f"planning_status must be one of {sorted(PLANNING_STATUSES)}, got {planning_status!r}"
+        )
+    cur = conn.execute(
+        "UPDATE events SET planning_status = ? WHERE id = ?",
+        (planning_status, event_id),
+    )
     return cur.rowcount
 
 

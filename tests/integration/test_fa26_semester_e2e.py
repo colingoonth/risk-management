@@ -109,9 +109,7 @@ def _build_fa26_world(db: sqlite3.Connection) -> tuple[int, list[int], list[int]
     slugs — ``dage``, ``social_chair`` — have broken twice when a later
     migration promoted them to real, so this file will not add a third.
     """
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19"
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19")
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
 
@@ -144,9 +142,7 @@ def _build_fa26_world(db: sqlite3.Connection) -> tuple[int, list[int], list[int]
     )
     exempt = member_ids[:N_HARD_EXEMPT]
     for member_id in exempt:
-        mroles_repo.set_role(
-            db, member_id=member_id, role_id=exempt_role_id, semester_id=sem_id
-        )
+        mroles_repo.set_role(db, member_id=member_id, role_id=exempt_role_id, semester_id=sem_id)
         members_repo.update_notes(
             db, member_id=member_id, notes="Fixture exemption — proof-of-zero row."
         )
@@ -157,9 +153,7 @@ def _build_fa26_world(db: sqlite3.Connection) -> tuple[int, list[int], list[int]
     assert dj_qual is not None, "migration 0012 should seed the dj qualification"
     dj_qualified = member_ids[N_HARD_EXEMPT : N_HARD_EXEMPT + 2]
     for member_id in dj_qualified:
-        mq_repo.grant(
-            db, member_id=member_id, qualification_id=dj_qual.id, semester_id=sem_id
-        )
+        mq_repo.grant(db, member_id=member_id, qualification_id=dj_qual.id, semester_id=sem_id)
 
     for date, type_slug, planning_status in CALENDAR:
         etype = etypes_repo.get_by_slug(db, type_slug)
@@ -186,11 +180,7 @@ def _run_semester(db: sqlite3.Connection, semester_id: int) -> None:
     helper should delegate to it, and every assertion below must stay green
     across the move.
     """
-    events = [
-        e
-        for e in events_repo.list_for_semester(db, semester_id)
-        if e.status != "cancelled"
-    ]
+    events = [e for e in events_repo.list_for_semester(db, semester_id) if e.status != "cancelled"]
     with transaction(db):
         for event in events:
             assignment.auto_assign(db, event_id=event.id, seed=1, commit=True)
@@ -287,9 +277,7 @@ def test_dj_slots_only_go_to_qualified_members(filled_semester: tuple) -> None:
     """
     db, sem_id, _, dj_qualified = filled_semester
     dj_holders = {
-        row["assigned_member_id"]
-        for row in _assigned_rows(db, sem_id)
-        if row["shift_slug"] == "dj"
+        row["assigned_member_id"] for row in _assigned_rows(db, sem_id) if row["shift_slug"] == "dj"
     }
     assert dj_holders, "the calendar has a dj slot at every event"
     assert dj_holders <= set(dj_qualified)

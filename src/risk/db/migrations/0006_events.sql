@@ -12,6 +12,16 @@ CREATE TABLE IF NOT EXISTS events (
   end_time TEXT NULL,
   status TEXT NOT NULL DEFAULT 'created'
     CHECK (status IN ('created', 'assigned', 'completed', 'cancelled')),
+  -- How real the event is, which is a DIFFERENT axis from `status` above.
+  -- `status` is the lifecycle of our work on the event (created -> assigned ->
+  -- completed); `planning_status` is whether the party is actually happening.
+  -- A placeholder is a date the social chair is holding, fully staffed, that
+  -- may never become a party. The fill order depends on the distinction —
+  -- placeholders are staffed LAST so that cancelling one leaves the confirmed
+  -- calendar exactly as it would have been if the placeholder never existed.
+  -- Added in 0015; see that file for the back-fill and its replay hazard.
+  planning_status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (planning_status IN ('confirmed', 'potential', 'placeholder')),
   resync_pending INTEGER NOT NULL DEFAULT 0 CHECK (resync_pending IN (0, 1)),
   notes TEXT NULL,
   UNIQUE (semester_id, display_name),

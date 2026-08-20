@@ -36,9 +36,7 @@ pytestmark = pytest.mark.integration
 
 
 def _seed_member(conn: sqlite3.Connection) -> tuple[int, int]:
-    sem_id = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
     member_id = members_repo.insert(
@@ -160,10 +158,96 @@ def test_the_superseded_narrow_index_is_gone_after_a_replay(tmp_path: Path) -> N
     names = {
         r["name"]
         for r in reopened.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'index' AND tbl_name = 'unavailability'"
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'unavailability'"
         )
     }
     assert "unavailability_member_semester_range" not in names
     assert "unavailability_member_semester_window" in names
     reopened.close()
+
+
+def test_planning_status_back_fill_does_not_revert_a_chair_edit(tmp_path: Path) -> None:
+    """0015 derives ``planning_status`` from notes ONCE, never again.
+
+    This is the 0013 trap in a new place. The FA26 load wrote the value as
+    ``status=placeholder`` inside ``events.notes``, and 0015 parses it out. But
+    every migration replays on every connect, so an unguarded UPDATE would
+    re-derive from notes forever — and a chair promoting a placeholder to a real
+    party would watch it silently revert on their next command, with the notes
+    field still saying ``status=placeholder`` and nothing anywhere explaining
+    why the fill order had not changed.
+
+    The guard is ``WHERE planning_status IS NULL``, which is true exactly once
+    per row in the life of a database.
+    """
+    from risk.repos import event_types as etypes_repo
+    from risk.repos import events as events_repo
+
+    path = tmp_path / "planning.db"
+    conn = connect(path)
+    ensure_schema(conn)
+    sem_id = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
+    etype = etypes_repo.get_by_slug(conn, "mixer")
+    assert etype is not None
+    with transaction(conn):
+        event_id = events_repo.insert(
+            conn,
+            semester_id=sem_id,
+            event_type_id=etype.id,
+            display_name="Held date",
+            date="2026-09-18",
+            notes="status=placeholder; social chair is holding this one",
+            planning_status="placeholder",
+        )
+    conn.close()
+
+    # The chair confirms the party.
+    conn = connect(path)
+    ensure_schema(conn)
+    with transaction(conn):
+        events_repo.update_planning_status(conn, event_id=event_id, planning_status="confirmed")
+    conn.close()
+
+    # Two further connects, i.e. two further full replays of 0015.
+    for _ in range(2):
+        conn = connect(path)
+        ensure_schema(conn)
+        event = events_repo.get_by_id(conn, event_id)
+        assert event is not None
+        assert event.planning_status == "confirmed", (
+            "0015 re-derived planning_status from notes and reverted the chair's edit"
+        )
+        # The notes still say placeholder — that is the whole point. The value
+        # was seeded from notes, then became independent of it.
+        assert event.notes is not None and "status=placeholder" in event.notes
+        conn.close()
+
+
+def test_planning_status_rejects_a_value_the_fill_order_cannot_read(
+    tmp_path: Path,
+) -> None:
+    """Legacy databases get this column by ALTER TABLE and carry no CHECK.
+
+    ``schema._ensure_columns`` adds it as plain nullable TEXT because SQLite
+    cannot attach a CHECK via ALTER, so on Colin's real database the repo guard
+    is the only thing standing between a typo and an event that sorts into
+    neither the confirmed pass nor the placeholder pass.
+    """
+    from risk.repos import event_types as etypes_repo
+    from risk.repos import events as events_repo
+
+    conn = connect(tmp_path / "planning-check.db")
+    ensure_schema(conn)
+    sem_id = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
+    etype = etypes_repo.get_by_slug(conn, "mixer")
+    assert etype is not None
+    with pytest.raises(ValueError, match="planning_status"):
+        events_repo.insert(
+            conn,
+            semester_id=sem_id,
+            event_type_id=etype.id,
+            display_name="Typo",
+            date="2026-09-18",
+            planning_status="placehodler",
+        )
+    conn.close()

@@ -46,6 +46,13 @@ _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("unavailability", "starts_at_time", "TEXT"),
     ("unavailability", "ends_at_time", "TEXT"),
     ("unavailability", "repeats_weekday", "INTEGER"),
+    # FA26 scheduling. Deliberately added as plain nullable TEXT even though
+    # 0006 declares it NOT NULL DEFAULT 'confirmed' with a CHECK: SQLite can add
+    # neither via ALTER, and a DEFAULT here would fill every legacy row with
+    # 'confirmed' before 0015 got the chance to read the real value out of
+    # notes. NULL is the signal 0015's back-fill keys on, and it is also what
+    # makes that back-fill fire exactly once instead of on every connect.
+    ("events", "planning_status", "TEXT"),
 )
 
 
