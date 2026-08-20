@@ -379,9 +379,7 @@ def set_host(
 def cancel(
     ctx: typer.Context,
     event: Annotated[str, typer.Argument(help="Event ID or display name.")],
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
 ) -> None:
     """Cancel an event. Irreversible — prompts for confirmation unless --yes."""
     mode = mode_from_ctx(ctx)
@@ -391,10 +389,7 @@ def cancel(
         emit_error("event.not_found", f"Could not resolve event {event!r}.", mode=mode)
         return
     if not yes:
-        msg = (
-            f"Cancel event {ev.display_name!r} (#{ev.id})? "
-            "This cannot be undone."
-        )
+        msg = f"Cancel event {ev.display_name!r} (#{ev.id})? This cannot be undone."
         if not typer.confirm(msg):
             emit_error(
                 "event.cancel.aborted",
@@ -546,4 +541,122 @@ def auto_assign(
                 ("Reason", "reason"),
             ),
         ),
+    )
+
+
+@app.command("auto-assign-semester")
+def auto_assign_semester(
+    ctx: typer.Context,
+    semester: Annotated[
+        str | None, typer.Option("--semester", help="Defaults to the current semester.")
+    ] = None,
+    allow: Annotated[
+        list[str] | None,
+        typer.Option("--allow", help="Soft-excluded role automation_key to allow (repeatable)."),
+    ] = None,
+    reassign: Annotated[
+        bool,
+        typer.Option("--reassign", help="Clear open slots before filling; preserves assigned."),
+    ] = False,
+    seed: Annotated[
+        int | None, typer.Option("--seed", help="Seed recorded on each run's audit row.")
+    ] = None,
+    on_or_after: Annotated[
+        str | None,
+        typer.Option("--from", help="Only fill events on or after this ISO date."),
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Compute the whole term without writing.")
+    ] = False,
+) -> None:
+    """Fill every event in a semester, confirmed calendar first.
+
+    The CLI counterpart to POST /api/events/auto-assign-bulk, which until now
+    was the only way to fill a term — so a chair working from the shell had to
+    run `risk event auto-assign` 43 times, in the right order, to get the same
+    result.
+
+    Placeholders are filled LAST, after every confirmed party, so that
+    cancelling one leaves the confirmed calendar exactly as it would have been
+    had the placeholder never existed.
+
+    Example:
+        risk event auto-assign-semester --semester FA26 --dry-run
+        risk event auto-assign-semester --from 2026-10-15
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    semester_id = _resolve_semester_for_event(conn, mode, semester)
+    sem = semesters_repo.get_by_id(conn, semester_id)
+    assert sem is not None
+
+    allowed_keys: set[str] = set()
+    if allow:
+        all_soft = {r.automation_key for r in roles_repo.get_soft_excluded(conn)}
+        for key in allow:
+            if key not in all_soft:
+                emit_error(
+                    "allow.unknown_key",
+                    f"--allow {key!r} is not a soft-excluded role automation_key. "
+                    f"Known: {sorted(k for k in all_soft if k)}",
+                    mode=mode,
+                )
+                return
+            allowed_keys.add(key)
+
+    try:
+        if dry_run:
+            filled = assign_svc.auto_assign_semester(
+                conn,
+                semester_id=semester_id,
+                allowed_keys=frozenset(allowed_keys),
+                seed=seed,
+                reassign=reassign,
+                on_or_after=on_or_after,
+                commit=False,
+            )
+        else:
+            with transaction(conn):
+                filled = assign_svc.auto_assign_semester(
+                    conn,
+                    semester_id=semester_id,
+                    allowed_keys=frozenset(allowed_keys),
+                    seed=seed,
+                    reassign=reassign,
+                    on_or_after=on_or_after,
+                    commit=True,
+                )
+    except sqlite3.IntegrityError as exc:
+        emit_error("assignment.integrity", str(exc), mode=mode)
+        return
+
+    events_payload = [
+        {
+            "event": ev.display_name,
+            "date": ev.date,
+            "planning_status": ev.planning_status,
+            "assigned": sum(1 for a in r.assignments if a.member_id is not None),
+            "unfilled": sum(1 for a in r.assignments if a.member_id is None),
+            "strike_makeups": sum(1 for a in r.assignments if a.reason == "strike_makeup"),
+            "warnings": r.warnings,
+        }
+        for ev, r in filled
+    ]
+    emit_success(
+        {
+            "semester": sem.name,
+            "dry_run": dry_run,
+            "events": events_payload,
+            "totals": {
+                "events": len(filled),
+                "assigned": sum(int(e["assigned"]) for e in events_payload),  # type: ignore[arg-type]
+                "unfilled": sum(int(e["unfilled"]) for e in events_payload),  # type: ignore[arg-type]
+                "strike_makeups": sum(
+                    int(e["strike_makeups"])
+                    for e in events_payload  # type: ignore[arg-type]
+                ),
+                "warnings": sum(len(e["warnings"]) for e in events_payload),  # type: ignore[arg-type]
+            },
+        },
+        mode=mode,
     )

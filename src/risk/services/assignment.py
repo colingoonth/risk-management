@@ -514,3 +514,95 @@ def auto_assign(
         warnings=warnings,
         eligibility=elig,
     )
+
+
+def semester_fill_order(events: list[events_repo.Event]) -> list[events_repo.Event]:
+    """Order a term's events for the bulk fill: confirmed calendar first.
+
+    Two passes, not one. Every confirmed and potential party is filled in date
+    order, and only then are the held placeholder dates filled, also in date
+    order.
+
+    THE PROPERTY THIS BUYS. During the first pass no placeholder shift exists
+    yet, so no placeholder can influence anyone's fairness score. The confirmed
+    calendar therefore comes out byte-identical to the calendar you would get if
+    the placeholders had never been entered at all — which means cancelling one,
+    as roughly half of them will be, disturbs nothing. A single date-ordered
+    pass does the opposite: an August placeholder consumes early slots, shifts
+    every later score, and if it never happens the whole term was balanced
+    around a party that did not exist.
+
+    Within the confirmed pass, date order still matters for its own reason —
+    fairness counts shifts at events dated on or before the current one, so
+    filling out of order would have later events scoring against a partially
+    built past.
+
+    ``potential`` sorts WITH the confirmed calendar. There is one such event
+    (Sep 5) and both source workbooks describe a real party that is merely
+    unconfirmed, which is a different thing from a date being held open.
+    ``start_time`` and ``id`` are the final tiebreaks because every FA26 row has
+    a NULL start_time and several share a date, so without them SQLite is free
+    to return same-date events in a different order between runs and the
+    schedule would not reproduce.
+    """
+    return sorted(
+        events,
+        key=lambda e: (
+            e.planning_status in events_repo.FILL_LAST_PLANNING_STATUSES,
+            e.date,
+            e.start_time or "",
+            e.id,
+        ),
+    )
+
+
+def auto_assign_semester(
+    conn: sqlite3.Connection,
+    *,
+    semester_id: int,
+    allowed_keys: frozenset[str] = frozenset(),
+    seed: int | None = None,
+    reassign: bool = False,
+    commit: bool = True,
+    on_or_after: str | None = None,
+) -> list[tuple[events_repo.Event, AutoAssignResult]]:
+    """Fill a whole term, in the order :func:`semester_fill_order` defines.
+
+    This loop previously existed only inside ``POST /api/events/auto-assign-bulk``,
+    which is why there has never been a CLI equivalent and why the placeholder
+    rule had nowhere to live. Both surfaces now call this.
+
+    Cancelled events are skipped: their requirement rows may still exist, and
+    staffing a party that is not happening would burn real slots.
+
+    ``on_or_after`` limits the fill to events on or after a date, for re-running
+    the back half of a term after something changes — a conflict arriving, or
+    the pledge cutoff landing — without disturbing parties that have already
+    been worked. It is applied AFTER ordering, so the two-pass shape holds
+    within whatever range is chosen.
+
+    No transaction is opened here, matching ``auto_assign``: the caller owns the
+    boundary, so a bulk fill either lands whole or not at all.
+    """
+    events = [
+        e for e in events_repo.list_for_semester(conn, semester_id) if e.status != "cancelled"
+    ]
+    if on_or_after is not None:
+        events = [e for e in events if e.date >= on_or_after]
+
+    out: list[tuple[events_repo.Event, AutoAssignResult]] = []
+    for event in semester_fill_order(events):
+        out.append(
+            (
+                event,
+                auto_assign(
+                    conn,
+                    event_id=event.id,
+                    allowed_keys=allowed_keys,
+                    seed=seed,
+                    reassign=reassign,
+                    commit=commit,
+                ),
+            )
+        )
+    return out

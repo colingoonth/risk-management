@@ -111,9 +111,7 @@ def list_event_summaries(
     for g in req_repo.list_slot_groups_for_semester(conn, sem.id):
         groups.setdefault(g.event_id, []).append(ShiftSlotGroupOut.model_validate(g))
     return [
-        EventSummaryOut.model_validate(r).model_copy(
-            update={"by_type": groups.get(r.id, [])}
-        )
+        EventSummaryOut.model_validate(r).model_copy(update={"by_type": groups.get(r.id, [])})
         for r in rows
     ]
 
@@ -218,22 +216,16 @@ def auto_assign_bulk(
     with service_errors():
         sem = resolve_semester(conn, semester)
         keys = _validated_allowed_keys(conn, body.allowed_keys)
-        events = [
-            e for e in events_repo.list_for_semester(conn, sem.id) if e.status != "cancelled"
-        ]
-        out: list[AutoAssignOut] = []
         with transaction(conn):
-            for ev in events:
-                result = assign_svc.auto_assign(
-                    conn,
-                    event_id=ev.id,
-                    allowed_keys=keys,
-                    seed=body.seed,
-                    reassign=body.reassign,
-                    commit=True,
-                )
-                out.append(_auto_assign_out(ev.display_name, result))
-    return out
+            filled = assign_svc.auto_assign_semester(
+                conn,
+                semester_id=sem.id,
+                allowed_keys=keys,
+                seed=body.seed,
+                reassign=body.reassign,
+                commit=True,
+            )
+        return [_auto_assign_out(ev.display_name, result) for ev, result in filled]
 
 
 @router.post("/{event_id}/set-host", response_model=EventOut)

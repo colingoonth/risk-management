@@ -53,6 +53,11 @@ def list_all(conn: sqlite3.Connection) -> list[Semester]:
     return [_row_to_semester(r) for r in rows]
 
 
+def get_by_id(conn: sqlite3.Connection, semester_id: int) -> Semester | None:
+    row = conn.execute("SELECT * FROM semesters WHERE id = ?", (semester_id,)).fetchone()
+    return _row_to_semester(row) if row else None
+
+
 def get_by_name(conn: sqlite3.Connection, name: str) -> Semester | None:
     row = conn.execute("SELECT * FROM semesters WHERE name = ?", (name,)).fetchone()
     return _row_to_semester(row) if row else None
@@ -76,9 +81,7 @@ def set_current(conn: sqlite3.Connection, name: str) -> int:
     return target.id
 
 
-def mark_archived(
-    conn: sqlite3.Connection, *, semester_id: int, archived_at: str
-) -> int:
+def mark_archived(conn: sqlite3.Connection, *, semester_id: int, archived_at: str) -> int:
     cur = conn.execute(
         "UPDATE semesters SET archived_at = ? WHERE id = ? AND archived_at IS NULL",
         (archived_at, semester_id),

@@ -164,6 +164,7 @@ def _build_fa26_world(db: sqlite3.Connection) -> tuple[int, list[int], list[int]
             event_type_id=etype.id,
             display_name=f"{type_slug} {date}",
             date=date,
+            planning_status=planning_status,
             notes=f"status={planning_status}",
         )
         reqs_svc.snapshot_for_event(db, event_id)
@@ -172,18 +173,16 @@ def _build_fa26_world(db: sqlite3.Connection) -> tuple[int, list[int], list[int]
 
 
 def _run_semester(db: sqlite3.Connection, semester_id: int) -> None:
-    """Fill the whole term the way ``POST /api/events/auto-assign-bulk`` does.
+    """Fill the whole term through the same service both shipped surfaces use.
 
-    Deliberately mirrors the router rather than importing it: the bulk loop
-    lives only in ``api/routers/events.py`` today, so there is no service
-    function to call. When that loop moves down into the service layer this
-    helper should delegate to it, and every assertion below must stay green
-    across the move.
+    This began as a hand-rolled copy of the loop inside
+    ``POST /api/events/auto-assign-bulk``, because that was the only place the
+    loop existed. It now delegates to the service that loop moved into, and
+    every assertion in this module stayed green across the move — which is why
+    they were written before the move rather than after.
     """
-    events = [e for e in events_repo.list_for_semester(db, semester_id) if e.status != "cancelled"]
     with transaction(db):
-        for event in events:
-            assignment.auto_assign(db, event_id=event.id, seed=1, commit=True)
+        assignment.auto_assign_semester(db, semester_id=semester_id, seed=1, commit=True)
 
 
 @pytest.fixture()
@@ -316,3 +315,83 @@ def test_refill_reproduces_the_same_schedule(filled_semester: tuple) -> None:
         for row in _assigned_rows(db, sem_id)
     )
     assert first == second
+
+
+def test_placeholders_are_staffed_last(filled_semester: tuple) -> None:
+    """Held dates are filled after every confirmed party, not in date order.
+
+    Aug 25 is the first event on the calendar and a placeholder; Aug 28 is the
+    first confirmed one. If the fill ran in plain date order, Aug 25 would
+    consume the freshest twelve members and shift every score after it.
+    """
+    db, sem_id, _, _ = filled_semester
+    events = events_repo.list_for_semester(db, sem_id)
+    ordered = assignment.semester_fill_order(events)
+    statuses = [e.planning_status for e in ordered]
+    first_placeholder = statuses.index("placeholder")
+    assert "confirmed" not in statuses[first_placeholder:], (
+        "a confirmed party is being filled after a placeholder"
+    )
+    # And within each pass, still chronological.
+    confirmed_dates = [e.date for e in ordered[:first_placeholder]]
+    placeholder_dates = [e.date for e in ordered[first_placeholder:]]
+    assert confirmed_dates == sorted(confirmed_dates)
+    assert placeholder_dates == sorted(placeholder_dates)
+
+
+def test_cancelling_a_placeholder_does_not_disturb_the_confirmed_calendar(
+    db: sqlite3.Connection,
+) -> None:
+    """The whole reason for the two-pass order, stated as the property it buys.
+
+    Roughly half of the eleven held dates will not become parties. If a
+    placeholder can influence anyone's fairness score, then cancelling one means
+    the entire confirmed term was balanced around a party that never happened —
+    and re-running to fix it changes every brother's assignment, after they have
+    been told what they are working.
+
+    Built twice: once with the placeholders present, once with them deleted
+    outright. The confirmed half must come out identical, member for member.
+    """
+    sem_id, _, _ = _build_fa26_world(db)
+    _run_semester(db, sem_id)
+    with_placeholders = sorted(
+        (row["date"], row["shift_slug"], row["slot_index"], row["assigned_member_id"])
+        for row in _assigned_rows(db, sem_id)
+        if row["date"]
+        not in {d for d, _, s in CALENDAR if s == "placeholder"}  # confirmed half only
+    )
+
+    # Same world, placeholders never entered at all.
+    with transaction(db):
+        db.execute(
+            "DELETE FROM shifts WHERE event_id IN (SELECT id FROM events WHERE semester_id = ?)",
+            (sem_id,),
+        )
+        db.execute(
+            """
+            DELETE FROM auto_assign_runs
+            WHERE event_id IN (SELECT id FROM events WHERE semester_id = ?)
+            """,
+            (sem_id,),
+        )
+        db.execute(
+            """
+            DELETE FROM event_shift_requirements
+            WHERE event_id IN (
+              SELECT id FROM events WHERE semester_id = ? AND planning_status = 'placeholder'
+            )
+            """,
+            (sem_id,),
+        )
+        db.execute(
+            "DELETE FROM events WHERE semester_id = ? AND planning_status = 'placeholder'",
+            (sem_id,),
+        )
+    _run_semester(db, sem_id)
+    without_placeholders = sorted(
+        (row["date"], row["shift_slug"], row["slot_index"], row["assigned_member_id"])
+        for row in _assigned_rows(db, sem_id)
+    )
+
+    assert with_placeholders == without_placeholders
