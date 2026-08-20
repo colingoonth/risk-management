@@ -12,6 +12,7 @@ from risk import __version__
 from risk.cli.config import app as config_app
 from risk.cli.db import app as db_app
 from risk.cli.event import app as event_app
+from risk.cli.export import app as export_app
 from risk.cli.ingest import app as ingest_app
 from risk.cli.member import app as member_app
 from risk.cli.output import OutputMode
@@ -52,6 +53,7 @@ app.add_typer(strike_app, name="strike")
 app.add_typer(unavailability_app, name="unavailability")
 app.add_typer(swap_app, name="swap")
 app.add_typer(ingest_app, name="ingest")
+app.add_typer(export_app, name="export")
 
 
 @app.callback(invoke_without_command=True)
