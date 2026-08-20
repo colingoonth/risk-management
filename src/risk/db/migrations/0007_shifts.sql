@@ -17,6 +17,18 @@ CREATE TABLE IF NOT EXISTS shifts (
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open', 'assigned', 'completed', 'no_show', 'swapped')),
   assigned_at TEXT NULL,
+  -- The strike this shift WORKS OFF, if any. Added in 0017; see that file for
+  -- why this is not `strikes.shift_id`, which records the opposite fact (the
+  -- shift a member no-showed).
+  --
+  -- Declared without a REFERENCES clause on purpose. `strikes` is created in
+  -- 0008, one file later, and more importantly ALTER TABLE — which is how
+  -- databases that predate this column acquire it — cannot attach a foreign key
+  -- at all. Declaring one here would leave a fresh database with a constraint
+  -- an existing database does not have, and schema._ensure_columns is built on
+  -- the two staying identical. The guarantee that actually matters, one make-up
+  -- per strike, is the partial unique index in 0017 and applies to both.
+  serves_strike_id INTEGER NULL,
   CHECK (slot_index >= 0 AND slot_index < 50),
   CHECK ((assigned_member_id IS NULL AND status = 'open')
          OR (assigned_member_id IS NOT NULL AND status <> 'open')),

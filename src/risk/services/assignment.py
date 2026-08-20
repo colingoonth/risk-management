@@ -23,6 +23,7 @@ from risk.repos import event_shift_requirements as req_repo
 from risk.repos import events as events_repo
 from risk.repos import qualifications as quals_repo
 from risk.repos import shifts as shifts_repo
+from risk.repos import strikes as strikes_repo
 from risk.services import eligibility, fairness, pledge_mode
 from risk.services.eligibility import EligibilityResult
 from risk.services.pledge_mode import MODE_FULL, MODE_NORMAL, MODE_PARTIAL, ResolvedMode
@@ -35,7 +36,7 @@ class ProposedAssignment:
     member_id: int | None
     member_slug: str | None
     score: float | None
-    reason: str  # 'assigned', 'pool_empty', 'pool_below_min', 'preserved'
+    reason: str  # 'assigned', 'strike_makeup', 'pool_empty', 'pool_below_min', 'preserved'
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +92,131 @@ def _fill_order_key(
         )
 
     return key
+
+
+def _place_strike_makeups(
+    conn: sqlite3.Connection,
+    *,
+    event: events_repo.Event,
+    requirements: list[req_repo.EventShiftRequirement],
+    fill_order: Callable[[req_repo.EventShiftRequirement], tuple[int, str]],
+    gated_shift_type_ids: frozenset[int],
+    by_type_slot: dict[tuple[int, int], shifts_repo.Shift],
+    already_assigned: set[int],
+    allowed_keys: frozenset[str],
+    resolved: ResolvedMode,
+    commit: bool,
+) -> tuple[list[ProposedAssignment], list[str]]:
+    """Seat the members who owe a make-up shift, before the rotation runs.
+
+    One unserved strike, one shift. The chapter's rule, and Colin's instruction
+    was to put them on the first parties of the term rather than spreading them
+    — a penalty nobody can point at is not much of a penalty.
+
+    That clustering is emergent rather than computed. This runs on every event,
+    but it seats everyone who fits, so the earliest events absorb the whole
+    backlog and later events find nothing left to place. It also means a strike
+    issued in November is picked up by the next fill without anything special.
+
+    THREE RULES WORTH STATING, because each one is a decision:
+
+    Placeholders are skipped. Those are dates the social chair is holding, and
+    roughly half of them will not happen. Working off a strike at a party that
+    gets cancelled leaves the strike unserved and the member believing he has
+    paid it — the worst of both.
+
+    Gated shift types are skipped. A make-up should be a real risk shift. DJing
+    is not risk work, does not count toward anyone's tally, and letting it
+    settle a strike would make the penalty free for exactly the two people who
+    already have a job that exempts them from the rotation.
+
+    Hard-excluded roles are ignored, via ``honor_hard_role_exclusion=False``.
+    The exemption spares an officer the rotation; it does not forgive a strike
+    he earned.
+    """
+    if event.planning_status in events_repo.FILL_LAST_PLANNING_STATUSES:
+        return [], []
+
+    debts = strikes_repo.list_unserved(conn, semester_id=event.semester_id)
+    if not debts:
+        return [], []
+
+    # Same event-level filters as the rotation, minus H3. A strike does not make
+    # a member available on a night he is away, nor let him monitor his own
+    # house.
+    seatable = {
+        m.member_id
+        for m in eligibility.eligible_for(
+            conn,
+            event_id=event.id,
+            semester_id=event.semester_id,
+            host_house_id=event.host_house_id,
+            allowed_keys=allowed_keys,
+            event_date=event.date,
+            honor_hard_role_exclusion=False,
+        ).eligible
+    }
+
+    queue = [d for d in debts if d.member_id in seatable]
+    placed: list[ProposedAssignment] = []
+    warnings: list[str] = []
+
+    for req in sorted(requirements, key=fill_order):
+        if req.shift_type_id in gated_shift_type_ids:
+            continue
+        for slot_index in range(req.target_count):
+            if not queue:
+                break
+            existing = by_type_slot.get((req.shift_type_id, slot_index))
+            if existing is not None and existing.assigned_member_id is not None:
+                continue  # the chair put someone here; leave them
+            # Skip anyone already standing somewhere at this party. Two debts
+            # cannot be worked off on one night.
+            idx = next(
+                (i for i, d in enumerate(queue) if d.member_id not in already_assigned),
+                None,
+            )
+            if idx is None:
+                break
+            debt = queue.pop(idx)
+            placed.append(
+                ProposedAssignment(
+                    shift_type_slug=req.shift_type_slug,
+                    slot_index=slot_index,
+                    member_id=debt.member_id,
+                    member_slug=debt.member_slug,
+                    score=None,
+                    reason="strike_makeup",
+                )
+            )
+            already_assigned.add(debt.member_id)
+            warnings.append(
+                f"{debt.display_name} works {req.shift_type_slug} as a strike "
+                f"make-up (strike #{debt.strike_id}, issued {debt.issued_on}) — "
+                f"does not count toward their season total"
+            )
+            if commit:
+                shift_id = (
+                    existing.id
+                    if existing is not None
+                    else shifts_repo.insert_open(
+                        conn,
+                        event_id=event.id,
+                        shift_type_id=req.shift_type_id,
+                        slot_index=slot_index,
+                    )
+                )
+                shifts_repo.assign(
+                    conn,
+                    shift_id=shift_id,
+                    member_id=debt.member_id,
+                    effective_pledge_mode_id=resolved.resolved_id,
+                    assigned_at=event.date,
+                    serves_strike_id=debt.strike_id,
+                )
+        if not queue:
+            break
+    return placed, warnings
 
 
 def auto_assign(
@@ -208,6 +334,30 @@ def auto_assign(
 
     gated_shift_type_ids = frozenset(quals_repo.shift_type_ids_with_requirements(conn))
     fill_order = _fill_order_key(gated_shift_type_ids)
+
+    # Strike make-ups go in BEFORE the rotation, and the order is load-bearing
+    # in two directions. Forward: whoever owes a shift is placed first, so the
+    # make-ups land on the earliest parties instead of wherever fairness happens
+    # to put them. Backward: a member placed here enters `already_assigned` and
+    # is therefore invisible to every pool below, which is what makes the DJ
+    # case work without a special case — the DJ who owes a strike takes a risk
+    # slot, and the dj gate below then finds only the other DJ.
+    makeups, makeup_warnings = _place_strike_makeups(
+        conn,
+        event=event,
+        requirements=requirements,
+        fill_order=fill_order,
+        gated_shift_type_ids=gated_shift_type_ids,
+        by_type_slot=by_type_slot,
+        already_assigned=already_assigned,
+        allowed_keys=allowed_keys,
+        resolved=resolved,
+        commit=commit,
+    )
+    assignments.extend(makeups)
+    warnings.extend(makeup_warnings)
+    claimed_by_makeup = {(a.shift_type_slug, a.slot_index) for a in makeups}
+
     for req in sorted(requirements, key=fill_order):
         type_pool = _pool_for_mode(pool, resolved.resolved_slug)
         # Qualification gate. Only `dj` is gated, and the chapter has two DJs, so
@@ -250,6 +400,13 @@ def auto_assign(
 
         filled = 0
         for slot_index in range(req.target_count):
+            if (req.shift_type_slug, slot_index) in claimed_by_makeup:
+                # A make-up already stands here. It is reported above with its
+                # own reason, so re-reporting it as 'preserved' would put the
+                # slot in the payload twice and hide that it was a penalty.
+                # It still counts as filled — a body is a body for min_count.
+                filled += 1
+                continue
             existing = by_type_slot.get((req.shift_type_id, slot_index))
             if existing is not None and existing.assigned_member_id is not None:
                 # Preserve chair-assigned slot.

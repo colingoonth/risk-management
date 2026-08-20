@@ -45,6 +45,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from risk.repos import shifts as shifts_repo
+from risk.repos import strikes as strikes_repo
 from risk.services.eligibility import EligibleMember
 from risk.services.policy import (
     DJ_PHANTOM_SHIFTS,
@@ -135,15 +136,7 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
             (semester_id,),
         ).fetchone()["n"]
     )
-    strike_slots = int(
-        conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM strikes
-            WHERE semester_id = ? AND closed_at IS NULL
-            """,
-            (semester_id,),
-        ).fetchone()["n"]
-    )
+    strike_slots = strikes_repo.count_makeup_slots_owed(conn, semester_id=semester_id)
 
     pool = conn.execute(
         """

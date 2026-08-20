@@ -15,18 +15,25 @@ class Shift:
     slot_index: int
     assigned_member_id: int | None
     assigned_member_slug: str | None
+    # The name a human reads. Every shift-bearing surface — this repo, ShiftOut,
+    # GET /api/shifts, `risk shift list`, the web drawer — carried only the slug
+    # until now, so anything printing a schedule showed `first-last`, and
+    # an exporter had no choice but to re-derive names by splitting on '-'.
+    assigned_member_display_name: str | None
     effective_pledge_mode_id: int | None
     effective_pledge_mode_slug: str | None
     status: str
     assigned_at: str | None
+    serves_strike_id: int | None
 
 
 _SELECT_JOINED = """
 SELECT
   s.id, s.event_id, s.shift_type_id, st.slug AS shift_type_slug,
   s.slot_index, s.assigned_member_id, m.slug AS assigned_member_slug,
+  m.display_name AS assigned_member_display_name,
   s.effective_pledge_mode_id, pm.slug AS effective_pledge_mode_slug,
-  s.status, s.assigned_at
+  s.status, s.assigned_at, s.serves_strike_id
 FROM shifts s
 JOIN shift_types st ON st.id = s.shift_type_id
 LEFT JOIN members m ON m.id = s.assigned_member_id
@@ -43,10 +50,12 @@ def _row(r: sqlite3.Row) -> Shift:
         slot_index=r["slot_index"],
         assigned_member_id=r["assigned_member_id"],
         assigned_member_slug=r["assigned_member_slug"],
+        assigned_member_display_name=r["assigned_member_display_name"],
         effective_pledge_mode_id=r["effective_pledge_mode_id"],
         effective_pledge_mode_slug=r["effective_pledge_mode_slug"],
         status=r["status"],
         assigned_at=r["assigned_at"],
+        serves_strike_id=r["serves_strike_id"],
     )
 
 
@@ -76,6 +85,7 @@ def assign(
     member_id: int,
     effective_pledge_mode_id: int,
     assigned_at: str,
+    serves_strike_id: int | None = None,
 ) -> int:
     """Assign a member to an existing open shift slot.
 
@@ -83,6 +93,13 @@ def assign(
     ``assigned_at`` with the caller-provided value. ADR-009 requires this to
     be the event date (not wall-clock now) so the fairness tiebreaker stays
     pinned to ``event.date`` across reruns and cross-event orderings.
+
+    ``serves_strike_id`` marks the assignment as a strike make-up, which keeps
+    it out of the member's fairness tally — a penalty is work on top of a normal
+    season, and counting it would refund it. Written here rather than in a
+    follow-up UPDATE so a make-up can never briefly exist as an ordinary shift;
+    the partial unique index in 0017 rejects a second shift against the same
+    strike, and it must see the value at INSERT time to do that.
     """
     cur = conn.execute(
         """
@@ -90,22 +107,33 @@ def assign(
         SET assigned_member_id = ?,
             effective_pledge_mode_id = ?,
             status = 'assigned',
-            assigned_at = ?
+            assigned_at = ?,
+            serves_strike_id = ?
         WHERE id = ? AND status = 'open'
         """,
-        (member_id, effective_pledge_mode_id, assigned_at, shift_id),
+        (member_id, effective_pledge_mode_id, assigned_at, serves_strike_id, shift_id),
     )
     return cur.rowcount
 
 
 def unassign(conn: sqlite3.Connection, *, shift_id: int) -> int:
+    """Free a slot, returning it to 'open'.
+
+    Clears ``serves_strike_id`` along with the member. The strike and the person
+    are one fact: a slot nobody is standing works nobody's strike off. Leaving
+    the link behind would hold the strike against a shift that is now empty —
+    the unique index would then refuse to place that member's make-up anywhere
+    else, and the strike would silently become unservable for the rest of the
+    term.
+    """
     cur = conn.execute(
         """
         UPDATE shifts
         SET assigned_member_id = NULL,
             effective_pledge_mode_id = NULL,
             status = 'open',
-            assigned_at = NULL
+            assigned_at = NULL,
+            serves_strike_id = NULL
         WHERE id = ?
         """,
         (shift_id,),
@@ -193,16 +221,17 @@ def count_assignments_in_semester_through_date(
     out of every other pool by roughly the sixth party, and then top the shift
     ledger having stood no risk shifts at all. See migration 0016.
 
-    Shifts serving a strike. A make-up shift is a penalty, so counting it would
-    refund the penalty: the extra work would push the member down the queue and
-    take a rotation shift off him, leaving his season load unchanged and the
-    strike costing him nothing. ``strikes.shift_id`` is the link, and it is what
-    that column was declared for.
+    ``serves_strike_id IS NOT NULL`` — a make-up. Counting a penalty would
+    refund it: the extra work would push the member down the queue and take a
+    rotation shift back off him, leaving his season load unchanged and the
+    strike costing him nothing.
 
-    Both exclusions are joins rather than slug tests so the rule lives in data.
-    NOT EXISTS rather than a LEFT JOIN because a shift could in principle serve
-    more than one strike, and a join would then count the row twice — in the one
-    direction that silently under-counts the member's real load.
+    Note this is NOT ``strikes.shift_id``, which points the other way — that
+    column records the shift a member NO-SHOWED, the cause of a strike rather
+    than its remedy (see migration 0017).
+
+    Both exclusions read from data rather than testing a slug, so the rule is
+    something the chair can inspect and change.
     """
     row = conn.execute(
         """
@@ -214,7 +243,7 @@ def count_assignments_in_semester_through_date(
           AND e.semester_id = ?
           AND e.date <= ?
           AND st.counts_toward_tally = 1
-          AND NOT EXISTS (SELECT 1 FROM strikes k WHERE k.shift_id = s.id)
+          AND s.serves_strike_id IS NULL
         """,
         (member_id, semester_id, on_or_before),
     ).fetchone()

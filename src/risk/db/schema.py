@@ -58,6 +58,12 @@ _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # every legacy row. 0016 then flips dj to 0 exactly once. The CHECK is
     # still lost to ALTER's limitations, as always.
     ("shift_types", "counts_toward_tally", "INTEGER NOT NULL DEFAULT 1"),
+    # The strike this shift works off, for databases created before 0017.
+    # Fresh ones get it from 0007's CREATE TABLE, which declares it with no
+    # REFERENCES clause precisely so the two paths produce the same column —
+    # ALTER TABLE cannot attach a foreign key, so declaring one on the CREATE
+    # would make a fresh schema diverge from a reconciled one.
+    ("shifts", "serves_strike_id", "INTEGER"),
 )
 
 

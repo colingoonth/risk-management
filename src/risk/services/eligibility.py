@@ -78,6 +78,7 @@ def eligible_for(
     host_house_id: int | None,
     allowed_keys: frozenset[str] = frozenset(),
     event_date: str | None = None,
+    honor_hard_role_exclusion: bool = True,
 ) -> EligibilityResult:
     """Compute the eligible pool for ``event_id`` in ``semester_id``.
 
@@ -88,13 +89,21 @@ def eligible_for(
     ``event_date`` (ISO YYYY-MM-DD) enables H4 unavailability filtering:
     any member with an unavailability window covering ``event_date`` is
     excluded. Phase 4 callers that pre-date Phase 6 may omit it.
+
+    ``honor_hard_role_exclusion=False`` drops H3 and nothing else. It has
+    exactly one caller — the strike make-up pass — and exists because a hard
+    exemption and a disciplinary penalty are different things. An exemption
+    says the chair does not put this officer in the rotation; it does not say a
+    strike he earned stops being owed. Colin's ruling, and the reason the social
+    chair carrying a spring strike works one make-up shift and no rotation
+    shifts. Status, host house, unavailability and the soft-role gate all still
+    apply: those are about whether the member CAN work the party, which a strike
+    does not change.
     """
     from risk.repos import unavailability as _unav
 
     unavailable_member_ids: set[int] = (
-        _unav.member_ids_unavailable_on(
-            conn, semester_id=semester_id, date=event_date
-        )
+        _unav.member_ids_unavailable_on(conn, semester_id=semester_id, date=event_date)
         if event_date is not None
         else set()
     )
@@ -156,7 +165,7 @@ def eligible_for(
         if host_house_id is not None and r["member_house_id"] == host_house_id:
             excluded_by_host_house += 1
             continue
-        if r["hard_role_excluded"]:
+        if honor_hard_role_exclusion and r["hard_role_excluded"]:
             excluded_by_hard_role += 1
             continue
         if r["member_id"] in unavailable_member_ids:
@@ -232,9 +241,7 @@ def filter_for_shift_type(
 
     holders: set[int] | None = None
     for qual in required:
-        ids = _mq.member_ids_with(
-            conn, semester_id=semester_id, qualification_slug=qual.slug
-        )
+        ids = _mq.member_ids_with(conn, semester_id=semester_id, qualification_slug=qual.slug)
         holders = ids if holders is None else (holders & ids)
         if not holders:
             break
