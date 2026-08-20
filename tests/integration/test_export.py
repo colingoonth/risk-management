@@ -248,3 +248,71 @@ def test_the_dedupe_suffix_never_reaches_the_reader(
     """
     for row in exported.schedule:
         assert " (20" not in row.display_name
+
+
+def test_notes_are_mirrored_from_the_database(db: sqlite3.Connection) -> None:
+    """The sheet reflects the app, rather than being a second place to write.
+
+    The old tracker's grid and its TRACKER tab disagreed by 161 shifts because
+    each was maintained by hand. One source, mirrored outward, is how that stops
+    being possible.
+    """
+    from risk.repos import chair_notes as notes_repo
+
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19")
+    with transaction(db):
+        notes_repo.insert(db, semester_id=sem_id, body="Nico out Oct 10")
+        standing = notes_repo.insert(
+            db, semester_id=sem_id, body="Never two Etas on setup", kind="standing"
+        )
+        asked = notes_repo.insert(
+            db, semester_id=sem_id, body="How big is the PC?", author="claude"
+        )
+        notes_repo.close(
+            db, note_id=asked, closed_at="2026-08-21T10:00:00", closed_note="~18 expected"
+        )
+
+    data = export_svc.build(db, semester_id=sem_id)
+    bodies = {n.body: n for n in data.notes}
+    assert set(bodies) == {"Nico out Oct 10", "Never two Etas on setup", "How big is the PC?"}
+    assert bodies["Never two Etas on setup"].kind == "standing"
+    assert bodies["How big is the PC?"].author == "claude"
+    assert bodies["How big is the PC?"].closed_note == "~18 expected"
+    # Still-applies first: a retired note at the top of the list is the one a
+    # chair skims past and then acts on.
+    assert data.notes[0].closed_at is None
+    assert data.notes[-1].body == "How big is the PC?"
+    _ = standing
+
+
+def test_a_standing_rule_closes_as_retired_not_done(db: sqlite3.Connection) -> None:
+    """Closing a standing rule must stop it applying, not mark it complete.
+
+    The distinction is the whole reason the two kinds are separate. A rule that
+    can be "finished" silently drops out of the next rebuild, and nothing in the
+    output would show that it had.
+    """
+    from risk.repos import chair_notes as notes_repo
+
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19")
+    with transaction(db):
+        rule = notes_repo.insert(db, semester_id=sem_id, body="No freshmen on bar", kind="standing")
+    assert notes_repo.list_for_semester(db, sem_id, open_only=True, kind="standing")
+
+    with transaction(db):
+        notes_repo.close(db, note_id=rule, closed_at="2026-10-01T00:00:00")
+    assert notes_repo.list_for_semester(db, sem_id, open_only=True, kind="standing") == []
+
+    # Re-closing is a no-op rather than overwriting what was recorded the first
+    # time — the outcome note is the audit trail.
+    with transaction(db):
+        assert notes_repo.close(db, note_id=rule, closed_at="2026-11-01T00:00:00") == 0
+    note = notes_repo.get_by_id(db, rule)
+    assert note is not None and note.closed_at == "2026-10-01T00:00:00"
+
+    with transaction(db):
+        notes_repo.reopen(db, note_id=rule)
+    reopened = notes_repo.get_by_id(db, rule)
+    assert reopened is not None
+    assert reopened.closed_at is None
+    assert reopened.closed_note is None, "a reopened note must not still assert how it was resolved"

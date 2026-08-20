@@ -15,6 +15,7 @@ from risk.cli.event import app as event_app
 from risk.cli.export import app as export_app
 from risk.cli.ingest import app as ingest_app
 from risk.cli.member import app as member_app
+from risk.cli.note import app as note_app
 from risk.cli.output import OutputMode
 from risk.cli.semester import app as semester_app
 from risk.cli.shift import app as shift_app
@@ -50,6 +51,7 @@ app.add_typer(member_app, name="member")
 app.add_typer(event_app, name="event")
 app.add_typer(shift_app, name="shift")
 app.add_typer(strike_app, name="strike")
+app.add_typer(note_app, name="note")
 app.add_typer(unavailability_app, name="unavailability")
 app.add_typer(swap_app, name="swap")
 app.add_typer(ingest_app, name="ingest")

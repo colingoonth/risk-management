@@ -216,3 +216,19 @@ export interface RosterIngestResult {
   exec_roles_set?: number
   dry_run?: boolean
 }
+
+export type NoteKind = 'one_off' | 'standing'
+export type NoteAuthor = 'chair' | 'claude'
+
+export interface ChairNote {
+  id: number
+  semester_id: number
+  kind: NoteKind
+  author: NoteAuthor
+  body: string
+  created_at: string
+  /** null while the note still applies — done, for a one-off; retired, for a standing rule. */
+  closed_at: string | null
+  /** What was actually done about it. */
+  closed_note: string | null
+}

@@ -19,6 +19,7 @@ from risk.api.routers import (
     ingest,
     members,
     meta,
+    notes,
     semesters,
     shifts,
     strikes,
@@ -93,6 +94,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         swaps,
         ingest,
         dashboard,
+        notes,
     ):
         app.include_router(module.router, prefix="/api")
 

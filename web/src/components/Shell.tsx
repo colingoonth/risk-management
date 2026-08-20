@@ -12,6 +12,7 @@ const NAV = [
   { to: '/strikes', label: 'Strikes' },
   { to: '/pledges', label: 'Pledges' },
   { to: '/roster', label: 'Roster' },
+  { to: '/notes', label: 'Notes' },
 ]
 
 export function Shell() {

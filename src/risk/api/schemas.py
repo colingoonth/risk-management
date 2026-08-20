@@ -306,3 +306,31 @@ class SwapRequestIn(BaseModel):
     from_shift_id: int
     to_shift_id: int | None = None
     counterparty_member_slug: str | None = None
+
+
+# --- Chair notes ---
+
+
+class ChairNoteIn(BaseModel):
+    body: str
+    kind: str = "one_off"
+    author: str = "chair"
+
+
+class ChairNoteCloseIn(BaseModel):
+    closed_note: str | None = None
+
+
+class ChairNoteBodyIn(BaseModel):
+    body: str
+
+
+class ChairNoteOut(_Out):
+    id: int
+    semester_id: int
+    kind: str
+    author: str
+    body: str
+    created_at: str
+    closed_at: str | None
+    closed_note: str | None

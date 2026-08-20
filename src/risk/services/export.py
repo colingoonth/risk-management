@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date as _date
 from datetime import timedelta
 
+from risk.repos import chair_notes as notes_repo
 from risk.repos import events as events_repo
 from risk.services.policy import is_senior_in_term, quota_targets
 
@@ -111,11 +112,24 @@ class ShiftRow:
 
 
 @dataclass(frozen=True, slots=True)
+class NoteRow:
+    """One chair note, mirrored into the workbook."""
+
+    kind: str
+    author: str
+    body: str
+    created_at: str
+    closed_at: str | None
+    closed_note: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class SemesterExport:
     semester_name: str
     schedule: list[ScheduleRow]
     tally: list[TallyRow]
     by_brother: list[ShiftRow]
+    notes: list[NoteRow] = field(default_factory=list)
     shift_type_columns: list[tuple[str, int]] = field(default_factory=list)
     column_headers: dict[str, str] = field(default_factory=dict)
     senior_target: float = 0.0
@@ -365,11 +379,23 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
         senior_target=senior_target,
         underclass_target=underclass_target,
     )
+    notes = [
+        NoteRow(
+            kind=n.kind,
+            author=n.author,
+            body=n.body,
+            created_at=n.created_at,
+            closed_at=n.closed_at,
+            closed_note=n.closed_note,
+        )
+        for n in notes_repo.list_for_semester(conn, semester_id)
+    ]
     return SemesterExport(
         semester_name=sem["name"],
         schedule=schedule,
         tally=tally,
         by_brother=by_brother,
+        notes=notes,
         shift_type_columns=shift_type_columns,
         column_headers=column_headers,
         senior_target=senior_target,

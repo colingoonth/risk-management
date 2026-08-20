@@ -5,6 +5,7 @@ import type {
   ArchiveReport,
   ArchiveResult,
   AutoAssignResult,
+  ChairNote,
   Dashboard,
   EventRow,
   EventSummaryRow,
@@ -12,6 +13,8 @@ import type {
   House,
   HouseMode,
   Member,
+  NoteAuthor,
+  NoteKind,
   NumberedStrike,
   PendingConsequence,
   RemovalMethod,
@@ -131,6 +134,25 @@ export const api = {
     const qs = q.toString()
     return req<Shift[]>(`/shifts${qs ? `?${qs}` : ''}`)
   },
+
+  listNotes: (params: { openOnly?: boolean; kind?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (params.openOnly) q.set('open_only', 'true')
+    if (params.kind) q.set('kind', params.kind)
+    const qs = q.toString()
+    return req<ChairNote[]>(`/notes${qs ? `?${qs}` : ''}`)
+  },
+  createNote: (body: { body: string; kind?: NoteKind; author?: NoteAuthor }) =>
+    req<ChairNote>('/notes', { method: 'POST', body: JSON.stringify(body) }),
+  closeNote: (id: number, closed_note?: string) =>
+    req<ChairNote>(`/notes/${id}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ closed_note: closed_note ?? null }),
+    }),
+  reopenNote: (id: number) => req<ChairNote>(`/notes/${id}/reopen`, { method: 'POST' }),
+  editNote: (id: number, body: string) =>
+    req<ChairNote>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ body }) }),
+  deleteNote: (id: number) => req<void>(`/notes/${id}`, { method: 'DELETE' }),
 
   listSwaps: (state?: string) =>
     req<SwapRequest[]>(`/swaps${state ? `?state=${encodeURIComponent(state)}` : ''}`),

@@ -84,109 +84,79 @@ def _styles() -> dict[str, object]:
 
 
 NOTES_TAB = "Risk Notes"
-"""The one tab a re-push must never touch.
+"""The chair's notes, mirrored out of the database.
 
-Everything else in this workbook is derived from the database and regenerated
-wholesale on every export. This tab is the opposite: it is the only place in the
-system where the chair writes something the database does not know, and it is
-the input side of the loop — he types "Nico is out Oct 10", the schedule is
-rebuilt around it, and the note is what explains WHY the rebuild differs.
+Read-only here. Colin writes these in the app — `Notes` in the nav, or
+`risk note add` — and the database is the single copy. Mirroring rather than
+hosting them means the sheet cannot drift from what the app acted on, which is
+the failure the old tracker had between its grid and its TRACKER tab.
 
-Which makes it exactly the thing a careless push destroys. `gog drive upload
---replace` swaps the entire file, so the obvious way to keep the sheet's URL
-stable is also the way to silently delete his notes. `risk export push` updates
-the three generated tabs by name instead, and never names this one.
+Every cell is therefore regenerated on a push like any other tab, and the header
+says so, because a tab called "Risk Notes" in an editable spreadsheet otherwise
+invites typing into it — and that text would vanish on the next refresh with
+nothing to explain why.
 """
 
 
 def _write_notes(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
-    """The template for the notes tab, written only on a first export.
-
-    Seeded with the contract rather than left blank, because a blank tab
-    labelled "Risk Notes" invites notes on the Schedule tab too — and those
-    ARE destroyed on the next push. The header says which tabs survive.
-    """
-    from openpyxl.styles import Font, PatternFill
+    """Mirror the chair notes into a tab the chapter can read."""
+    from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
-    rows: list[tuple[str, ...]] = [
-        (f"RISK NOTES — {data.semester_name}",),
-        (),
-        ("Write anything here. Before rebuilding the schedule, Claude reads this tab first.",),
-        ("This tab is never overwritten by an export.",),
-        (
-            "The Schedule / Tally / By Brother tabs ARE regenerated on every push — "
-            "notes written there will be lost.",
-        ),
-        (),
-        ("ONE-OFF NOTES", "", "", "things to action once, then mark done"),
-        ("Added", "Note", "Status", ""),
-        ("2026-08-20", "example: Nico can't do Oct 10, family thing", "", ""),
-        ("", "", "", ""),
-        ("", "", "", ""),
-        ("", "", "", ""),
-        (),
-        ("STANDING RULES", "", "", "things that should apply to every rebuild"),
-        ("Added", "Rule", "Active", ""),
-        ("2026-08-20", "example: don't put Mateus on cleanup, he opens the house", "", ""),
-        ("", "", "", ""),
-        ("", "", "", ""),
-        (),
-        ("OPEN ITEMS — from Claude", "", "", "answered here, or just tell me"),
-        ("Raised", "Item", "Answer", ""),
-        (
-            "2026-08-20",
-            "Unavailability is only checked against the PARTY date, so a Sunday-morning "
-            "conflict does not protect a Saturday cleanup crew. 172 slots. Want it wired?",
-            "",
-            "",
-        ),
-        (
-            "2026-08-20",
-            "Pledge takeover cannot execute yet — the pledge role is unseeded and 20 of 21 "
-            "post-cutoff events have no host house. Build it when you know the PC size.",
-            "",
-            "",
-        ),
-        (
-            "2026-08-20",
-            "member_house_assignments is empty, so nobody is being excluded from monitoring "
-            "their own house. Send the Arena/Blur resident lists and I'll fold them in.",
-            "",
-            "",
-        ),
-    ]
-    for row in rows:
-        ws.append(list(row) if row else [])
+    for row in _notes_values(data):
+        ws.append(row)
 
     ws.cell(row=1, column=1).font = Font(name="Helvetica Neue", size=14, bold=True, color=_INK)
-    for r in (3, 4, 5):
-        ws.cell(row=r, column=1).font = st["body"]
-    for r, _label in ((7, "ONE-OFF NOTES"), (14, "STANDING RULES"), (20, "OPEN ITEMS")):
-        cell = ws.cell(row=r, column=1)
-        cell.font = Font(name="Helvetica Neue", size=11, bold=True, color=_BRASS)
-        ws.cell(row=r, column=4).font = st["body"]
-    for r in (8, 15, 21):
-        for c in range(1, 4):
+    ws.cell(row=2, column=1).font = Font(
+        name="Helvetica Neue", size=10, italic=True, color="9A9186"
+    )
+    for c in range(1, 6):
+        cell = ws.cell(row=4, column=c)
+        cell.font = st["header"]
+        cell.fill = st["header_fill"]
+        cell.border = st["border"]
+    for r in range(5, ws.max_row + 1):
+        kind = ws.cell(row=r, column=1).value
+        closed = ws.cell(row=r, column=4).value
+        for c in range(1, 6):
             cell = ws.cell(row=r, column=c)
-            cell.font = st["header"]
-            cell.fill = PatternFill("solid", fgColor=_HEADER_BG)
             cell.border = st["border"]
-    # The examples are dimmed so they read as prompts rather than real entries.
-    for r in (9, 16):
-        for c in range(1, 4):
-            ws.cell(row=r, column=c).font = Font(
-                name="Helvetica Neue", size=10, italic=True, color="9A9186"
-            )
-    for r in (22, 23, 24):
-        ws.cell(row=r, column=2).alignment = st["wrap"]
-        ws.cell(row=r, column=2).font = st["body"]
-        ws.cell(row=r, column=1).font = st["body"]
+            cell.alignment = st["wrap"] if c in (3, 5) else st["left"]
+            # A standing rule is the one that keeps applying, so it is the one
+            # worth spotting in a long list.
+            cell.font = st["brass"] if kind == "standing" and not closed else st["body"]
+        if closed:
+            for c in range(1, 6):
+                ws.cell(row=r, column=c).font = Font(name="Helvetica Neue", size=10, color="9A9186")
 
-    for i, w in enumerate([12, 86, 14, 40], start=1):
+    for i, w in enumerate([12, 9, 78, 20, 44], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    for r in (22, 23, 24):
-        ws.row_dimensions[r].height = 32
+
+
+def _notes_values(data: export_svc.SemesterExport) -> list[list[str]]:
+    """The notes tab as a plain grid, shared by the workbook and the push."""
+    rows: list[list[str]] = [
+        [f"RISK NOTES — {data.semester_name}"],
+        [
+            "Read-only mirror. Write notes in the app (Notes tab) — anything typed here is "
+            "overwritten on the next refresh."
+        ],
+        [],
+        ["Kind", "By", "Note", "Closed", "What was done"],
+    ]
+    for n in data.notes:
+        rows.append(
+            [
+                "STANDING" if n.kind == "standing" else "one-off",
+                n.author,
+                n.body,
+                (n.closed_at or "")[:16],
+                n.closed_note or "",
+            ]
+        )
+    if not data.notes:
+        rows.append(["", "", "(no notes yet)", "", ""])
+    return rows
 
 
 def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
@@ -476,10 +446,13 @@ def sheet(
     )
 
 
-GENERATED_TABS = ("Schedule", "Tally", "By Brother")
-"""Tabs a push rebuilds. Deliberately a list of names, not "everything".
+GENERATED_TABS = ("Schedule", "Tally", "By Brother", NOTES_TAB)
+"""Tabs a push rebuilds.
 
-The whole point is that it does NOT include ``Risk Notes``.
+Named explicitly rather than "every tab in the workbook", so anything a chair
+adds by hand — a scratch tab, a copy of last year — survives a refresh. All four
+of these are derived from the database, notes included: the app owns them now,
+so mirroring is correct and there is nothing here to preserve.
 """
 
 
@@ -735,4 +708,9 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
             ]
         )
 
-    return {"Schedule": schedule, "Tally": tally, "By Brother": by_brother}
+    return {
+        "Schedule": schedule,
+        "Tally": tally,
+        "By Brother": by_brother,
+        NOTES_TAB: _notes_values(data),
+    }
