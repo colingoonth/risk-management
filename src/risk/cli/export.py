@@ -22,6 +22,8 @@ chair asked, which is the whole job.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -864,3 +866,174 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
         "By Brother": by_brother,
         NOTES_TAB: _notes_values(data),
     }
+
+
+PDF_CSS = """
+@page {
+  size: A3 landscape;
+  margin: 12mm 10mm 14mm 10mm;
+  @bottom-left { content: "Kappa Sigma Phi-Alpha — sober monitor schedule"; font: 8pt "Helvetica Neue"; color: #6b645c; }
+  @bottom-right { content: "page " counter(page) " of " counter(pages); font: 8pt "Helvetica Neue"; color: #6b645c; }
+}
+body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1C1814; margin: 0; }
+h1 { font-size: 17pt; margin: 0 0 1mm 0; letter-spacing: .02em; }
+.sub { font-size: 8.5pt; color: #6b645c; margin: 0 0 3mm 0; }
+.key { font-size: 7.5pt; margin: 0 0 3mm 0; }
+.key span { padding: 1px 6px; margin-right: 5px; border: .3pt solid #C9C0B2; }
+table { border-collapse: collapse; width: 100%; font-size: 7pt; }
+/* Repeat the header on every page — a wide grid whose headers appear once is
+   unreadable from page two, which is where most of the term lives. */
+thead { display: table-header-group; }
+th, td { border: .3pt solid #C9C0B2; padding: 1.6pt 2.5pt; text-align: left; vertical-align: top; }
+th { background: #EFE9DD; font-size: 6.5pt; text-transform: uppercase; letter-spacing: .04em; }
+th.job { text-align: center; }
+tr { page-break-inside: avoid; }
+td.date { font-weight: 600; white-space: nowrap; }
+td.win { font-size: 6pt; color: #4a443d; }
+td.name { font-size: 6.8pt; }
+.strike { background: #FFB74D; font-weight: 600; }
+.unfilled { color: #6E1F1F; font-weight: 700; }
+.ph td { color: #6b645c; font-style: italic; }
+"""
+
+
+def _pdf_html(data: export_svc.SemesterExport) -> str:
+    """The Schedule grid as standalone HTML, for weasyprint.
+
+    The PUBLIC artefact. It carries the roster and nothing else — no Tally, no
+    per-member totals, no strike counts beside a name, no chair notes. Those
+    live in the spreadsheet, which is now restricted to people with edit access.
+    A brother needs to know which night he is working; he does not need to be
+    able to audit everybody else's load, and publishing that invites exactly the
+    argument the Tally exists to settle privately.
+    """
+    from html import escape
+
+    day_bg = {"Tue": "#FF00FF", "Fri": "#00FF00", "Sat": "#FF9900"}
+    head_a = ["Date", "Day", "Event", "House", "Setup window", "Cleanup window"]
+
+    cols: list[tuple[str, int, str]] = []
+    for slug, width in data.shift_type_columns:
+        cols.append((slug, width, data.column_headers.get(slug, slug.upper())))
+
+    out: list[str] = [
+        "<h1>RISK — FALL 2026</h1>",
+        '<p class="sub">Sober monitor schedule. Setup is worked in the days BEFORE the party; '
+        "cleanup is the MORNING AFTER. Check the window columns — the date a shift is listed "
+        "under is the party, not always the day you work.</p>",
+        '<p class="key">'
+        '<span style="background:#FF00FF">TUESDAY</span>'
+        '<span style="background:#00FF00">FRIDAY</span>'
+        '<span style="background:#FF9900">SATURDAY</span>'
+        '<span style="background:#FFB74D">(strike) = make-up shift</span>'
+        '<span style="color:#6E1F1F;font-weight:700">UNFILLED</span>'
+        '<span style="color:#6b645c;font-style:italic">placeholder = may not happen</span>'
+        "</p>",
+        "<table><thead><tr>",
+    ]
+    for h in head_a:
+        out.append(f'<th rowspan="2">{escape(h)}</th>')
+    for _slug, width, label in cols:
+        out.append(f'<th class="job" colspan="{width}">{escape(label)}</th>')
+    out.append("</tr><tr>")
+    for _slug, width, _label in cols:
+        for i in range(width):
+            out.append(f'<th class="job">{i + 1}</th>')
+    out.append("</tr></thead><tbody>")
+
+    for row in data.schedule:
+        klass = ' class="ph"' if row.planning_status == "placeholder" else ""
+        bg = day_bg.get(row.weekday)
+        style = f' style="background:{bg}"' if bg else ""
+        out.append(f"<tr{klass}>")
+        out.append(f'<td class="date"{style}>{escape(row.date)}</td>')
+        out.append(f"<td>{escape(row.weekday)}</td>")
+        name = row.display_name + (" (placeholder)" if row.planning_status == "placeholder" else "")
+        out.append(f"<td>{escape(name)}</td>")
+        out.append(f"<td>{escape(row.host_house)}</td>")
+        out.append(f'<td class="win">{escape(row.setup_window)}</td>')
+        out.append(f'<td class="win">{escape(row.cleanup_window)}</td>')
+        for slug, width, _label in cols:
+            for i in range(width):
+                v = row.cells.get((slug, i), "")
+                if v == export_svc.UNFILLED:
+                    out.append('<td class="name unfilled">UNFILLED</td>')
+                elif v.endswith(export_svc.STRIKE_MARKER):
+                    out.append(f'<td class="name strike">{escape(v)}</td>')
+                else:
+                    out.append(f'<td class="name">{escape(v)}</td>')
+        out.append("</tr>")
+    out.append("</tbody></table>")
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<style>{PDF_CSS}</style></head><body>{''.join(out)}</body></html>"
+    )
+
+
+@app.command("pdf")
+def pdf(
+    ctx: typer.Context,
+    out: Annotated[Path, typer.Option("--out", help="Path to write the .pdf to.")],
+    semester: Annotated[
+        str | None, typer.Option("--semester", help="Defaults to the current semester.")
+    ] = None,
+    keep_html: Annotated[
+        bool, typer.Option("--keep-html", help="Also write the intermediate .html.")
+    ] = False,
+) -> None:
+    """Render the SCHEDULE ONLY to a PDF — the public-facing artefact.
+
+    Deliberately not the whole workbook. The spreadsheet holds per-member totals,
+    quota percentages, strike counts and the chair's notes; this holds the
+    roster. A brother needs to know which night he is working, not to be able to
+    audit everybody else's load.
+
+    Example:
+        risk export pdf --semester FA26 --out ~/Desktop/FA26-schedule.pdf
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    if semester is not None:
+        sem = semesters_repo.get_by_name(conn, semester)
+        if sem is None:
+            emit_error("semester.not_found", f"No semester named {semester!r}.", mode=mode)
+            return
+    else:
+        sem = semesters_repo.get_current(conn)
+        if sem is None:
+            emit_error("semester.no_current", "No --semester and no current semester.", mode=mode)
+            return
+
+    weasy = shutil.which("weasyprint")
+    if weasy is None:
+        emit_error(
+            "pdf.no_weasyprint",
+            "weasyprint is not on PATH (brew install weasyprint).",
+            mode=mode,
+        )
+        return
+
+    data = export_svc.build(conn, semester_id=sem.id)
+    out = out.expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    html_path = out.with_suffix(".html")
+    html_path.write_text(_pdf_html(data), encoding="utf-8")
+    result = subprocess.run(  # noqa: S603
+        [weasy, str(html_path), str(out)], capture_output=True, text=True, check=False
+    )
+    if not keep_html:
+        html_path.unlink(missing_ok=True)
+    if result.returncode != 0:
+        emit_error("pdf.render_failed", result.stderr.strip()[:400], mode=mode)
+        return
+
+    emit_success(
+        {
+            "semester": sem.name,
+            "path": str(out),
+            "size_kb": round(out.stat().st_size / 1024, 1),
+            "events": len(data.schedule),
+            "contains": "schedule grid only — no tally, no totals, no notes",
+        },
+        mode=mode,
+    )
