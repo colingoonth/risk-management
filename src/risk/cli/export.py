@@ -103,7 +103,7 @@ nothing to explain why.
 """
 
 
-SCRATCH_TAB = "Scratch Pad"
+SCRATCH_TAB = "Scratch pad"  # matches the tab Colin created in the live sheet
 """The one tab that belongs to the readers rather than to this program.
 
 Four people have write access to the published sheet, and every tab in it is
