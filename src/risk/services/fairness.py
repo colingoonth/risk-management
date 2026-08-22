@@ -269,9 +269,7 @@ def score_member(
     # make-up is a penalty, not a turn in the rotation, and should not satisfy
     # a rule about doing your share.
     phantom = (
-        quota.dj_phantom
-        if member.member_id in quota.dj_qualified and shifts_so_far > 0
-        else 0.0
+        quota.dj_phantom if member.member_id in quota.dj_qualified and shifts_so_far > 0 else 0.0
     )
     # A zero target means there is no work, or nobody to do it. Sorting such a
     # member to the very back is the safe direction: the alternative is a

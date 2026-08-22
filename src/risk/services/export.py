@@ -86,6 +86,14 @@ class TallyRow:
     class_label: str
     per_type: dict[str, int]
     counted_total: int
+    effort: float
+    """Weighted load — a setup counts 0.7, everything else 1.0.
+
+    The number that is actually comparable to ``target``. ``counted_total`` is a
+    headcount and the target is denominated in effort, so dividing one by the
+    other overstates anyone setup-heavy: one setup-heavy brother's 17 setups read as 143%
+    of quota when they are exactly 100% of it. That is the single most
+    argument-starting cell the sheet could print, and it was wrong."""
     dj_shifts: int
     strike_shifts: int
     nights_on_site: int
@@ -459,8 +467,8 @@ def _build_member_rows(
     shifts = conn.execute(
         """
         SELECT s.assigned_member_id AS member_id, st.slug AS shift_slug,
-               st.counts_toward_tally, s.slot_index, s.serves_strike_id,
-               e.date, e.display_name AS event_name
+               st.counts_toward_tally, st.effort_weight, s.slot_index,
+               s.serves_strike_id, e.date, e.display_name AS event_name
         FROM shifts s
         JOIN events e ON e.id = s.event_id
         JOIN shift_types st ON st.id = s.shift_type_id
@@ -483,6 +491,7 @@ def _build_member_rows(
         rows = per_member.get(m["id"], [])
         per_type: dict[str, int] = {}
         counted = dj = strike = 0
+        effort = 0.0
         nights: set[str] = set()
         for r in rows:
             nights.add(r["date"])
@@ -493,6 +502,7 @@ def _build_member_rows(
                 strike += 1
             else:
                 counted += 1
+                effort += float(r["effort_weight"])
                 per_type[r["shift_slug"]] = per_type.get(r["shift_slug"], 0) + 1
             offset = windows.get(r["shift_slug"])
             worked = _shift(r["date"], int(offset["offset_days_start"])) if offset else r["date"]
@@ -525,6 +535,7 @@ def _build_member_rows(
                 class_label=label,
                 per_type=per_type,
                 counted_total=counted,
+                effort=round(effort, 1),
                 dj_shifts=dj,
                 strike_shifts=strike,
                 nights_on_site=len(nights),

@@ -296,6 +296,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
         + [
             "TOTAL",
+            "LOAD",
             "NIGHTS ON SITE",
             "Target",
             "vs target",
@@ -308,8 +309,10 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     ws.cell(row=1, column=1).font = st["title"]
     ws.append(
         [
-            "TOTAL counts risk shifts only. DJ nights and strike make-ups are real "
-            "nights but do not count toward quota — see NIGHTS ON SITE."
+            "TOTAL is how many shifts. LOAD is the weighted figure the target is "
+            "set in — a setup counts 0.7 because it is a 2h block you pick, so 17 "
+            "setups is a full quota, not 143% of one. DJ nights and strike make-ups "
+            "are real nights but count toward neither — see NIGHTS ON SITE."
         ]
     )
     ws.cell(row=2, column=1).font = st["dim"]
@@ -324,15 +327,18 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
         cell.border = st["border"]
 
     total_col = 3 + len(types) + 1
-    nights_col = total_col + 1
-    vs_col = total_col + 3
-    strike_col = total_col + 5
+    load_col = total_col + 1
+    nights_col = total_col + 2
+    vs_col = total_col + 4
+    strike_col = total_col + 6
     note_col = len(header)
 
     for i, row in enumerate(data.tally):
         vs = ""
         if row.target > 0:
-            vs = f"{row.counted_total / row.target * 100:.0f}%"
+            # LOAD, not TOTAL. Both are "how much did he work", but only one is
+            # in the same units as the target.
+            vs = f"{row.effort / row.target * 100:.0f}%"
         elif row.exempt:
             vs = "exempt"
         ws.append(
@@ -340,6 +346,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
             + [row.per_type.get(s, 0) for s in types]
             + [
                 row.counted_total,
+                row.effort,
                 row.nights_on_site,
                 round(row.target, 1) if row.target else "",
                 vs,
@@ -359,6 +366,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
             if i % 2:
                 cell.fill = st["band"]
         ws.cell(row=r, column=total_col).font = st["total"]
+        ws.cell(row=r, column=load_col).font = st["total"]
         ws.cell(row=r, column=nights_col).font = st["total"]
         if row.exempt:
             # Not an alarm. An exempt officer at zero is the system working, and
@@ -368,7 +376,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
                 ws.cell(row=r, column=c).font = st["dim"]
             ws.cell(row=r, column=vs_col).font = st["brass"]
         elif row.target > 0:
-            share = row.counted_total / row.target
+            share = row.effort / row.target
             # Brass for over quota, dim for well under. Never oxblood: being
             # under target is usually the fill's doing, not the member's, and
             # flagging it red starts an argument the data cannot settle.
@@ -380,7 +388,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
         ws.cell(row=r, column=note_col).alignment = st["wrap"]
 
     ws.freeze_panes = ws.cell(row=head_row + 1, column=4).coordinate
-    widths = [24, 10, 11] + [9] * len(types) + [8, 15, 8, 10, 15, 17, 52]
+    widths = [24, 10, 11] + [9] * len(types) + [8, 8, 15, 8, 10, 15, 17, 52]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -742,8 +750,10 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
     tally: list[list[str]] = [
         [f"SHIFT TALLY — {data.semester_name}"],
         [
-            "TOTAL counts risk shifts only. DJ nights and strike make-ups are real "
-            "nights but do not count toward quota — see NIGHTS ON SITE."
+            "TOTAL is how many shifts. LOAD is the weighted figure the target is "
+            "set in — a setup counts 0.7 because it is a 2h block you pick, so 17 "
+            "setups is a full quota, not 143% of one. DJ nights and strike make-ups "
+            "are real nights but count toward neither — see NIGHTS ON SITE."
         ],
         [],
         ["Brother", "PC", "Class"]
@@ -769,6 +779,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
             + [str(row.per_type.get(s, 0)) for s in types]
             + [
                 str(row.counted_total),
+                f"{row.effort:.1f}",
                 str(row.nights_on_site),
                 f"{row.target:.1f}" if row.target else "",
                 vs,
