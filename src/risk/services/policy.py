@@ -133,19 +133,24 @@ def quota_targets(
     return (underclass_target * SENIOR_QUOTA_RATIO, underclass_target)
 
 
-DJ_PHANTOM_SHIFTS = 2.0
-"""Phantom shifts carried by a member qualified to DJ.
+DJ_NIGHT_CREDIT = 0.3
+"""Rotation credit a DJ earns per night behind the decks.
 
-A DJ night does not count toward the tally — it is a different job, and counting
-it would let two people absorb 43 nights and then appear as the hardest-working
-brothers in the chapter having stood zero risk shifts. But NOT counting it at
-all leaves a DJ looking permanently idle, so the fill hands him a full
-underclassman quota on top of DJing every party.
+A DJ night is not risk work and does not appear in anyone's shift total — that
+is settled (0016), and the ledger would be lying if it did. But it IS a night on
+site, and pretending otherwise produced an absurdity: one of the two DJs was
+carrying 22 DJ nights AND a full 13-turn rotation quota, so the app had him at a
+party 35 times out of 44 while reporting 13.
 
-The phantom is the middle: it says "this member is already carrying something",
-so he is picked after equally-placed members, and still picked when the pool is
-genuinely short. Two is deliberately small — this is a thumb on the scale, not
-an exemption. HANDOFF: "DJs carry a phantom of 2 so they aren't overloaded."
+The credit it replaced was a flat 2.0 — a thumb on the scale sized for somebody
+who might DJ occasionally, applied to somebody doing it every other party. Two
+phantom shifts against twenty-two nights is not a correction, it is a rounding
+error.
+
+0.3 says a night spent DJing is worth about a third of a party night against
+your quota. Not 1.0, because it is a different and easier job, and the chapter
+would rightly object to a DJ "working off" a full risk shift by playing music.
+Not 0.0, because he is still there, still sober, still not at home.
 """
 
 

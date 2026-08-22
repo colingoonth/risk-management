@@ -48,7 +48,7 @@ from risk.repos import shifts as shifts_repo
 from risk.repos import strikes as strikes_repo
 from risk.services.eligibility import EligibleMember
 from risk.services.policy import (
-    DJ_PHANTOM_SHIFTS,
+    DJ_NIGHT_CREDIT,
     is_senior_in_term,
     pledge_class_ordinal,
     quota_targets,
@@ -79,6 +79,15 @@ class QuotaContext:
     term_start_year: int
     term_is_fall: bool
     dj_qualified: frozenset[int]
+    dj_phantom: float = 0.0
+    """Rotation credit each qualified DJ carries for the term.
+
+    Derived from the DJ slots that exist and how many people can fill them,
+    rather than fixed: two DJs against 44 parties is a very different burden
+    from six DJs against 12, and a constant cannot know which it is looking at.
+    Computed once for the term instead of accumulating per night worked, so a
+    DJ's rotation load is predictable in August rather than drifting as the
+    season fills in."""
 
     def target_for(self, class_year: int | None) -> float:
         if is_senior_in_term(
@@ -184,6 +193,22 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
 
     # Make-ups come off at full weight. A penalty shift is a penalty whichever
     # post it is worked at, and discounting it would refund part of it.
+    # What each DJ is carrying: the DJ slots that exist, split across the people
+    # who can fill them, valued at DJ_NIGHT_CREDIT apiece.
+    dj_slots = int(
+        conn.execute(
+            """
+            SELECT COALESCE(SUM(r.target_count), 0) AS n
+            FROM event_shift_requirements r
+            JOIN events e ON e.id = r.event_id
+            JOIN shift_types st ON st.id = r.shift_type_id
+            WHERE e.semester_id = ? AND e.status <> 'cancelled' AND st.slug = 'dj'
+            """,
+            (semester_id,),
+        ).fetchone()["n"]
+    )
+    dj_phantom = (dj_slots / len(dj_qualified)) * DJ_NIGHT_CREDIT if dj_qualified else 0.0
+
     rotation_slots = max(counted_effort - strike_slots, 0.0)
     senior_target, underclass_target = quota_targets(
         rotation_slots=rotation_slots,
@@ -199,6 +224,7 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
         term_start_year=term_start_year,
         term_is_fall=term_is_fall,
         dj_qualified=dj_qualified,
+        dj_phantom=dj_phantom,
     )
 
 
@@ -229,7 +255,7 @@ def score_member(
         on_or_before=event_date,
     )
     target = quota.target_for(member.class_year)
-    phantom = DJ_PHANTOM_SHIFTS if member.member_id in quota.dj_qualified else 0.0
+    phantom = quota.dj_phantom if member.member_id in quota.dj_qualified else 0.0
     # A zero target means there is no work, or nobody to do it. Sorting such a
     # member to the very back is the safe direction: the alternative is a
     # ZeroDivisionError mid-fill, and the one after that is treating "no quota"
