@@ -88,6 +88,19 @@ class TallyRow:
     counted_total: int
     dj_shifts: int
     strike_shifts: int
+    nights_on_site: int
+    """Distinct events the member appears at, whatever the job.
+
+    DISTINCT events rather than a sum of the three counts above: a member can
+    hold two shifts at one party (HANDOFF permits DJ plus setup or cleanup), and
+    adding the columns would report him as being there twice.
+
+    Exists because TOTAL alone libels the DJs. one DJ stands 21 DJ nights
+    and one strike make-up, none of which is rotation work, so his TOTAL is 0
+    against a target of 5.1 — printed beside a sophomore on 16 that reads as
+    somebody who skated, and the DJ column that explains it is three columns to
+    the right. TOTAL still means risk shifts, so the quota column keeps meaning
+    what it says; this is the number that answers "was he actually around"."""
     target: float
     exempt: bool
     note: str
@@ -470,7 +483,9 @@ def _build_member_rows(
         rows = per_member.get(m["id"], [])
         per_type: dict[str, int] = {}
         counted = dj = strike = 0
+        nights: set[str] = set()
         for r in rows:
+            nights.add(r["date"])
             is_strike = r["serves_strike_id"] is not None
             if r["shift_slug"] == "dj":
                 dj += 1
@@ -512,6 +527,7 @@ def _build_member_rows(
                 counted_total=counted,
                 dj_shifts=dj,
                 strike_shifts=strike,
+                nights_on_site=len(nights),
                 # An exempt officer has no quota. Printing one would invite the
                 # reading that he is 100% under target rather than out of scope.
                 target=0.0 if m["exempt"] else (senior_target if senior else underclass_target),

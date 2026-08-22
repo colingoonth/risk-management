@@ -255,7 +255,24 @@ def score_member(
         on_or_before=event_date,
     )
     target = quota.target_for(member.class_year)
-    phantom = quota.dj_phantom if member.member_id in quota.dj_qualified else 0.0
+    # The DJ credit does not apply until the member has stood at least one
+    # rotation shift. Colin's rule, and it earns its place: with the credit
+    # applied from the first party, a DJ's phantom (6.45 effort) exceeds a
+    # senior's entire quota (5.09), so that DJ came out at zero rotation
+    # turns for the whole term — on site 22 nights and reading as somebody who
+    # never worked.
+    #
+    # Withholding it until the first turn means both DJs start the term on the
+    # same footing as everyone else, get picked in the opening wave, and only
+    # then drop out of contention. One real shift each, early, which is what the
+    # chapter needs to see. Keyed on rotation effort specifically: a strike
+    # make-up is a penalty, not a turn in the rotation, and should not satisfy
+    # a rule about doing your share.
+    phantom = (
+        quota.dj_phantom
+        if member.member_id in quota.dj_qualified and shifts_so_far > 0
+        else 0.0
+    )
     # A zero target means there is no work, or nobody to do it. Sorting such a
     # member to the very back is the safe direction: the alternative is a
     # ZeroDivisionError mid-fill, and the one after that is treating "no quota"

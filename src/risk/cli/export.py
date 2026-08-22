@@ -286,7 +286,15 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     header = (
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
-        + ["TOTAL", "Target", "vs target", "DJ (uncounted)", "Strike (uncounted)", "Note"]
+        + [
+            "TOTAL",
+            "Target",
+            "vs target",
+            "DJ (uncounted)",
+            "Strike (uncounted)",
+            "NIGHTS ON SITE",
+            "Note",
+        ]
     )
     ws.append(header)
     for c in range(1, len(header) + 1):
@@ -311,6 +319,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
                 vs,
                 row.dj_shifts,
                 row.strike_shifts,
+                row.nights_on_site,
                 row.note,
             ]
         )
@@ -330,7 +339,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
         ws.cell(row=r, column=len(header)).alignment = st["wrap"]
 
     ws.freeze_panes = "A2"
-    widths = [24, 10, 11] + [9] * len(types) + [8, 8, 10, 15, 17, 52]
+    widths = [24, 10, 11] + [9] * len(types) + [8, 8, 10, 15, 17, 15, 52]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -670,7 +679,15 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
     tally: list[list[str]] = [
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
-        + ["TOTAL", "Target", "vs target", "DJ (uncounted)", "Strike (uncounted)", "Note"]
+        + [
+            "TOTAL",
+            "Target",
+            "vs target",
+            "DJ (uncounted)",
+            "Strike (uncounted)",
+            "NIGHTS ON SITE",
+            "Note",
+        ]
     ]
     for row in data.tally:
         vs = (
@@ -687,6 +704,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
                 vs,
                 str(row.dj_shifts),
                 str(row.strike_shifts),
+                str(row.nights_on_site),
                 row.note,
             ]
         )
