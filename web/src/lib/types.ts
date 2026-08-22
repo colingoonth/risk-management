@@ -84,6 +84,19 @@ export interface ShiftTypeWindow {
   occupies_event_night: boolean
 }
 
+export interface ShiftAssign {
+  shift_id: number
+  event_name: string
+  event_date: string
+  shift_type_slug: string
+  slot_index: number
+  member_slug: string
+  display_name: string
+  replaced_slug: string | null
+  /** Eligibility objections that were overridden with force. */
+  warnings: string[]
+}
+
 export interface Shift {
   id: number
   event_id: number
@@ -91,9 +104,12 @@ export interface Shift {
   slot_index: number
   assigned_member_id: number | null
   assigned_member_slug: string | null
+  assigned_member_display_name: string | null
   effective_pledge_mode_slug: string | null
   status: string
   assigned_at: string | null
+  /** Placed by the chair rather than the fill — a rebuild leaves it alone. */
+  chair_set: boolean
 }
 
 export interface ProposedAssignment {

@@ -25,6 +25,8 @@ class Shift:
     status: str
     assigned_at: str | None
     serves_strike_id: int | None
+    chair_set: bool = False
+    """Placed by a human. A rebuild preserves it; the fill never sets it."""
 
 
 _SELECT_JOINED = """
@@ -33,7 +35,7 @@ SELECT
   s.slot_index, s.assigned_member_id, m.slug AS assigned_member_slug,
   m.display_name AS assigned_member_display_name,
   s.effective_pledge_mode_id, pm.slug AS effective_pledge_mode_slug,
-  s.status, s.assigned_at, s.serves_strike_id
+  s.status, s.assigned_at, s.serves_strike_id, s.chair_set
 FROM shifts s
 JOIN shift_types st ON st.id = s.shift_type_id
 LEFT JOIN members m ON m.id = s.assigned_member_id
@@ -56,6 +58,7 @@ def _row(r: sqlite3.Row) -> Shift:
         status=r["status"],
         assigned_at=r["assigned_at"],
         serves_strike_id=r["serves_strike_id"],
+        chair_set=bool(r["chair_set"]),
     )
 
 
@@ -86,6 +89,7 @@ def assign(
     effective_pledge_mode_id: int,
     assigned_at: str,
     serves_strike_id: int | None = None,
+    chair_set: bool = False,
 ) -> int:
     """Assign a member to an existing open shift slot.
 
@@ -108,10 +112,18 @@ def assign(
             effective_pledge_mode_id = ?,
             status = 'assigned',
             assigned_at = ?,
-            serves_strike_id = ?
+            serves_strike_id = ?,
+            chair_set = ?
         WHERE id = ? AND status = 'open'
         """,
-        (member_id, effective_pledge_mode_id, assigned_at, serves_strike_id, shift_id),
+        (
+            member_id,
+            effective_pledge_mode_id,
+            assigned_at,
+            serves_strike_id,
+            int(chair_set),
+            shift_id,
+        ),
     )
     return cur.rowcount
 
@@ -133,7 +145,8 @@ def unassign(conn: sqlite3.Connection, *, shift_id: int) -> int:
             effective_pledge_mode_id = NULL,
             status = 'open',
             assigned_at = NULL,
-            serves_strike_id = NULL
+            serves_strike_id = NULL,
+            chair_set = 0
         WHERE id = ?
         """,
         (shift_id,),

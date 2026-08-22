@@ -112,9 +112,11 @@ class ShiftOut(_Out):
     slot_index: int
     assigned_member_id: int | None
     assigned_member_slug: str | None
+    assigned_member_display_name: str | None = None
     effective_pledge_mode_slug: str | None
     status: str
     assigned_at: str | None
+    chair_set: bool = False
 
 
 class NumberedStrikeOut(_Out):
@@ -334,3 +336,23 @@ class ChairNoteOut(_Out):
     created_at: str
     closed_at: str | None
     closed_note: str | None
+
+
+# --- Manual (chair) shift assignment ---
+
+
+class ShiftAssignIn(BaseModel):
+    member_slug: str
+    force: bool = False
+
+
+class ShiftAssignOut(_Out):
+    shift_id: int
+    event_name: str
+    event_date: str
+    shift_type_slug: str
+    slot_index: int
+    member_slug: str
+    display_name: str
+    replaced_slug: str | None
+    warnings: list[str]

@@ -20,6 +20,7 @@ import { addDays, shortDate } from '../lib/dates'
 import type {
   AutoAssignResult,
   House,
+  Member,
   Shift,
   ShiftSlotGroup,
   ShiftTypeWindow,
@@ -61,6 +62,89 @@ function windowPhrase(w: ShiftTypeWindow, eventDate?: string): string {
   )}`
 }
 
+/** Assign, replace or clear one slot.
+ *
+ * Collapsed to a single affordance until clicked, because a 13-slot event with
+ * a dropdown on every row is unreadable — and reading the roster is what this
+ * drawer is mostly for. The picker is unfiltered on purpose: the server does
+ * the eligibility check and gives a reason, which is a better answer than a
+ * name silently missing from a list.
+ */
+function SlotControl({
+  shift,
+  members,
+  busy,
+  onAssign,
+  onClear,
+}: {
+  shift: Shift
+  members: Member[]
+  busy: boolean
+  onAssign: (slug: string, force: boolean) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pick, setPick] = useState('')
+
+  if (!open) {
+    return (
+      <button
+        disabled={busy}
+        onClick={() => setOpen(true)}
+        className="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-600 hover:text-brass-400 disabled:opacity-40"
+      >
+        {shift.assigned_member_slug ? 'change' : 'assign'}
+      </button>
+    )
+  }
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <select
+        autoFocus
+        value={pick}
+        onChange={(e) => setPick(e.target.value)}
+        className="max-w-[9rem] border-b border-ink-700/50 bg-char-950 py-0.5 text-xs text-ink-100 focus:border-brass-500 focus:outline-none"
+      >
+        <option value="">pick…</option>
+        {members.map((m) => (
+          <option key={m.slug} value={m.slug}>
+            {m.display_name}
+          </option>
+        ))}
+      </select>
+      <button
+        disabled={busy || !pick}
+        onClick={() => {
+          onAssign(pick, false)
+          setOpen(false)
+          setPick('')
+        }}
+        className="font-mono text-[10px] uppercase tracking-[0.15em] text-brass-400 disabled:opacity-40"
+      >
+        ok
+      </button>
+      {shift.assigned_member_slug && (
+        <button
+          disabled={busy}
+          onClick={() => {
+            onClear()
+            setOpen(false)
+          }}
+          className="font-mono text-[10px] uppercase tracking-[0.15em] text-oxblood-300 disabled:opacity-40"
+        >
+          clear
+        </button>
+      )}
+      <button
+        onClick={() => setOpen(false)}
+        className="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-600"
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
 export function EventDetail({
   eventId,
   currentHost,
@@ -83,6 +167,9 @@ export function EventDetail({
   eventDate?: string
 }) {
   const { data, loading } = useAsync<Shift[]>(() => api.eventShifts(eventId), [eventId])
+  // Fetched here rather than threaded down as a prop: the drawer already owns
+  // its own reads, and the roster is the same for every slot in it.
+  const { data: members } = useAsync<Member[]>(() => api.listMembers(), [])
   const [host, setHost] = useState(currentHost ?? '')
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -152,9 +239,41 @@ export function EventDetail({
                           <td className="py-1 text-ink-500">#{i + 1}</td>
                           <td className="py-1 text-right">
                             {s?.assigned_member_slug ? (
-                              <span className="text-ink-100">{s.assigned_member_slug}</span>
+                              <span className="text-ink-100">
+                                {s.assigned_member_display_name ?? s.assigned_member_slug}
+                                {/* A pen mark: this one was placed by hand and
+                                    a rebuild will not touch it. Without it the
+                                    chair cannot tell which of his decisions the
+                                    schedule is still carrying. */}
+                                {s.chair_set && (
+                                  <span
+                                    title="Set by you — a rebuild keeps it"
+                                    className="ml-1.5 text-brass-400"
+                                  >
+                                    ✎
+                                  </span>
+                                )}
+                              </span>
                             ) : (
                               <StatusGlyph state="unfilled" />
+                            )}
+                          </td>
+                          <td className="w-24 py-1 pl-2 text-right">
+                            {s && (
+                              <SlotControl
+                                shift={s}
+                                members={members ?? []}
+                                busy={busy === `slot-${s.id}`}
+                                onAssign={(slug, force) =>
+                                  run(`slot-${s.id}`, async () => {
+                                    const r = await api.assignShift(s.id, slug, force)
+                                    if (r.warnings.length) setErr(r.warnings.join('; '))
+                                  })
+                                }
+                                onClear={() =>
+                                  run(`slot-${s.id}`, () => api.unassignShift(s.id))
+                                }
+                              />
                             )}
                           </td>
                         </tr>

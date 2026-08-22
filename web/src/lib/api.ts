@@ -21,6 +21,7 @@ import type {
   RosterIngestResult,
   Semester,
   Shift,
+  ShiftAssign,
   ShiftTypeWindow,
   StrikeRemovalResult,
   SwapRequest,
@@ -153,6 +154,16 @@ export const api = {
   editNote: (id: number, body: string) =>
     req<ChairNote>(`/notes/${id}`, { method: 'PUT', body: JSON.stringify({ body }) }),
   deleteNote: (id: number) => req<void>(`/notes/${id}`, { method: 'DELETE' }),
+
+  // Chair overrides. The assignment is marked chair-set server-side, so a
+  // rebuild preserves it. `force` assigns despite eligibility problems and
+  // returns them as warnings rather than swallowing them.
+  assignShift: (id: number, member_slug: string, force = false) =>
+    req<ShiftAssign>(`/shifts/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ member_slug, force }),
+    }),
+  unassignShift: (id: number) => req<Shift>(`/shifts/${id}/unassign`, { method: 'POST' }),
 
   listSwaps: (state?: string) =>
     req<SwapRequest[]>(`/swaps${state ? `?state=${encodeURIComponent(state)}` : ''}`),

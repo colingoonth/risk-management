@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS shifts (
   -- the two staying identical. The guarantee that actually matters, one make-up
   -- per strike, is the partial unique index in 0017 and applies to both.
   serves_strike_id INTEGER NULL,
+  -- 1 when a human put this member here, rather than the fill. A rebuild must
+  -- leave it alone: the chair knows things the solver does not, and cannot
+  -- re-derive them. Added in 0021.
+  chair_set INTEGER NOT NULL DEFAULT 0 CHECK (chair_set IN (0, 1)),
   CHECK (slot_index >= 0 AND slot_index < 50),
   CHECK ((assigned_member_id IS NULL AND status = 'open')
          OR (assigned_member_id IS NOT NULL AND status <> 'open')),
