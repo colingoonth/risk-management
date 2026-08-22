@@ -35,9 +35,7 @@ def list_semesters(conn: sqlite3.Connection = Depends(get_conn)) -> list[Semeste
 
 
 @router.post("", response_model=SemesterOut, status_code=201)
-def create_semester(
-    body: SemesterIn, conn: sqlite3.Connection = Depends(get_conn)
-) -> SemesterOut:
+def create_semester(body: SemesterIn, conn: sqlite3.Connection = Depends(get_conn)) -> SemesterOut:
     with service_errors(), transaction(conn):
         semesters_repo.insert(
             conn,
@@ -100,9 +98,7 @@ def archive_semester(
 
 
 @router.get("/{name}/house-modes", response_model=list[HouseModeOut])
-def list_house_modes(
-    name: str, conn: sqlite3.Connection = Depends(get_conn)
-) -> list[HouseModeOut]:
+def list_house_modes(name: str, conn: sqlite3.Connection = Depends(get_conn)) -> list[HouseModeOut]:
     with service_errors():
         sem = resolve_semester(conn, name)
     rows = hss_repo.list_for_semester(conn, sem.id)
@@ -125,7 +121,5 @@ def set_house_mode(
         if mode is None:
             raise LookupError(f"pledge mode {body.pledge_mode_slug!r} not found")
         with transaction(conn):
-            hss_repo.set_mode(
-                conn, house_id=house.id, semester_id=sem.id, pledge_mode_id=mode.id
-            )
+            hss_repo.set_mode(conn, house_id=house.id, semester_id=sem.id, pledge_mode_id=mode.id)
     return HouseModeOut(house_slug=body.house_slug, pledge_mode_slug=body.pledge_mode_slug)

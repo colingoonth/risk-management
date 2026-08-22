@@ -30,9 +30,7 @@ def _seed(db_path: Path) -> int:
     """Schema + SP26 current + zta + a few members + one mixer event."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
@@ -48,8 +46,17 @@ def _seed(db_path: Path) -> int:
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(db_path, "config", "house", "add", "kd", "--display-name", "Kappa Delta")
     add_data, add_code = _run(
-        db_path, "event", "add",
-        "--name", "ZTA mixer", "--type", "mixer", "--host", "zta", "--date", "2026-02-14",
+        db_path,
+        "event",
+        "add",
+        "--name",
+        "ZTA mixer",
+        "--type",
+        "mixer",
+        "--host",
+        "zta",
+        "--date",
+        "2026-02-14",
     )
     assert add_code == 0, add_data
     return 1
@@ -59,8 +66,15 @@ def test_event_set_shift_req_happy(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     data, code = _run(
-        db_path, "event", "set-shift-req", "1", "door",
-        "--min", "3", "--target", "4",
+        db_path,
+        "event",
+        "set-shift-req",
+        "1",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code == 0, data
 
@@ -69,8 +83,15 @@ def test_event_set_shift_req_unknown_event_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     data, code = _run(
-        db_path, "event", "set-shift-req", "9999", "door",
-        "--min", "1", "--target", "1",
+        db_path,
+        "event",
+        "set-shift-req",
+        "9999",
+        "door",
+        "--min",
+        "1",
+        "--target",
+        "1",
     )
     assert code != 0
     assert data["error"]["code"] == "event.not_found"
@@ -80,8 +101,15 @@ def test_event_set_shift_req_unknown_shift_type_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     data, code = _run(
-        db_path, "event", "set-shift-req", "1", "bogus",
-        "--min", "1", "--target", "1",
+        db_path,
+        "event",
+        "set-shift-req",
+        "1",
+        "bogus",
+        "--min",
+        "1",
+        "--target",
+        "1",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -91,15 +119,30 @@ def test_event_set_shift_req_target_zero_requires_yes_in_json_mode(tmp_path: Pat
     db_path = tmp_path / "r.db"
     _seed(db_path)
     data, code = _run(
-        db_path, "event", "set-shift-req", "1", "door",
-        "--min", "0", "--target", "0",
+        db_path,
+        "event",
+        "set-shift-req",
+        "1",
+        "door",
+        "--min",
+        "0",
+        "--target",
+        "0",
     )
     assert code != 0
     assert data["error"]["code"] == "confirm_required"
 
     yes_data, yes_code = _run(
-        db_path, "event", "set-shift-req", "1", "door",
-        "--min", "0", "--target", "0", "--yes",
+        db_path,
+        "event",
+        "set-shift-req",
+        "1",
+        "door",
+        "--min",
+        "0",
+        "--target",
+        "0",
+        "--yes",
     )
     assert yes_code == 0, yes_data
 
@@ -107,9 +150,7 @@ def test_event_set_shift_req_target_zero_requires_yes_in_json_mode(tmp_path: Pat
 def test_event_clear_shift_req_round_trip(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    _run(
-        db_path, "event", "set-shift-req", "1", "door", "--min", "3", "--target", "4"
-    )
+    _run(db_path, "event", "set-shift-req", "1", "door", "--min", "3", "--target", "4")
     data, code = _run(db_path, "event", "clear-shift-req", "1", "door")
     assert code == 0, data
 

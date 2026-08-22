@@ -92,9 +92,7 @@ def issue_strike(
         reason=reason,
     )
     new_kinds = _sync_consequences(conn, member_id=member_id, semester_id=semester_id)
-    strike_number = strike_repo.count_active(
-        conn, member_id=member_id, semester_id=semester_id
-    )
+    strike_number = strike_repo.count_active(conn, member_id=member_id, semester_id=semester_id)
     return IssueResult(
         strike_id=strike_id,
         strike_number=strike_number,
@@ -136,9 +134,7 @@ def apply_removal(
         if strike is None:
             raise LookupError(f"No strike with id={sid}")
         if strike.member_id != member_id:
-            raise ValueError(
-                f"strike {sid} belongs to member {strike.member_id}, not {member_id}"
-            )
+            raise ValueError(f"strike {sid} belongs to member {strike.member_id}, not {member_id}")
         # Derived from every strike the caller NAMED, not just the ones this
         # call closes. Deriving it below the `continue` meant a removal that
         # closed nothing — re-running the same command, say — left it None and
@@ -188,9 +184,7 @@ def _sync_consequences(
     open count alone would justify — by construction, after N removals and N
     re-issues, the open count is back to the pre-removal level.
     """
-    current_open = strike_repo.count_active(
-        conn, member_id=member_id, semester_id=semester_id
-    )
+    current_open = strike_repo.count_active(conn, member_id=member_id, semester_id=semester_id)
     needed_now = set(policy.consequence_kinds_for_count(current_open))
     existing_pcs = pc_repo.list_for_member_semester(
         conn, member_id=member_id, semester_id=semester_id

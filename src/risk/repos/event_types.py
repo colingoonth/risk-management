@@ -42,9 +42,7 @@ def ids_with_shift_defaults(conn: sqlite3.Connection) -> set[int]:
     Types with none silently auto-assign nobody (TODO T1-NEW), so the create
     form warns when one is picked.
     """
-    rows = conn.execute(
-        "SELECT DISTINCT event_type_id FROM event_type_shift_defaults"
-    ).fetchall()
+    rows = conn.execute("SELECT DISTINCT event_type_id FROM event_type_shift_defaults").fetchall()
     return {int(r["event_type_id"]) for r in rows}
 
 

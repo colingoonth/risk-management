@@ -36,9 +36,7 @@ def _seed(db_path: Path) -> int:
     """Seed a 1-event 6-member SP26 world; return the event id."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -93,9 +91,7 @@ def test_shift_list_filter_by_member(tmp_path: Path) -> None:
 def test_shift_list_filter_by_event_and_status(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     event_id = _seed(db_path)
-    res = _run_cli(
-        db_path, "shift", "list", "--event", str(event_id), "--status", "assigned"
-    )
+    res = _run_cli(db_path, "shift", "list", "--event", str(event_id), "--status", "assigned")
     assert res.returncode == 0, res.stdout + res.stderr
     shifts = json.loads(res.stdout)["data"]
     assert len(shifts) >= 1

@@ -24,7 +24,7 @@ from risk.repos import events as events_repo
 from risk.repos import qualifications as quals_repo
 from risk.repos import shifts as shifts_repo
 from risk.repos import strikes as strikes_repo
-from risk.services import eligibility, fairness, pledge_mode
+from risk.services import availability, eligibility, fairness, pledge_mode
 from risk.services.eligibility import EligibilityResult
 from risk.services.pledge_mode import MODE_FULL, MODE_NORMAL, MODE_PARTIAL, ResolvedMode
 
@@ -94,6 +94,25 @@ def _fill_order_key(
     return key
 
 
+def elig_window_label(conn: sqlite3.Connection, shift_type_id: int, event_date: str) -> str:
+    """Human phrasing of the window a shift type is worked in.
+
+    Used only in warnings, but worth the call: "4 member(s) unavailable for
+    cleanup" sends the chair looking at the party date, which is not when
+    cleanup happens and is exactly the confusion this whole change exists to
+    remove.
+    """
+    from risk.repos import shift_type_windows as windows_repo
+
+    window = windows_repo.get_for_shift_type(conn, shift_type_id)
+    if window is None:
+        return "no window"
+    spans = availability.window_spans(window, event_date)
+    if not spans:
+        return "empty window"
+    return f"{spans[0][0]:%a %d %b %H:%M} to {spans[-1][1]:%a %d %b %H:%M}"
+
+
 def _place_strike_makeups(
     conn: sqlite3.Connection,
     *,
@@ -152,7 +171,6 @@ def _place_strike_makeups(
             semester_id=event.semester_id,
             host_house_id=event.host_house_id,
             allowed_keys=allowed_keys,
-            event_date=event.date,
             honor_hard_role_exclusion=False,
         ).eligible
     }
@@ -172,8 +190,24 @@ def _place_strike_makeups(
                 continue  # the chair put someone here; leave them
             # Skip anyone already standing somewhere at this party. Two debts
             # cannot be worked off on one night.
+            # Availability is checked against THIS shift type's window, same as
+            # the rotation below. A debt does not make somebody free: a member
+            # away at a tournament cannot work it off there, and seating him
+            # would leave the post empty AND the strike unpaid.
             idx = next(
-                (i for i, d in enumerate(queue) if d.member_id not in already_assigned),
+                (
+                    i
+                    for i, d in enumerate(queue)
+                    if d.member_id not in already_assigned
+                    and availability.can_cover(
+                        conn,
+                        member_id=d.member_id,
+                        semester_id=event.semester_id,
+                        shift_type_id=req.shift_type_id,
+                        event_date=event.date,
+                        honor_soft=False,
+                    )
+                ),
                 None,
             )
             if idx is None:
@@ -242,13 +276,21 @@ def auto_assign(
     if seed is None:
         seed = secrets.randbits(31)
 
+    # NOTE the absent event_date. Unavailability is deliberately NOT tested here
+    # any more; it is tested per shift type below, against that type's own
+    # window. Asking it here can only compare against the party's date, and two
+    # of the six jobs are not worked on the party's date — setup runs up to two
+    # days before, cleanup is the morning after. That produced errors in both
+    # directions on real data: a runner blacked out for a 9am Saturday meet was
+    # still assigned the Friday party's cleanup crew, which is worked Saturday
+    # morning, while a member busy only on the party night was struck off setup
+    # crews he could have worked on the Wednesday.
     elig = eligibility.eligible_for(
         conn,
         event_id=event_id,
         semester_id=event.semester_id,
         host_house_id=event.host_house_id,
         allowed_keys=allowed_keys,
-        event_date=event.date,
     )
     pool = elig.eligible
     eligible_pledges = sum(1 for m in pool if m.is_pledge)
@@ -379,6 +421,42 @@ def auto_assign(
         # unique index would technically allow door+setup for the same person.
         # Chair can still manually multi-assign via `risk shift assign`.
         type_pool = [m for m in type_pool if m.member_id not in already_assigned]
+
+        # Availability, against THIS shift type's window rather than the party
+        # date. Two questions, asked separately and answered differently:
+        # a hard conflict removes the member; a preference leaves them in the
+        # pool and sorts them last, so they are picked only when the alternative
+        # is an unstaffed post.
+        blocked = 0
+        deprioritized: set[int] = set()
+        available: list[eligibility.EligibleMember] = []
+        for member in type_pool:
+            if not availability.can_cover(
+                conn,
+                member_id=member.member_id,
+                semester_id=event.semester_id,
+                shift_type_id=req.shift_type_id,
+                event_date=event.date,
+                honor_soft=False,
+            ):
+                blocked += 1
+                continue
+            available.append(member)
+            if not availability.can_cover(
+                conn,
+                member_id=member.member_id,
+                semester_id=event.semester_id,
+                shift_type_id=req.shift_type_id,
+                event_date=event.date,
+                honor_soft=True,
+            ):
+                deprioritized.add(member.member_id)
+        if blocked:
+            warnings.append(
+                f"{req.shift_type_slug}: {blocked} member(s) unavailable for this "
+                f"shift's window ({elig_window_label(conn, req.shift_type_id, event.date)})"
+            )
+        type_pool = available
         scored = fairness.sort_by_fairness(
             conn,
             pool=type_pool,
@@ -392,6 +470,7 @@ def auto_assign(
             rotation_shift_type_id=(
                 req.shift_type_id if req.shift_type_id in gated_shift_type_ids else None
             ),
+            deprioritized=deprioritized,
         )
         if pledges_first:
             # Stable secondary sort: pledges before brothers, preserving the

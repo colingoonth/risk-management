@@ -63,9 +63,7 @@ def load_strike_sheet(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError("ingest JSON must be an object")
     if payload.get("ingest_type") != "strikes":
-        raise ValueError(
-            f"ingest_type must be 'strikes' (got {payload.get('ingest_type')!r})"
-        )
+        raise ValueError(f"ingest_type must be 'strikes' (got {payload.get('ingest_type')!r})")
     if not isinstance(payload.get("entries"), list):
         raise ValueError("ingest JSON missing 'entries' list")
     return payload
@@ -80,16 +78,12 @@ def preview_strike_sheet(
     """Compute the diff without applying."""
     sem_name = semester_name_override or payload.get("semester")
     if not isinstance(sem_name, str) or not sem_name:
-        raise ValueError(
-            "no --semester given on CLI and payload missing top-level 'semester'"
-        )
+        raise ValueError("no --semester given on CLI and payload missing top-level 'semester'")
     sem = semesters_repo.get_by_name(conn, sem_name)
     if sem is None:
         raise LookupError(f"semester {sem_name!r} not found")
     if sem.archived_at is not None:
-        raise ValueError(
-            f"semester {sem_name!r} is archived ({sem.archived_at}); cannot ingest"
-        )
+        raise ValueError(f"semester {sem_name!r} is archived ({sem.archived_at}); cannot ingest")
 
     new_count = 0
     no_op_count = 0
@@ -286,7 +280,9 @@ def _is_exec(value: str | None) -> bool:
     return value is not None and value.strip().lower() in _EXEC_TRUTHY
 
 
-def _find_column(fieldnames: list[str], *keywords: str, exclude: tuple[str, ...] = ()) -> str | None:
+def _find_column(
+    fieldnames: list[str], *keywords: str, exclude: tuple[str, ...] = ()
+) -> str | None:
     """First header whose lowercased name contains any keyword (and no exclude term)."""
     for fn in fieldnames:
         low = fn.lower()
@@ -311,12 +307,8 @@ def load_gform_roster(path: Path, *, base_year: int) -> list[RosterRow]:
             raise ValueError("roster CSV has no header row")
         name_col = _find_column(fieldnames, "name")
         if name_col is None:
-            raise ValueError(
-                f"roster CSV has no recognizable name column (headers: {fieldnames})"
-            )
-        rising_col = _find_column(
-            fieldnames, "rising", "year", "class", exclude=("pledge", "pc")
-        )
+            raise ValueError(f"roster CSV has no recognizable name column (headers: {fieldnames})")
+        rising_col = _find_column(fieldnames, "rising", "year", "class", exclude=("pledge", "pc"))
         pc_col = _find_column(fieldnames, "pledge") or _find_column(fieldnames, "pc")
         ec_col = _find_column(fieldnames, "exec", "board") or _find_column(fieldnames, "ec")
 
@@ -390,9 +382,7 @@ def preview_gform_roster(
     )
 
 
-def apply_gform_roster(
-    conn: sqlite3.Connection, *, path: Path, semester_name: str
-) -> GformResult:
+def apply_gform_roster(conn: sqlite3.Connection, *, path: Path, semester_name: str) -> GformResult:
     """Apply the roster diff. Idempotent — existing slugs are skipped."""
     preview = preview_gform_roster(conn, path=path, semester_name=semester_name)
     active = statuses_repo.get_by_slug(conn, "active")

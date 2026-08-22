@@ -67,7 +67,9 @@ def accept_swap(req_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> Sw
         if req is None:
             raise LookupError(f"swap request {req_id} not found")
         # assigned_at is pinned to the from-shift's event date (ADR-009).
-        from_event = events_repo.get_by_id(conn, shifts_repo.event_id_of(conn, req.from_shift_id) or -1)
+        from_event = events_repo.get_by_id(
+            conn, shifts_repo.event_id_of(conn, req.from_shift_id) or -1
+        )
         if from_event is None:
             raise LookupError(f"event for shift {req.from_shift_id} not found")
         with transaction(conn):

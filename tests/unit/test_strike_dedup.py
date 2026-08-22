@@ -24,20 +24,18 @@ def _make_db(tmp_path) -> tuple[sqlite3.Connection, int, int, int]:
     conn = connect(db_path)
     ensure_schema(conn)
 
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    mid = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
+    mid = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
 
     # Insert a minimal shift row. To satisfy all FKs we must also insert
     # an event_type, a shift_type, and an event.  We bypass the CLI and write
     # directly so this stays a pure unit test with no subprocess overhead.
     conn.execute("INSERT INTO event_types (slug, display_name) VALUES ('social', 'Social')")
-    conn.execute("INSERT INTO shift_types (slug, display_name) VALUES ('sober-monitor', 'Sober Monitor')")
+    conn.execute(
+        "INSERT INTO shift_types (slug, display_name) VALUES ('sober-monitor', 'Sober Monitor')"
+    )
     et_id = conn.execute("SELECT id FROM event_types WHERE slug='social'").fetchone()["id"]
     st_id = conn.execute("SELECT id FROM shift_types WHERE slug='sober-monitor'").fetchone()["id"]
     conn.execute(

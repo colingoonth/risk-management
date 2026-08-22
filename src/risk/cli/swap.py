@@ -23,7 +23,9 @@ app = typer.Typer(help="Request and resolve shift swaps.")
 @app.command("request")
 def request(
     ctx: typer.Context,
-    from_shift: Annotated[int, typer.Option("--from-shift", help="Shift the initiator is currently assigned to.")],
+    from_shift: Annotated[
+        int, typer.Option("--from-shift", help="Shift the initiator is currently assigned to.")
+    ],
     to_shift: Annotated[
         int | None, typer.Option("--to-shift", help="Optional target open or assigned shift.")
     ] = None,
@@ -59,9 +61,7 @@ def request(
     if counterparty is not None:
         cp = members_repo.resolve(conn, counterparty)
         if cp is None:
-            emit_error(
-                "member.not_found", f"No member matching {counterparty!r}.", mode=mode
-            )
+            emit_error("member.not_found", f"No member matching {counterparty!r}.", mode=mode)
             return
         cp_id = cp.id
     try:
@@ -195,9 +195,7 @@ def reject(
 def cancel(
     ctx: typer.Context,
     req_id: Annotated[int, typer.Argument(help="Swap request ID.")],
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
 ) -> None:
     """Cancel a pending swap request. Irreversible — prompts unless --yes."""
     mode = mode_from_ctx(ctx)

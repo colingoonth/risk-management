@@ -35,9 +35,7 @@ class SlotGroup:
     assigned_count: int
 
 
-def list_slot_groups_for_semester(
-    conn: sqlite3.Connection, semester_id: int
-) -> list[SlotGroup]:
+def list_slot_groups_for_semester(conn: sqlite3.Connection, semester_id: int) -> list[SlotGroup]:
     """Per-(event, shift type) targets and assignments across a whole semester.
 
     The calendar needs this to know that *this* mixer wants *four* cleanup slots —

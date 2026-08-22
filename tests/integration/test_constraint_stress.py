@@ -39,9 +39,7 @@ pytestmark = pytest.mark.integration
 
 def _populated(db: sqlite3.Connection) -> dict[str, int]:
     """Build a minimal world: 1 semester, 1 house, 3 members, 1 event w/ reqs."""
-    sem_id = semesters_repo.insert(
-        db, name="FA25", starts_on="2025-08-25", ends_on="2025-12-15"
-    )
+    sem_id = semesters_repo.insert(db, name="FA25", starts_on="2025-08-25", ends_on="2025-12-15")
     semesters_repo.set_current(db, "FA25")
     house_id = houses_repo.insert(db, slug="zta", display_name="ZTA")
     active = statuses_repo.get_by_slug(db, "active")
@@ -80,6 +78,7 @@ def _populated(db: sqlite3.Connection) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 # shifts table — slot_index, status enum, assignment coupling, uniques
 # ---------------------------------------------------------------------------
+
 
 def test_shift_negative_slot_index_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
@@ -177,6 +176,7 @@ def test_shift_member_assigned_twice_same_event_type_rejected(
 # events / requirements
 # ---------------------------------------------------------------------------
 
+
 def test_event_unknown_status_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
     et = etypes_repo.get_by_slug(db, "mixer")
@@ -206,6 +206,7 @@ def test_event_requirement_target_below_min_rejected(db: sqlite3.Connection) -> 
 # member_statuses / members
 # ---------------------------------------------------------------------------
 
+
 def test_member_slug_uppercase_rejected(db: sqlite3.Connection) -> None:
     """slug GLOB '[a-z]*' — uppercase first char is forbidden."""
     active = statuses_repo.get_by_slug(db, "active")
@@ -232,6 +233,7 @@ def test_member_class_year_out_of_range_rejected(db: sqlite3.Connection) -> None
 # ---------------------------------------------------------------------------
 # unavailability
 # ---------------------------------------------------------------------------
+
 
 def test_unavailability_end_before_start_rejected(db: sqlite3.Connection) -> None:
     ctx = _populated(db)
@@ -266,6 +268,7 @@ def test_unavailability_duplicate_range_rejected(db: sqlite3.Connection) -> None
 # ---------------------------------------------------------------------------
 # strikes — archive guard trigger
 # ---------------------------------------------------------------------------
+
 
 def test_strike_on_archived_semester_rejected(db: sqlite3.Connection) -> None:
     """trg_strikes_block_archived_insert fires on archived semesters."""

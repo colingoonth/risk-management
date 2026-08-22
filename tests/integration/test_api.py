@@ -35,9 +35,7 @@ def _seed(db_path: Path) -> None:
     conn = connect(db_path)
     ensure_schema(conn)
     conn.execute("BEGIN")
-    sem_id = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-20", ends_on="2026-12-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-20", ends_on="2026-12-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     house_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     active = statuses_repo.get_by_slug(conn, "active")
@@ -330,7 +328,13 @@ def test_swap_request_and_accept(client: TestClient) -> None:
     client.post(
         "/api/ingest/gform-roster",
         data={"semester": "FA26", "dry_run": "false"},
-        files={"file": ("r.csv", "Full Name,Rising Class,PC,EC\nSpare Guy,Rising Senior,Eta,No\n", "text/csv")},
+        files={
+            "file": (
+                "r.csv",
+                "Full Name,Rising Class,PC,EC\nSpare Guy,Rising Senior,Eta,No\n",
+                "text/csv",
+            )
+        },
     )
     events = client.get("/api/events?semester=FA26").json()
     eid = events[0]["id"]

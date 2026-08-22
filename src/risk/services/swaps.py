@@ -79,9 +79,7 @@ def request_swap(
     )
 
 
-def accept_swap(
-    conn: sqlite3.Connection, *, request_id: int, assigned_at: str
-) -> SwapAcceptResult:
+def accept_swap(conn: sqlite3.Connection, *, request_id: int, assigned_at: str) -> SwapAcceptResult:
     """Apply the swap and mark the request accepted.
 
     `assigned_at` should be the from-shift event date (ADR-009: fairness
@@ -266,16 +264,12 @@ def _apply_counterparty_takeover(
     )
 
 
-def _shift_or_raise(
-    conn: sqlite3.Connection, shift_id: int, *, label: str
-) -> shifts_repo.Shift:
+def _shift_or_raise(conn: sqlite3.Connection, shift_id: int, *, label: str) -> shifts_repo.Shift:
     s = shifts_repo.get_by_id(conn, shift_id)
     if s is None:
         raise LookupError(f"{label} {shift_id} does not exist")
     return s
 
 
-def _shift_or_none(
-    conn: sqlite3.Connection, shift_id: int
-) -> shifts_repo.Shift | None:
+def _shift_or_none(conn: sqlite3.Connection, shift_id: int) -> shifts_repo.Shift | None:
     return shifts_repo.get_by_id(conn, shift_id)

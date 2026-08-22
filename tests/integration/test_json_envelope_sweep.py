@@ -35,9 +35,7 @@ def seeded_db(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str,
     conn = connect(db_path)
     ensure_schema(conn)
 
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
 
@@ -118,7 +116,10 @@ def _read_commands(args: dict[str, str]) -> list[tuple[str, list[str]]]:
         ("strike list", ["strike", "list", "--member", args["member"]]),
         ("strike standing", ["strike", "standing", args["member"]]),
         ("strike consequences list", ["strike", "consequences", "list"]),
-        ("strike consequences pending-for", ["strike", "consequences", "pending-for", args["member"]]),
+        (
+            "strike consequences pending-for",
+            ["strike", "consequences", "pending-for", args["member"]],
+        ),
         ("swap list", ["swap", "list"]),
         ("unavailability list", ["unavailability", "list"]),
         ("config event-type list", ["config", "event-type", "list"]),

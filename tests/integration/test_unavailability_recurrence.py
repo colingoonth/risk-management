@@ -27,8 +27,9 @@ from risk.repos import events as events_repo
 from risk.repos import member_statuses as statuses_repo
 from risk.repos import members as members_repo
 from risk.repos import semesters as semesters_repo
+from risk.repos import shift_types as stypes_repo
 from risk.repos import unavailability as unav_repo
-from risk.services import eligibility
+from risk.services import availability, eligibility
 
 pytestmark = pytest.mark.integration
 
@@ -45,9 +46,7 @@ SEM_END = "2026-12-05"
 @pytest.fixture()
 def world(db: sqlite3.Connection) -> tuple[int, int]:
     """A semester and one member. Returns (member_id, semester_id)."""
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on=SEM_START, ends_on=SEM_END
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on=SEM_START, ends_on=SEM_END)
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
     member_id = members_repo.insert(
@@ -82,9 +81,9 @@ def test_recurring_row_blocks_its_own_weekday(
     member_id, sem_id = world
     _busy_thursdays(db, world)
     for thursday in (THURSDAY, LATER_THURSDAY):
-        assert unav_repo.member_ids_unavailable_on(
-            db, semester_id=sem_id, date=thursday
-        ) == {member_id}, f"should be blocked on {thursday}"
+        assert unav_repo.member_ids_unavailable_on(db, semester_id=sem_id, date=thursday) == {
+            member_id
+        }, f"should be blocked on {thursday}"
 
 
 def test_recurring_row_leaves_other_weekdays_alone(
@@ -94,10 +93,9 @@ def test_recurring_row_leaves_other_weekdays_alone(
     _, sem_id = world
     _busy_thursdays(db, world)
     for friday in (FRIDAY, LATER_FRIDAY):
-        assert (
-            unav_repo.member_ids_unavailable_on(db, semester_id=sem_id, date=friday)
-            == set()
-        ), f"should be free on {friday}"
+        assert unav_repo.member_ids_unavailable_on(db, semester_id=sem_id, date=friday) == set(), (
+            f"should be free on {friday}"
+        )
 
 
 def test_one_off_row_still_covers_its_whole_range(
@@ -115,15 +113,15 @@ def test_one_off_row_still_covers_its_whole_range(
             reason="away",
         )
     for day in (THURSDAY, FRIDAY, LATER_THURSDAY, LATER_FRIDAY):
-        assert unav_repo.member_ids_unavailable_on(
-            db, semester_id=sem_id, date=day
-        ) == {member_id}, f"one-off range should cover {day}"
+        assert unav_repo.member_ids_unavailable_on(db, semester_id=sem_id, date=day) == {
+            member_id
+        }, f"one-off range should cover {day}"
 
 
 def test_recurring_row_does_not_drop_member_from_a_friday_event(
     db: sqlite3.Connection, world: tuple[int, int]
 ) -> None:
-    """The user-visible consequence, through the H4 eligibility filter."""
+    """The user-visible consequence: busy Thursdays must not cost a Friday."""
     member_id, sem_id = world
     _busy_thursdays(db, world)
     et = etypes_repo.get_by_slug(db, "mixer")
@@ -143,7 +141,17 @@ def test_recurring_row_does_not_drop_member_from_a_friday_event(
         event_id=event_id,
         semester_id=sem_id,
         host_house_id=None,
-        event_date=FRIDAY,
     )
     assert [m.member_id for m in result.eligible] == [member_id]
-    assert result.excluded_by_unavailability == 0
+    # And the window check agrees: a Thursday-only blackout leaves the Friday
+    # party night untouched. Asserted through the shift type rather than the
+    # pool, because that is where unavailability is now decided.
+    door = stypes_repo.get_by_slug(db, "door")
+    assert door is not None
+    assert availability.can_cover(
+        db,
+        member_id=member_id,
+        semester_id=sem_id,
+        shift_type_id=door.id,
+        event_date=FRIDAY,
+    )

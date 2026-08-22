@@ -21,19 +21,13 @@ pytestmark = pytest.mark.integration
 def _world(tmp_path: Path):
     conn = connect(tmp_path / "ingest.db")
     ensure_schema(conn)
-    sem = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     with transaction(conn):
         semesters_repo.set_current(conn, "SP26")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    alice = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
-    bob = members_repo.insert(
-        conn, slug="bob", display_name="Bob", status_id=active.id
-    )
+    alice = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
+    bob = members_repo.insert(conn, slug="bob", display_name="Bob", status_id=active.id)
     return conn, sem, alice, bob
 
 
@@ -114,16 +108,12 @@ def test_missing_semester_rejected(tmp_path: Path) -> None:
 
 def test_override_wins_when_both_given(tmp_path: Path) -> None:
     conn, _sem, _alice, _bob = _world(tmp_path)
-    semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15"
-    )
+    semesters_repo.insert(conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15")
     payload = _payload(
         "SP26",
         [{"member_slug": "alice", "issued_on": "2026-09-01", "reason": "x"}],
     )
-    pv = ingest.preview_strike_sheet(
-        conn, payload=payload, semester_name_override="FA26"
-    )
+    pv = ingest.preview_strike_sheet(conn, payload=payload, semester_name_override="FA26")
     assert pv.semester_name == "FA26"
 
 

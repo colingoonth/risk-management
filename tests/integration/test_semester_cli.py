@@ -147,8 +147,17 @@ def test_semester_resync_all_dry_run_and_apply(tmp_path: Path) -> None:
     _run(db_path, "semester", "set-current", "SP26")
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(
-        db_path, "event", "add", "--name", "ZTA mixer", "--type", "mixer", "--host", "zta",
-        "--date", "2026-02-14",
+        db_path,
+        "event",
+        "add",
+        "--name",
+        "ZTA mixer",
+        "--type",
+        "mixer",
+        "--host",
+        "zta",
+        "--date",
+        "2026-02-14",
     )
 
     dry_data, dry_code = _run(db_path, "semester", "resync-all", "SP26", "--dry-run")
@@ -203,9 +212,7 @@ def test_semester_archive_unknown_carry_to_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare_db(db_path)
     _run(db_path, "semester", "add", "SP26", "--starts", "2026-01-15", "--ends", "2026-05-15")
-    data, code = _run(
-        db_path, "semester", "archive", "SP26", "--force", "--carry-to", "GHOST"
-    )
+    data, code = _run(db_path, "semester", "archive", "SP26", "--force", "--carry-to", "GHOST")
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"
 

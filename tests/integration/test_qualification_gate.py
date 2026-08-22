@@ -50,9 +50,7 @@ def _world(
 
     ``host_house_id=None`` keeps the host-house filter out of the picture.
     """
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     et = etypes_repo.get_by_slug(db, event_type)
     assert et is not None, f"event type {event_type!r} not seeded"
     event_id = events_repo.insert(
@@ -84,9 +82,7 @@ def _grant(db: sqlite3.Connection, *, member_id: int, semester_id: int, slug: st
     qual = quals_repo.get_by_slug(db, slug)
     assert qual is not None, f"qualification {slug!r} not seeded"
     with transaction(db):
-        mq_repo.grant(
-            db, member_id=member_id, qualification_id=qual.id, semester_id=semester_id
-        )
+        mq_repo.grant(db, member_id=member_id, qualification_id=qual.id, semester_id=semester_id)
 
 
 def _slot(result: assignment.AutoAssignResult, slug: str) -> assignment.ProposedAssignment:

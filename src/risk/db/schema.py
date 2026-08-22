@@ -64,6 +64,10 @@ _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # ALTER TABLE cannot attach a foreign key, so declaring one on the CREATE
     # would make a fresh schema diverge from a reconciled one.
     ("shifts", "serves_strike_id", "INTEGER"),
+    # Preference-vs-conflict on an unavailability row. Carries its DEFAULT
+    # because every pre-existing row is a real conflict, which is what 0 means —
+    # unlike planning_status, there is nothing here to derive from other columns.
+    ("unavailability", "is_soft", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 

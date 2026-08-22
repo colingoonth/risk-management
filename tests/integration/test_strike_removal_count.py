@@ -35,14 +35,10 @@ pytestmark = pytest.mark.integration
 def member_with_three_strikes(
     db: sqlite3.Connection,
 ) -> tuple[int, int, list[int], int]:
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
-    member_id = members_repo.insert(
-        db, slug="striker", display_name="Striker", status_id=active.id
-    )
+    member_id = members_repo.insert(db, slug="striker", display_name="Striker", status_id=active.id)
     strike_ids = []
     with transaction(db):
         for i in range(3):

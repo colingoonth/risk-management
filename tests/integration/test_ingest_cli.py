@@ -28,9 +28,7 @@ def _run(db_path: Path, *args: str) -> tuple[dict, int]:
 def _seed(db_path: Path) -> None:
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
@@ -76,13 +74,16 @@ def test_ingest_dry_run_preview(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     payload_path = tmp_path / "p.json"
-    _write_payload(payload_path, {
-        "ingest_type": "strikes",
-        "semester": "SP26",
-        "entries": [
-            {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
-        ],
-    })
+    _write_payload(
+        payload_path,
+        {
+            "ingest_type": "strikes",
+            "semester": "SP26",
+            "entries": [
+                {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
+            ],
+        },
+    )
     data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
     assert code == 0, data
     assert data["data"]["dry_run"] is True
@@ -93,12 +94,15 @@ def test_ingest_dry_run_missing_semester_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     payload_path = tmp_path / "p.json"
-    _write_payload(payload_path, {
-        "ingest_type": "strikes",
-        "entries": [
-            {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
-        ],
-    })
+    _write_payload(
+        payload_path,
+        {
+            "ingest_type": "strikes",
+            "entries": [
+                {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
+            ],
+        },
+    )
     data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path), "--dry-run")
     assert code != 0
     assert data["error"]["code"] == "ingest.preview_failed"
@@ -108,13 +112,16 @@ def test_ingest_apply_idempotent(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     payload_path = tmp_path / "p.json"
-    _write_payload(payload_path, {
-        "ingest_type": "strikes",
-        "semester": "SP26",
-        "entries": [
-            {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
-        ],
-    })
+    _write_payload(
+        payload_path,
+        {
+            "ingest_type": "strikes",
+            "semester": "SP26",
+            "entries": [
+                {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
+            ],
+        },
+    )
     first_data, first_code = _run(db_path, "ingest", "strike-sheet", str(payload_path))
     assert first_code == 0, first_data
     assert len(first_data["data"]["applied_strike_ids"]) == 1
@@ -129,13 +136,16 @@ def test_ingest_apply_unknown_semester_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     payload_path = tmp_path / "p.json"
-    _write_payload(payload_path, {
-        "ingest_type": "strikes",
-        "semester": "NOPE",
-        "entries": [
-            {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
-        ],
-    })
+    _write_payload(
+        payload_path,
+        {
+            "ingest_type": "strikes",
+            "semester": "NOPE",
+            "entries": [
+                {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
+            ],
+        },
+    )
     data, code = _run(db_path, "ingest", "strike-sheet", str(payload_path))
     assert code != 0
     assert data["error"]["code"] == "ingest.apply_failed"
@@ -145,16 +155,24 @@ def test_ingest_semester_override_wins(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     payload_path = tmp_path / "p.json"
-    _write_payload(payload_path, {
-        "ingest_type": "strikes",
-        "semester": "WRONG",
-        "entries": [
-            {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
-        ],
-    })
+    _write_payload(
+        payload_path,
+        {
+            "ingest_type": "strikes",
+            "semester": "WRONG",
+            "entries": [
+                {"member_slug": "alice", "issued_on": "2026-02-14", "reason": "no-show"},
+            ],
+        },
+    )
     data, code = _run(
-        db_path, "ingest", "strike-sheet", str(payload_path),
-        "--semester", "SP26", "--dry-run",
+        db_path,
+        "ingest",
+        "strike-sheet",
+        str(payload_path),
+        "--semester",
+        "SP26",
+        "--dry-run",
     )
     assert code == 0, data
 

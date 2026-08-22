@@ -24,9 +24,7 @@ pytestmark = pytest.mark.integration
 def _world(tmp_path: Path):
     conn = connect(tmp_path / "p8.db")
     ensure_schema(conn)
-    sem = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     with transaction(conn):
         semesters_repo.set_current(conn, "SP26")
     zta = houses_repo.insert(conn, slug="zta", display_name="ZTA")
@@ -108,9 +106,7 @@ def test_revert_treats_delete_as_absent(tmp_path: Path) -> None:
         )
     time.sleep(1.05)
     with transaction(conn):
-        prefs_repo.delete(
-            conn, house_id=zta, event_type_id=et.id, shift_type_id=st.id
-        )
+        prefs_repo.delete(conn, house_id=zta, event_type_id=et.id, shift_type_id=st.id)
     post_delete = _last_history_time(conn, zta)
     snap = prefs_repo.state_at(conn, house_id=zta, at_timestamp=post_delete)
     assert snap == [(et.id, st.id, None, None)]

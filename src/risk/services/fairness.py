@@ -272,6 +272,7 @@ def sort_by_fairness(
     event_date: str,
     quota: QuotaContext,
     rotation_shift_type_id: int | None = None,
+    deprioritized: set[int] | None = None,
 ) -> list[ScoredMember]:
     """Score the pool and return it sorted, fairest-first.
 
@@ -284,6 +285,13 @@ def sort_by_fairness(
     leaves the two DJs tied on every key for the whole term and a stable sort
     gives all 43 nights to whichever sorts first — verified, 43 to 0, which is
     worse than the double-counting it replaced. With it, they alternate.
+
+    ``deprioritized`` is the soft-unavailability tier: members who CAN work this
+    shift but asked not to. They sort behind everyone else regardless of score,
+    so they are picked only once the rest of the pool is exhausted — which is
+    exactly "avoid unless the slot would otherwise go unfilled". A tier rather
+    than a score penalty because a penalty is a number somebody has to tune, and
+    any number large enough to be reliable is indistinguishable from a tier.
     """
     scored = [
         score_member(
@@ -295,8 +303,9 @@ def sort_by_fairness(
         )
         for m in pool
     ]
+    soft = deprioritized or set()
     if rotation_shift_type_id is None:
-        scored.sort(key=lambda s: (s.score, *_tiebreak_key(s)))
+        scored.sort(key=lambda s: (s.member.member_id in soft, s.score, *_tiebreak_key(s)))
         return scored
 
     turns = {
@@ -309,5 +318,12 @@ def sort_by_fairness(
         )
         for s in scored
     }
-    scored.sort(key=lambda s: (turns[s.member.member_id], s.score, *_tiebreak_key(s)))
+    scored.sort(
+        key=lambda s: (
+            s.member.member_id in soft,
+            turns[s.member.member_id],
+            s.score,
+            *_tiebreak_key(s),
+        )
+    )
     return scored

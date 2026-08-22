@@ -81,9 +81,7 @@ def dashboard(
         key=lambda ml: (ml.shift_count, ml.member_slug),
     )
 
-    pending_swaps = [
-        SwapRequestOut.model_validate(s) for s in sr_repo.list_all(conn, state="open")
-    ]
+    pending_swaps = [SwapRequestOut.model_validate(s) for s in sr_repo.list_all(conn, state="open")]
     pending_consequences = [
         PendingConsequenceOut.model_validate(c)
         for c in pc_repo.list_all_with_state(conn, state="pending")

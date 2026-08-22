@@ -37,10 +37,9 @@ pytestmark = pytest.mark.integration
 # Populator — modest but real (10 members, 1 event with snapshotted reqs).
 # ---------------------------------------------------------------------------
 
+
 def _populate(db: sqlite3.Connection, *, n_members: int = 10) -> int:
-    sem_id = semesters_repo.insert(
-        db, name="FA25", starts_on="2025-08-25", ends_on="2025-12-15"
-    )
+    sem_id = semesters_repo.insert(db, name="FA25", starts_on="2025-08-25", ends_on="2025-12-15")
     semesters_repo.set_current(db, "FA25")
     house_id = houses_repo.insert(db, slug="zta", display_name="ZTA")
     active = statuses_repo.get_by_slug(db, "active")
@@ -71,6 +70,7 @@ def _populate(db: sqlite3.Connection, *, n_members: int = 10) -> int:
 # Probe 2 — FK orphans
 # ---------------------------------------------------------------------------
 
+
 def test_foreign_key_check_clean_on_populated_db(db: sqlite3.Connection) -> None:
     """Populated DB (with assignments) must have zero FK orphans."""
     event_id = _populate(db)
@@ -89,6 +89,7 @@ def test_foreign_key_check_clean_on_populated_db(db: sqlite3.Connection) -> None
 # ---------------------------------------------------------------------------
 # Probe 4 — migration replay vs ensure_schema()
 # ---------------------------------------------------------------------------
+
 
 def _dump_schema(db_path: Path) -> str:
     """Use sqlite3 CLI to get .schema for byte-comparable output."""
@@ -131,6 +132,7 @@ def test_migration_replay_matches_ensure_schema(tmp_path: Path) -> None:
 # Probe 5 — backup round-trip integrity
 # ---------------------------------------------------------------------------
 
+
 def _dump_sha(db_path: Path) -> str:
     res = subprocess.run(
         ["sqlite3", str(db_path), ".dump"], capture_output=True, text=True, check=True
@@ -168,10 +170,9 @@ def test_backup_dump_sha_matches_source(tmp_path: Path, db: sqlite3.Connection) 
 # Probe 6 — auto-assign reproducibility (no wall-clock leakage)
 # ---------------------------------------------------------------------------
 
+
 def _assignment_tuple(result) -> list[tuple[str, int, int]]:
-    return sorted(
-        (a.shift_type_slug, a.slot_index, a.member_id) for a in result.assignments
-    )
+    return sorted((a.shift_type_slug, a.slot_index, a.member_id) for a in result.assignments)
 
 
 def test_auto_assign_reproducible_same_db(db: sqlite3.Connection) -> None:
@@ -207,9 +208,7 @@ def test_auto_assign_reproducible_after_backup_restore(
 
     restored = connect(backup_path)
     try:
-        r_after = assign_svc.auto_assign(
-            restored, event_id=event_id, seed=42, commit=False
-        )
+        r_after = assign_svc.auto_assign(restored, event_id=event_id, seed=42, commit=False)
     finally:
         restored.close()
 

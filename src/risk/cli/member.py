@@ -274,9 +274,7 @@ def _resolve_qualification(conn: sqlite3.Connection, mode: Any, slug: str) -> An
 def qualify(
     ctx: typer.Context,
     member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
-    qualification: Annotated[
-        str, typer.Argument(help="Qualification slug (e.g. over-21, dj).")
-    ],
+    qualification: Annotated[str, typer.Argument(help="Qualification slug (e.g. over-21, dj).")],
     semester: Annotated[str | None, typer.Option("--semester")] = None,
 ) -> None:
     """Grant a qualification to a member for a semester.
@@ -298,9 +296,7 @@ def qualify(
         return
     sem_id = _resolve_semester(conn, mode, semester)
     with transaction(conn):
-        granted = mq_repo.grant(
-            conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id
-        )
+        granted = mq_repo.grant(conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id)
     emit_success(
         {
             "member": m.slug,
@@ -332,9 +328,7 @@ def unqualify(
         return
     sem_id = _resolve_semester(conn, mode, semester)
     with transaction(conn):
-        removed = mq_repo.revoke(
-            conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id
-        )
+        removed = mq_repo.revoke(conn, member_id=m.id, qualification_id=q.id, semester_id=sem_id)
     emit_success({"removed": removed}, mode=mode)
 
 
@@ -342,9 +336,7 @@ def unqualify(
 def set_notes(
     ctx: typer.Context,
     member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
-    notes: Annotated[
-        str, typer.Argument(help="Free-text note, e.g. why the member is exempt.")
-    ],
+    notes: Annotated[str, typer.Argument(help="Free-text note, e.g. why the member is exempt.")],
     clear: Annotated[
         bool, typer.Option("--clear", help="Clear the note instead of setting it.")
     ] = False,

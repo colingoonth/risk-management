@@ -43,9 +43,7 @@ def _fresh_world(tmp_path) -> tuple[sqlite3.Connection, int, int]:  # type: igno
     """Spin up a DB, one semester, one active member. Return (conn, member_id, semester_id)."""
     conn = connect(tmp_path / "p.db")
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
     m_id = members_repo.insert(
@@ -95,9 +93,7 @@ def test_numbering_is_1_through_n(tmp_path_factory, n: int) -> None:  # type: ig
                 issued_on=d,
                 reason=f"strike-{i + 1}",
             )
-    rows = strikes_repo.list_numbered_for_member_semester(
-        conn, member_id=mid, semester_id=sid
-    )
+    rows = strikes_repo.list_numbered_for_member_semester(conn, member_id=mid, semester_id=sid)
     assert [r.strike_number for r in rows] == list(range(1, n + 1))
 
 
@@ -119,9 +115,7 @@ def test_derive_is_idempotent_after_issue(tmp_path_factory, n: int) -> None:  # 
                 reason=f"r{i}",
             )
     with transaction(conn):
-        again = strike_state.derive_for_member_semester(
-            conn, member_id=mid, semester_id=sid
-        )
+        again = strike_state.derive_for_member_semester(conn, member_id=mid, semester_id=sid)
     assert again == (), f"second derive produced new kinds {again} at n={n}"
 
 
@@ -146,9 +140,7 @@ def test_issue_remove_reissue_does_not_duplicate_consequence(tmp_path) -> None: 
             )
             strike_ids.append(r.strike_id)
 
-    pcs_after_issue = pc_repo.list_for_member_semester(
-        conn, member_id=mid, semester_id=sid
-    )
+    pcs_after_issue = pc_repo.list_for_member_semester(conn, member_id=mid, semester_id=sid)
     kinds_after_issue = sorted(p.kind for p in pcs_after_issue)
     assert kinds_after_issue == ["extra_shift", "probation"]
 
@@ -162,9 +154,7 @@ def test_issue_remove_reissue_does_not_duplicate_consequence(tmp_path) -> None: 
             strike_ids=strike_ids,
         )
 
-    pcs_after_removal = pc_repo.list_for_member_semester(
-        conn, member_id=mid, semester_id=sid
-    )
+    pcs_after_removal = pc_repo.list_for_member_semester(conn, member_id=mid, semester_id=sid)
     # P4: removal does NOT delete the threshold consequence rows.
     assert sorted(p.kind for p in pcs_after_removal) == ["extra_shift", "probation"]
     assert strikes_repo.count_active(conn, member_id=mid, semester_id=sid) == 0
@@ -180,9 +170,7 @@ def test_issue_remove_reissue_does_not_duplicate_consequence(tmp_path) -> None: 
                 reason=f"r{i}b",
             )
 
-    pcs_final = pc_repo.list_for_member_semester(
-        conn, member_id=mid, semester_id=sid
-    )
+    pcs_final = pc_repo.list_for_member_semester(conn, member_id=mid, semester_id=sid)
     assert sorted(p.kind for p in pcs_final) == ["extra_shift", "probation"]
     assert len(pcs_final) == 2  # not 4 — UNIQUE(member, sem, kind) holds
 
@@ -192,9 +180,7 @@ def test_issue_remove_reissue_does_not_duplicate_consequence(tmp_path) -> None: 
 
 def test_strikes_in_other_semester_do_not_affect_count(tmp_path) -> None:  # type: ignore[no-untyped-def]
     conn, mid, sem_a = _fresh_world(tmp_path)
-    sem_b = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15"
-    )
+    sem_b = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15")
     with transaction(conn):
         for i in range(3):
             strike_state.issue_strike(
@@ -233,9 +219,7 @@ def test_apply_removal_rejects_wrong_member(tmp_path) -> None:  # type: ignore[n
     conn, mid_a, sid = _fresh_world(tmp_path)
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    mid_b = members_repo.insert(
-        conn, slug="m-other", display_name="Other", status_id=active.id
-    )
+    mid_b = members_repo.insert(conn, slug="m-other", display_name="Other", status_id=active.id)
     voluntary = rm_repo.get_active_by_slug(conn, "voluntary_social_risk")
     assert voluntary is not None
     with transaction(conn):

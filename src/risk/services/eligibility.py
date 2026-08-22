@@ -12,6 +12,16 @@ semester. Layers (all evaluated):
         semester where ``default_excluded_from_assignment = 1 AND
         exclude_is_soft = 0`` (e.g. EC).
 
+  NOT here: unavailability. It used to be, tested against the event's own date,
+  and that is wrong for two of the six shift types — setup runs up to two days
+  BEFORE the party and cleanup is the morning AFTER. This function answers one
+  question for the whole event, so it cannot ask about a window it does not
+  know. ``assignment`` asks ``availability.can_cover`` per shift type instead,
+  which is the only place that knows which window applies. Deliberately ONE
+  rule: the date-level version lived here for months while the window-aware
+  version sat unused in ``services.availability``, and having both is how they
+  disagree.
+
   Soft excludes (overrideable with ``--allow <automation_key>``):
     S1. Roles where ``default_excluded_from_assignment = 1 AND
         exclude_is_soft = 1``. Excluded by default; included only if their
@@ -67,7 +77,6 @@ class EligibilityResult:
     excluded_by_host_house: int
     excluded_by_hard_role: int
     excluded_by_soft_role: int
-    excluded_by_unavailability: int = 0
 
 
 def eligible_for(
@@ -77,7 +86,6 @@ def eligible_for(
     semester_id: int,
     host_house_id: int | None,
     allowed_keys: frozenset[str] = frozenset(),
-    event_date: str | None = None,
     honor_hard_role_exclusion: bool = True,
 ) -> EligibilityResult:
     """Compute the eligible pool for ``event_id`` in ``semester_id``.
@@ -86,27 +94,15 @@ def eligible_for(
     ``allowed_keys`` are the ``roles.automation_key`` values passed via
     ``--allow ROLE`` on the CLI — soft-excluded roles whose key is in this
     set are NOT excluded.
-    ``event_date`` (ISO YYYY-MM-DD) enables H4 unavailability filtering:
-    any member with an unavailability window covering ``event_date`` is
-    excluded. Phase 4 callers that pre-date Phase 6 may omit it.
-
     ``honor_hard_role_exclusion=False`` drops H3 and nothing else. It has
     exactly one caller — the strike make-up pass — and exists because a hard
     exemption and a disciplinary penalty are different things. An exemption
     says the chair does not put this officer in the rotation; it does not say a
     strike he earned stops being owed. Colin's ruling, and the reason the social
     chair carrying a spring strike works one make-up shift and no rotation
-    shifts. Status, host house, unavailability and the soft-role gate all still
-    apply: those are about whether the member CAN work the party, which a strike
-    does not change.
+    shifts. Status, host house and the soft-role gate all still apply: those are
+    about whether the member CAN work the party, which a strike does not change.
     """
-    from risk.repos import unavailability as _unav
-
-    unavailable_member_ids: set[int] = (
-        _unav.member_ids_unavailable_on(conn, semester_id=semester_id, date=event_date)
-        if event_date is not None
-        else set()
-    )
     rows = conn.execute(
         """
         SELECT
@@ -156,7 +152,6 @@ def eligible_for(
     excluded_by_host_house = 0
     excluded_by_hard_role = 0
     excluded_by_soft_role = 0
-    excluded_by_unavailability = 0
 
     for r in rows:
         if r["status_excludes"]:
@@ -167,9 +162,6 @@ def eligible_for(
             continue
         if honor_hard_role_exclusion and r["hard_role_excluded"]:
             excluded_by_hard_role += 1
-            continue
-        if r["member_id"] in unavailable_member_ids:
-            excluded_by_unavailability += 1
             continue
         soft_keys_csv = r["soft_role_keys"]
         if soft_keys_csv:
@@ -198,7 +190,6 @@ def eligible_for(
         excluded_by_host_house=excluded_by_host_house,
         excluded_by_hard_role=excluded_by_hard_role,
         excluded_by_soft_role=excluded_by_soft_role,
-        excluded_by_unavailability=excluded_by_unavailability,
     )
 
 

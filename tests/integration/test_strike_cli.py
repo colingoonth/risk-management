@@ -35,23 +35,17 @@ def _run_cli(db_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def _seed(db_path: Path) -> None:
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
     members_repo.insert(
         conn, slug="alice", display_name="Alice", status_id=active.id, class_year=2027
     )
-    members_repo.insert(
-        conn, slug="bob", display_name="Bob", status_id=active.id, class_year=2027
-    )
+    members_repo.insert(conn, slug="bob", display_name="Bob", status_id=active.id, class_year=2027)
     conn.close()
     # Seed a removal method via the CLI.
-    _run_cli(
-        db_path, "config", "removal-method", "add", "car-wash", "--display-name", "Car wash"
-    )
+    _run_cli(db_path, "config", "removal-method", "add", "car-wash", "--display-name", "Car wash")
 
 
 def _issue_strike(db_path: Path, member: str, on: str, reason: str = "no-show") -> int:
@@ -63,9 +57,7 @@ def _issue_strike(db_path: Path, member: str, on: str, reason: str = "no-show") 
 def test_strike_issue_unknown_member_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(
-        db_path, "strike", "issue", "ghost", "--reason", "no-show", "--on", "2026-02-14"
-    )
+    res = _run_cli(db_path, "strike", "issue", "ghost", "--reason", "no-show", "--on", "2026-02-14")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "member.not_found"
 
@@ -75,8 +67,16 @@ def test_strike_remove_round_trip(tmp_path: Path) -> None:
     _seed(db_path)
     sid = _issue_strike(db_path, "alice", "2026-02-14")
     res = _run_cli(
-        db_path, "strike", "remove", "alice",
-        "--method", "car-wash", "--on", "2026-03-01", "--strikes", str(sid),
+        db_path,
+        "strike",
+        "remove",
+        "alice",
+        "--method",
+        "car-wash",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        str(sid),
     )
     assert res.returncode == 0, res.stdout + res.stderr
     payload = json.loads(res.stdout)["data"]
@@ -87,8 +87,16 @@ def test_strike_remove_unknown_member_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     res = _run_cli(
-        db_path, "strike", "remove", "ghost",
-        "--method", "car-wash", "--on", "2026-03-01", "--strikes", "1",
+        db_path,
+        "strike",
+        "remove",
+        "ghost",
+        "--method",
+        "car-wash",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        "1",
     )
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "member.not_found"
@@ -99,8 +107,16 @@ def test_strike_remove_unknown_method_errors(tmp_path: Path) -> None:
     _seed(db_path)
     sid = _issue_strike(db_path, "alice", "2026-02-14")
     res = _run_cli(
-        db_path, "strike", "remove", "alice",
-        "--method", "no-such-method", "--on", "2026-03-01", "--strikes", str(sid),
+        db_path,
+        "strike",
+        "remove",
+        "alice",
+        "--method",
+        "no-such-method",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        str(sid),
     )
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "removal_method.not_found"
@@ -111,9 +127,18 @@ def test_strike_remove_unknown_by_errors(tmp_path: Path) -> None:
     _seed(db_path)
     sid = _issue_strike(db_path, "alice", "2026-02-14")
     res = _run_cli(
-        db_path, "strike", "remove", "alice",
-        "--method", "car-wash", "--on", "2026-03-01",
-        "--strikes", str(sid), "--by", "ghost",
+        db_path,
+        "strike",
+        "remove",
+        "alice",
+        "--method",
+        "car-wash",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        str(sid),
+        "--by",
+        "ghost",
     )
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "member.not_found"
@@ -123,8 +148,16 @@ def test_strike_remove_empty_strikes_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     res = _run_cli(
-        db_path, "strike", "remove", "alice",
-        "--method", "car-wash", "--on", "2026-03-01", "--strikes", "",
+        db_path,
+        "strike",
+        "remove",
+        "alice",
+        "--method",
+        "car-wash",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        "",
     )
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "strike.remove.empty"
@@ -134,8 +167,16 @@ def test_strike_remove_bad_link_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
     res = _run_cli(
-        db_path, "strike", "remove", "alice",
-        "--method", "car-wash", "--on", "2026-03-01", "--strikes", "9999",
+        db_path,
+        "strike",
+        "remove",
+        "alice",
+        "--method",
+        "car-wash",
+        "--on",
+        "2026-03-01",
+        "--strikes",
+        "9999",
     )
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "strike.remove.bad_link"
@@ -163,9 +204,7 @@ def test_strike_consequences_resolve_served(tmp_path: Path) -> None:
 def test_strike_consequences_resolve_bad_state_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(
-        db_path, "strike", "consequences", "resolve", "1", "--as", "completed"
-    )
+    res = _run_cli(db_path, "strike", "consequences", "resolve", "1", "--as", "completed")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "consequence.resolve.bad_state"
 
@@ -173,8 +212,6 @@ def test_strike_consequences_resolve_bad_state_errors(tmp_path: Path) -> None:
 def test_strike_consequences_resolve_unknown_id_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res = _run_cli(
-        db_path, "strike", "consequences", "resolve", "9999", "--as", "served"
-    )
+    res = _run_cli(db_path, "strike", "consequences", "resolve", "9999", "--as", "served")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "consequence.resolve.not_pending"

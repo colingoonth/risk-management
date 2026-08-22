@@ -43,9 +43,7 @@ def list_strikes(
     with service_errors():
         sem = resolve_semester(conn, semester)
         mid = _member_id(conn, member)
-    rows = strikes_repo.list_numbered_for_member_semester(
-        conn, member_id=mid, semester_id=sem.id
-    )
+    rows = strikes_repo.list_numbered_for_member_semester(conn, member_id=mid, semester_id=sem.id)
     return [NumberedStrikeOut.model_validate(r) for r in rows]
 
 
@@ -81,9 +79,7 @@ def issue_strike(
 def list_removal_methods(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> list[RemovalMethodOut]:
-    return [
-        RemovalMethodOut.model_validate(m) for m in removal_methods_repo.list_active(conn)
-    ]
+    return [RemovalMethodOut.model_validate(m) for m in removal_methods_repo.list_active(conn)]
 
 
 @router.post("/strikes/remove", response_model=StrikeRemovalOut)
@@ -98,9 +94,7 @@ def remove_strikes(
         if method is None:
             raise LookupError(f"removal method {body.removal_method_slug!r} not found")
         performed_by = (
-            _member_id(conn, body.performed_by_slug)
-            if body.performed_by_slug is not None
-            else None
+            _member_id(conn, body.performed_by_slug) if body.performed_by_slug is not None else None
         )
         # Guard cross-semester removal: apply_removal derives semester from the
         # strikes it closes and does NOT verify they share one. Constrain every

@@ -55,9 +55,7 @@ def strike_sheet(
         return
     try:
         with transaction(conn):
-            result = svc.apply_strike_sheet(
-                conn, payload=payload, semester_name_override=semester
-            )
+            result = svc.apply_strike_sheet(conn, payload=payload, semester_name_override=semester)
     except (LookupError, ValueError) as exc:
         emit_error("ingest.apply_failed", str(exc), mode=mode)
         return

@@ -176,9 +176,7 @@ def revert_prefs(
             help="Timestamp to restore to (matches house_shift_preferences_history.changed_at).",
         ),
     ],
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Show planned changes only.")
-    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show planned changes only.")] = False,
 ) -> None:
     """Restore a house's shift preferences to their state at ``--to``."""
     mode = mode_from_ctx(ctx)
@@ -188,10 +186,7 @@ def revert_prefs(
         emit_error("house.not_found", f"No house with slug {house!r}.", mode=mode)
         return
     snapshot = prefs_repo.state_at(conn, house_id=h.id, at_timestamp=to)
-    current = {
-        (p.event_type_id, p.shift_type_id): p
-        for p in prefs_repo.list_for_house(conn, h.id)
-    }
+    current = {(p.event_type_id, p.shift_type_id): p for p in prefs_repo.list_for_house(conn, h.id)}
     target_keys = {(et, st) for et, st, mn, _tg in snapshot if mn is not None}
     to_upsert = [(et, st, mn, tg) for et, st, mn, tg in snapshot if mn is not None]
     to_delete = [k for k in current if k not in target_keys]
@@ -202,9 +197,7 @@ def revert_prefs(
             {"event_type_id": et, "shift_type_id": st, "min_count": mn, "target_count": tg}
             for et, st, mn, tg in to_upsert
         ],
-        "deletes": [
-            {"event_type_id": et, "shift_type_id": st} for et, st in to_delete
-        ],
+        "deletes": [{"event_type_id": et, "shift_type_id": st} for et, st in to_delete],
     }
     if dry_run:
         emit_success({"plan": plan, "dry_run": True}, mode=mode)
@@ -222,9 +215,7 @@ def revert_prefs(
                     target_count=tg,
                 )
             for et, st in to_delete:
-                prefs_repo.delete(
-                    conn, house_id=h.id, event_type_id=et, shift_type_id=st
-                )
+                prefs_repo.delete(conn, house_id=h.id, event_type_id=et, shift_type_id=st)
     except sqlite3.IntegrityError:
         emit_error(
             "house.revert_integrity",

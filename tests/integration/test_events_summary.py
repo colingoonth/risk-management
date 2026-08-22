@@ -77,9 +77,7 @@ def _seed(db_path: Path) -> dict[str, int]:
     ensure(conn)
     ids: dict[str, int] = {}
     with transaction(conn):
-        sem_id = semesters_repo.insert(
-            conn, name="FA26", starts_on=SEM_START, ends_on=SEM_END
-        )
+        sem_id = semesters_repo.insert(conn, name="FA26", starts_on=SEM_START, ends_on=SEM_END)
         conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
         houses_repo.insert(conn, slug="summary-house", display_name="Summary House")
         active = statuses_repo.get_by_slug(conn, "active")
@@ -107,24 +105,39 @@ def _seed(db_path: Path) -> dict[str, int]:
                 semester_id=sem_id,
             )
         ids["never"] = _event(
-            conn, semester_id=sem_id, type_slug="mixer",
-            name="Never Assigned Mixer", date="2026-09-11",
+            conn,
+            semester_id=sem_id,
+            type_slug="mixer",
+            name="Never Assigned Mixer",
+            date="2026-09-11",
         )
         ids["full"] = _event(
-            conn, semester_id=sem_id, type_slug="mixer",
-            name="Full Mixer", date="2026-09-12",
+            conn,
+            semester_id=sem_id,
+            type_slug="mixer",
+            name="Full Mixer",
+            date="2026-09-12",
         )
         ids["orphan"] = _event(
-            conn, semester_id=sem_id, type_slug="mixer",
-            name="Orphan Mixer", date="2026-09-25",
+            conn,
+            semester_id=sem_id,
+            type_slug="mixer",
+            name="Orphan Mixer",
+            date="2026-09-25",
         )
         ids["cancelled"] = _event(
-            conn, semester_id=sem_id, type_slug="krush",
-            name="Dead Krush", date="2026-10-31",
+            conn,
+            semester_id=sem_id,
+            type_slug="krush",
+            name="Dead Krush",
+            date="2026-10-31",
         )
         ids["same_night"] = _event(
-            conn, semester_id=sem_id, type_slug="mixer",
-            name="Same Night", date="2026-10-31",
+            conn,
+            semester_id=sem_id,
+            type_slug="mixer",
+            name="Same Night",
+            date="2026-10-31",
         )
         # No snapshot at all — an event carrying zero requirement rows.
         bare_type = etypes_repo.get_by_slug(conn, "philanthropy")
@@ -142,8 +155,11 @@ def _seed(db_path: Path) -> dict[str, int]:
             conn, name="SP27", starts_on="2027-01-10", ends_on="2027-05-10"
         )
         ids["other_semester"] = _event(
-            conn, semester_id=other, type_slug="mixer",
-            name="Next Term Mixer", date="2027-02-14",
+            conn,
+            semester_id=other,
+            type_slug="mixer",
+            name="Next Term Mixer",
+            date="2027-02-14",
         )
     ids["semester"] = sem_id
 
@@ -283,9 +299,7 @@ def test_summary_is_scoped_to_one_semester(
     payload = _by_id(client.get("/api/events/summary").json())
     assert ids["other_semester"] not in payload
     assert client.get("/api/events/summary?semester=SP27").status_code == 200
-    assert ids["other_semester"] in _by_id(
-        client.get("/api/events/summary?semester=SP27").json()
-    )
+    assert ids["other_semester"] in _by_id(client.get("/api/events/summary?semester=SP27").json())
 
 
 def test_by_type_breaks_the_rollup_down_per_shift_type(

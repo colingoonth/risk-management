@@ -48,9 +48,7 @@ def _seed_sp26(db_path: Path) -> None:
     """Bare schema + SP26 marked current."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     conn.close()
 
@@ -59,9 +57,7 @@ def _seed_with_event(db_path: Path) -> int:
     """SP26 current + zta house + a mixer event + 8 active members. Returns event id."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -98,8 +94,15 @@ def test_event_add_unknown_event_type_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     data, code = _run(
-        db, "event", "add",
-        "--name", "Bad", "--type", "no-such-type", "--date", "2026-02-14",
+        db,
+        "event",
+        "add",
+        "--name",
+        "Bad",
+        "--type",
+        "no-such-type",
+        "--date",
+        "2026-02-14",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -109,9 +112,17 @@ def test_event_add_unknown_host_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     data, code = _run(
-        db, "event", "add",
-        "--name", "Bad", "--type", "mixer", "--date", "2026-02-14",
-        "--host", "no-house",
+        db,
+        "event",
+        "add",
+        "--name",
+        "Bad",
+        "--type",
+        "mixer",
+        "--date",
+        "2026-02-14",
+        "--host",
+        "no-house",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -121,8 +132,15 @@ def test_event_add_invalid_date_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     data, code = _run(
-        db, "event", "add",
-        "--name", "Bad", "--type", "mixer", "--date", "not-a-date",
+        db,
+        "event",
+        "add",
+        "--name",
+        "Bad",
+        "--type",
+        "mixer",
+        "--date",
+        "not-a-date",
     )
     assert code != 0
     assert data["error"]["code"] == "event.invalid_date"
@@ -132,12 +150,26 @@ def test_event_add_duplicate_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     _run(
-        db, "event", "add",
-        "--name", "Mixer", "--type", "mixer", "--date", "2026-02-14",
+        db,
+        "event",
+        "add",
+        "--name",
+        "Mixer",
+        "--type",
+        "mixer",
+        "--date",
+        "2026-02-14",
     )
     data, code = _run(
-        db, "event", "add",
-        "--name", "Mixer", "--type", "mixer", "--date", "2026-03-14",
+        db,
+        "event",
+        "add",
+        "--name",
+        "Mixer",
+        "--type",
+        "mixer",
+        "--date",
+        "2026-03-14",
     )
     assert code != 0
     assert data["error"]["code"] == "event.duplicate"
@@ -147,8 +179,15 @@ def test_event_add_with_no_current_semester_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "event", "add",
-        "--name", "X", "--type", "mixer", "--date", "2026-02-14",
+        db,
+        "event",
+        "add",
+        "--name",
+        "X",
+        "--type",
+        "mixer",
+        "--date",
+        "2026-02-14",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.no_current"
@@ -158,9 +197,17 @@ def test_event_add_with_unknown_semester_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "event", "add",
-        "--name", "X", "--type", "mixer", "--date", "2026-02-14",
-        "--semester", "NOPE",
+        db,
+        "event",
+        "add",
+        "--name",
+        "X",
+        "--type",
+        "mixer",
+        "--date",
+        "2026-02-14",
+        "--semester",
+        "NOPE",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"
@@ -198,8 +245,15 @@ def test_event_set_shift_req_unknown_event_human_decline(tmp_path: Path) -> None
     db = tmp_path / "r.db"
     _seed_with_event(db)
     out, code = _run_human(
-        db, "event", "set-shift-req", "1", "door",
-        "--min", "0", "--target", "0",
+        db,
+        "event",
+        "set-shift-req",
+        "1",
+        "door",
+        "--min",
+        "0",
+        "--target",
+        "0",
         input_text="n\n",
     )
     assert code != 0
@@ -210,8 +264,15 @@ def test_event_set_shift_req_target_zero_human_yes_confirm(tmp_path: Path) -> No
     db = tmp_path / "r.db"
     _seed_with_event(db)
     out, code = _run_human(
-        db, "event", "set-shift-req", "1", "door",
-        "--min", "0", "--target", "0",
+        db,
+        "event",
+        "set-shift-req",
+        "1",
+        "door",
+        "--min",
+        "0",
+        "--target",
+        "0",
         input_text="y\n",
     )
     assert code == 0, out
@@ -229,8 +290,12 @@ def test_event_auto_assign_unknown_allow_key_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_with_event(db)
     data, code = _run(
-        db, "event", "auto-assign", "1",
-        "--allow", "not_a_real_automation_key",
+        db,
+        "event",
+        "auto-assign",
+        "1",
+        "--allow",
+        "not_a_real_automation_key",
     )
     assert code != 0
     assert data["error"]["code"] == "allow.unknown_key"
@@ -242,9 +307,7 @@ def test_event_auto_assign_strict_below_min_errors(tmp_path: Path) -> None:
     _bare(db)
     # SP26 + zta, but ONLY 1 member - too few for a 3-door mixer
     conn = connect(db)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -279,8 +342,14 @@ def test_semester_set_house_mode_unknown_semester(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "semester", "set-house-mode", "NOPE",
-        "--house", "zta", "--mode", "normal",
+        db,
+        "semester",
+        "set-house-mode",
+        "NOPE",
+        "--house",
+        "zta",
+        "--mode",
+        "normal",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"
@@ -290,8 +359,14 @@ def test_semester_set_house_mode_unknown_house(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     data, code = _run(
-        db, "semester", "set-house-mode", "SP26",
-        "--house", "ghost", "--mode", "normal",
+        db,
+        "semester",
+        "set-house-mode",
+        "SP26",
+        "--house",
+        "ghost",
+        "--mode",
+        "normal",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -302,8 +377,14 @@ def test_semester_set_house_mode_unknown_mode(tmp_path: Path) -> None:
     _seed_sp26(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db, "semester", "set-house-mode", "SP26",
-        "--house", "zta", "--mode", "no-such-mode",
+        db,
+        "semester",
+        "set-house-mode",
+        "SP26",
+        "--house",
+        "zta",
+        "--mode",
+        "no-such-mode",
     )
     assert code != 0
     assert data["error"]["code"] == "pledge_mode.not_found"
@@ -316,8 +397,13 @@ def test_semester_archive_with_carry_to(tmp_path: Path) -> None:
     _run(db, "semester", "add", "SP26", "--starts", "2026-01-15", "--ends", "2026-05-15")
     _run(db, "semester", "add", "FA26", "--starts", "2026-08-15", "--ends", "2026-12-15")
     data, code = _run(
-        db, "semester", "archive", "SP26",
-        "--force", "--carry-to", "FA26",
+        db,
+        "semester",
+        "archive",
+        "SP26",
+        "--force",
+        "--carry-to",
+        "FA26",
     )
     assert code == 0, data
 
@@ -326,8 +412,20 @@ def test_semester_archive_human_mode_table(tmp_path: Path) -> None:
     """Archive in human mode hits the Rich-table emit branch."""
     db = tmp_path / "r.db"
     _bare(db)
-    runner.invoke(app, ["--db", str(db), "semester", "add", "SP26",
-                        "--starts", "2026-01-15", "--ends", "2026-05-15"])
+    runner.invoke(
+        app,
+        [
+            "--db",
+            str(db),
+            "semester",
+            "add",
+            "SP26",
+            "--starts",
+            "2026-01-15",
+            "--ends",
+            "2026-05-15",
+        ],
+    )
     res = runner.invoke(app, ["--db", str(db), "semester", "archive", "SP26", "--force"])
     assert res.exit_code == 0, res.output
 
@@ -339,7 +437,8 @@ def test_semester_unarchive_decline_confirmation(tmp_path: Path) -> None:
     _run(db, "semester", "add", "SP26", "--starts", "2026-01-15", "--ends", "2026-05-15")
     _run(db, "semester", "archive", "SP26", "--force")
     runner.invoke(
-        app, ["--db", str(db), "semester", "unarchive", "SP26"],
+        app,
+        ["--db", str(db), "semester", "unarchive", "SP26"],
         input="n\n",
     )
     # exit_code=0 is intentional; verify semester is still archived
@@ -366,9 +465,7 @@ def test_semester_unarchive_not_archived_errors(tmp_path: Path) -> None:
 def _seed_strike_world(db_path: Path) -> None:
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
@@ -419,9 +516,21 @@ def test_strike_remove_bad_id_format_errors(tmp_path: Path) -> None:
     _seed_strike_world(db)
     _run(db, "config", "removal-method", "add", "car-wash", "--display-name", "Car Wash")
     res = runner.invoke(
-        app, ["--json", "--db", str(db), "strike", "remove", "alice",
-              "--method", "car-wash", "--on", "2026-03-01",
-              "--strikes", "abc,123"]
+        app,
+        [
+            "--json",
+            "--db",
+            str(db),
+            "strike",
+            "remove",
+            "alice",
+            "--method",
+            "car-wash",
+            "--on",
+            "2026-03-01",
+            "--strikes",
+            "abc,123",
+        ],
     )
     assert res.exit_code != 0
 
@@ -453,9 +562,7 @@ def test_strike_issue_no_current_semester_errors(tmp_path: Path) -> None:
         conn, slug="alice", display_name="Alice", status_id=active.id, class_year=2027
     )
     conn.close()
-    data, code = _run(
-        db, "strike", "issue", "alice", "--reason", "x", "--on", "2026-02-14"
-    )
+    data, code = _run(db, "strike", "issue", "alice", "--reason", "x", "--on", "2026-02-14")
     assert code != 0
     assert data["error"]["code"] == "semester.no_current"
 
@@ -464,9 +571,16 @@ def test_strike_issue_unknown_semester_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_strike_world(db)
     data, code = _run(
-        db, "strike", "issue", "alice",
-        "--reason", "x", "--on", "2026-02-14",
-        "--semester", "NOPE",
+        db,
+        "strike",
+        "issue",
+        "alice",
+        "--reason",
+        "x",
+        "--on",
+        "2026-02-14",
+        "--semester",
+        "NOPE",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"
@@ -481,8 +595,14 @@ def test_member_add_unknown_status_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     data, code = _run(
-        db, "member", "add", "alice",
-        "--display-name", "Alice", "--status", "no-such-status",
+        db,
+        "member",
+        "add",
+        "alice",
+        "--display-name",
+        "Alice",
+        "--status",
+        "no-such-status",
     )
     assert code != 0
     assert data["error"]["code"] == "status.not_found"
@@ -511,9 +631,7 @@ def test_member_list_with_role_filter(tmp_path: Path) -> None:
 def test_member_list_unknown_role_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
-    data, code = _run(
-        db, "member", "list", "--role", "no-such-role", "--semester", "SP26"
-    )
+    data, code = _run(db, "member", "list", "--role", "no-such-role", "--semester", "SP26")
     assert code != 0
     assert data["error"]["code"] == "role.not_found"
 
@@ -547,9 +665,7 @@ def test_member_set_role_unknown_role_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     _run(db, "member", "add", "alice", "--display-name", "Alice")
-    data, code = _run(
-        db, "member", "set-role", "alice", "no-such-role", "--semester", "SP26"
-    )
+    data, code = _run(db, "member", "set-role", "alice", "no-such-role", "--semester", "SP26")
     assert code != 0
     assert data["error"]["code"] == "role.not_found"
 
@@ -558,9 +674,7 @@ def test_member_unset_role_unknown_role_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _seed_sp26(db)
     _run(db, "member", "add", "alice", "--display-name", "Alice")
-    data, code = _run(
-        db, "member", "unset-role", "alice", "no-such-role", "--semester", "SP26"
-    )
+    data, code = _run(db, "member", "unset-role", "alice", "no-such-role", "--semester", "SP26")
     assert code != 0
     assert data["error"]["code"] == "role.not_found"
 
@@ -585,9 +699,7 @@ def _seed_swap_world(db_path: Path) -> int:
     """Seed a swap-ready world; return event id."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -635,14 +747,24 @@ def test_swap_request_duplicate_open_errors(tmp_path: Path) -> None:
     data, _ = _run(db, "shift", "list", "--status", "assigned")
     s1, s2 = data["data"][0], data["data"][1]
     req_data, req_code = _run(
-        db, "swap", "request", "--from-shift", str(s1["id"]),
-        "--to-shift", str(s2["id"]),
+        db,
+        "swap",
+        "request",
+        "--from-shift",
+        str(s1["id"]),
+        "--to-shift",
+        str(s2["id"]),
     )
     assert req_code == 0, req_data
     # Second request, same from_shift
     dup_data, dup_code = _run(
-        db, "swap", "request", "--from-shift", str(s1["id"]),
-        "--to-shift", str(s2["id"]),
+        db,
+        "swap",
+        "request",
+        "--from-shift",
+        str(s1["id"]),
+        "--to-shift",
+        str(s2["id"]),
     )
     assert dup_code != 0
     assert dup_data["error"]["code"] == "swap.duplicate_open"
@@ -659,8 +781,13 @@ def test_swap_accept_after_from_shift_deleted_errors(tmp_path: Path) -> None:
     data, _ = _run(db, "shift", "list", "--status", "assigned")
     s1, s2 = data["data"][0], data["data"][1]
     req_data, req_code = _run(
-        db, "swap", "request", "--from-shift", str(s1["id"]),
-        "--to-shift", str(s2["id"]),
+        db,
+        "swap",
+        "request",
+        "--from-shift",
+        str(s1["id"]),
+        "--to-shift",
+        str(s2["id"]),
     )
     assert req_code == 0
     req_id = req_data["data"]["swap_request"]["id"]
@@ -684,12 +811,18 @@ def test_swap_cancel_decline_confirmation(tmp_path: Path) -> None:
     data, _ = _run(db, "shift", "list", "--status", "assigned")
     s1, s2 = data["data"][0], data["data"][1]
     req_data, _ = _run(
-        db, "swap", "request", "--from-shift", str(s1["id"]),
-        "--to-shift", str(s2["id"]),
+        db,
+        "swap",
+        "request",
+        "--from-shift",
+        str(s1["id"]),
+        "--to-shift",
+        str(s2["id"]),
     )
     req_id = req_data["data"]["swap_request"]["id"]
     runner.invoke(
-        app, ["--db", str(db), "swap", "cancel", str(req_id)],
+        app,
+        ["--db", str(db), "swap", "cancel", str(req_id)],
         input="n\n",
     )
     # exit_code=0 is intentional; the swap should still be open
@@ -714,8 +847,14 @@ def test_unavailability_add_no_current_semester_errors(tmp_path: Path) -> None:
     )
     conn.close()
     data, code = _run(
-        db, "unavailability", "add", "alice",
-        "--starts", "2026-03-01", "--ends", "2026-03-08",
+        db,
+        "unavailability",
+        "add",
+        "alice",
+        "--starts",
+        "2026-03-01",
+        "--ends",
+        "2026-03-08",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.no_current"
@@ -726,9 +865,16 @@ def test_unavailability_add_unknown_semester_errors(tmp_path: Path) -> None:
     _seed_sp26(db)
     _run(db, "member", "add", "alice", "--display-name", "Alice")
     data, code = _run(
-        db, "unavailability", "add", "alice",
-        "--starts", "2026-03-01", "--ends", "2026-03-08",
-        "--semester", "NOPE",
+        db,
+        "unavailability",
+        "add",
+        "alice",
+        "--starts",
+        "2026-03-01",
+        "--ends",
+        "2026-03-08",
+        "--semester",
+        "NOPE",
     )
     assert code != 0
     assert data["error"]["code"] == "semester.not_found"
@@ -756,12 +902,24 @@ def test_unavailability_add_duplicate_errors(tmp_path: Path) -> None:
     _seed_sp26(db)
     _run(db, "member", "add", "alice", "--display-name", "Alice")
     _run(
-        db, "unavailability", "add", "alice",
-        "--starts", "2026-03-01", "--ends", "2026-03-08",
+        db,
+        "unavailability",
+        "add",
+        "alice",
+        "--starts",
+        "2026-03-01",
+        "--ends",
+        "2026-03-08",
     )
     data, code = _run(
-        db, "unavailability", "add", "alice",
-        "--starts", "2026-03-01", "--ends", "2026-03-08",
+        db,
+        "unavailability",
+        "add",
+        "alice",
+        "--starts",
+        "2026-03-01",
+        "--ends",
+        "2026-03-08",
     )
     assert code != 0
     assert data["error"]["code"] in ("unavailability.duplicate", "unavailability.integrity")
@@ -785,9 +943,17 @@ def test_house_set_pref_unknown_house_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "house", "set-pref",
-        "ghost-house", "mixer", "door",
-        "--min", "3", "--target", "4",
+        db,
+        "config",
+        "house",
+        "set-pref",
+        "ghost-house",
+        "mixer",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -798,9 +964,17 @@ def test_house_set_pref_unknown_event_type_errors(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db, "config", "house", "set-pref",
-        "zta", "no-such-event-type", "door",
-        "--min", "3", "--target", "4",
+        db,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "no-such-event-type",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -811,9 +985,17 @@ def test_house_set_pref_unknown_shift_type_errors(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db, "config", "house", "set-pref",
-        "zta", "mixer", "no-shift",
-        "--min", "3", "--target", "4",
+        db,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "no-shift",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -823,8 +1005,13 @@ def test_house_clear_pref_unknown_house_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "house", "clear-pref",
-        "ghost", "mixer", "door",
+        db,
+        "config",
+        "house",
+        "clear-pref",
+        "ghost",
+        "mixer",
+        "door",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -835,8 +1022,13 @@ def test_house_clear_pref_unknown_event_type_errors(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db, "config", "house", "clear-pref",
-        "zta", "no-such-event-type", "door",
+        db,
+        "config",
+        "house",
+        "clear-pref",
+        "zta",
+        "no-such-event-type",
+        "door",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -847,8 +1039,13 @@ def test_house_clear_pref_unknown_shift_type_errors(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db, "config", "house", "clear-pref",
-        "zta", "mixer", "no-shift",
+        db,
+        "config",
+        "house",
+        "clear-pref",
+        "zta",
+        "mixer",
+        "no-shift",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -866,8 +1063,13 @@ def test_house_revert_prefs_unknown_house_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "house", "revert-prefs", "ghost",
-        "--to", "2026-01-01T00:00:00Z",
+        db,
+        "config",
+        "house",
+        "revert-prefs",
+        "ghost",
+        "--to",
+        "2026-01-01T00:00:00Z",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -879,14 +1081,27 @@ def test_house_revert_prefs_apply_dry_run(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(
-        db, "config", "house", "set-pref",
-        "zta", "mixer", "door",
-        "--min", "3", "--target", "4",
+        db,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     # Now revert to the very beginning (snapshot is empty) - dry-run.
     data, code = _run(
-        db, "config", "house", "revert-prefs", "zta",
-        "--to", "1970-01-01T00:00:00Z",
+        db,
+        "config",
+        "house",
+        "revert-prefs",
+        "zta",
+        "--to",
+        "1970-01-01T00:00:00Z",
         "--dry-run",
     )
     assert code == 0, data
@@ -899,13 +1114,26 @@ def test_house_revert_prefs_apply_real(tmp_path: Path) -> None:
     _bare(db)
     _run(db, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(
-        db, "config", "house", "set-pref",
-        "zta", "mixer", "door",
-        "--min", "3", "--target", "4",
+        db,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     data, code = _run(
-        db, "config", "house", "revert-prefs", "zta",
-        "--to", "1970-01-01T00:00:00Z",
+        db,
+        "config",
+        "house",
+        "revert-prefs",
+        "zta",
+        "--to",
+        "1970-01-01T00:00:00Z",
     )
     assert code == 0, data
     assert data["data"]["applied"] is True
@@ -928,9 +1156,7 @@ def test_event_type_add_duplicate_errors(tmp_path: Path) -> None:
     db = tmp_path / "r.db"
     _bare(db)
     _run(db, "config", "event-type", "add", "social", "--display-name", "Social")
-    data, code = _run(
-        db, "config", "event-type", "add", "social", "--display-name", "Social"
-    )
+    data, code = _run(db, "config", "event-type", "add", "social", "--display-name", "Social")
     assert code != 0
     assert data["error"]["code"] == "event_type.integrity"
 
@@ -939,8 +1165,12 @@ def test_event_type_allow_shift_type_unknown_event_type_errors(tmp_path: Path) -
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "allow-shift-type",
-        "no-event-type", "door",
+        db,
+        "config",
+        "event-type",
+        "allow-shift-type",
+        "no-event-type",
+        "door",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -950,8 +1180,12 @@ def test_event_type_allow_shift_type_unknown_shift_type_errors(tmp_path: Path) -
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "allow-shift-type",
-        "mixer", "no-shift",
+        db,
+        "config",
+        "event-type",
+        "allow-shift-type",
+        "mixer",
+        "no-shift",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -961,8 +1195,12 @@ def test_event_type_disallow_shift_type_unknown_event_type_errors(tmp_path: Path
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "disallow-shift-type",
-        "no-event-type", "door",
+        db,
+        "config",
+        "event-type",
+        "disallow-shift-type",
+        "no-event-type",
+        "door",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -972,8 +1210,12 @@ def test_event_type_disallow_shift_type_unknown_shift_type_errors(tmp_path: Path
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "disallow-shift-type",
-        "mixer", "no-shift",
+        db,
+        "config",
+        "event-type",
+        "disallow-shift-type",
+        "mixer",
+        "no-shift",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -983,8 +1225,16 @@ def test_event_type_set_default_unknown_event_type_errors(tmp_path: Path) -> Non
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "set-default",
-        "no-event-type", "door", "--min", "3", "--target", "4",
+        db,
+        "config",
+        "event-type",
+        "set-default",
+        "no-event-type",
+        "door",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -994,8 +1244,16 @@ def test_event_type_set_default_unknown_shift_type_errors(tmp_path: Path) -> Non
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "set-default",
-        "mixer", "no-shift", "--min", "3", "--target", "4",
+        db,
+        "config",
+        "event-type",
+        "set-default",
+        "mixer",
+        "no-shift",
+        "--min",
+        "3",
+        "--target",
+        "4",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -1005,8 +1263,12 @@ def test_event_type_clear_default_unknown_event_type_errors(tmp_path: Path) -> N
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "clear-default",
-        "no-event-type", "door",
+        db,
+        "config",
+        "event-type",
+        "clear-default",
+        "no-event-type",
+        "door",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -1016,8 +1278,12 @@ def test_event_type_clear_default_unknown_shift_type_errors(tmp_path: Path) -> N
     db = tmp_path / "r.db"
     _bare(db)
     data, code = _run(
-        db, "config", "event-type", "clear-default",
-        "mixer", "no-shift",
+        db,
+        "config",
+        "event-type",
+        "clear-default",
+        "mixer",
+        "no-shift",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"

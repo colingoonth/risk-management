@@ -54,12 +54,8 @@ def _row(r: sqlite3.Row) -> ShiftTypeWindow:
     )
 
 
-def get_for_shift_type(
-    conn: sqlite3.Connection, shift_type_id: int
-) -> ShiftTypeWindow | None:
-    row = conn.execute(
-        f"{_SELECT_JOINED} WHERE w.shift_type_id = ?", (shift_type_id,)
-    ).fetchone()
+def get_for_shift_type(conn: sqlite3.Connection, shift_type_id: int) -> ShiftTypeWindow | None:
+    row = conn.execute(f"{_SELECT_JOINED} WHERE w.shift_type_id = ?", (shift_type_id,)).fetchone()
     return _row(row) if row else None
 
 

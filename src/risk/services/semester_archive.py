@@ -189,9 +189,7 @@ def archive(
         )
         swaps_cancelled = cur_sr.rowcount
 
-    marked = semesters_repo.mark_archived(
-        conn, semester_id=semester_id, archived_at=archived_at
-    )
+    marked = semesters_repo.mark_archived(conn, semester_id=semester_id, archived_at=archived_at)
     if marked == 0:
         raise RuntimeError("semester already archived")
 
@@ -215,21 +213,15 @@ def unarchive(conn: sqlite3.Connection, *, semester_id: int) -> None:
     semesters_repo.unarchive(conn, semester_id=semester_id)
 
 
-def _semester_or_raise(
-    conn: sqlite3.Connection, semester_id: int
-) -> semesters_repo.Semester:
-    row = conn.execute(
-        "SELECT * FROM semesters WHERE id = ?", (semester_id,)
-    ).fetchone()
+def _semester_or_raise(conn: sqlite3.Connection, semester_id: int) -> semesters_repo.Semester:
+    row = conn.execute("SELECT * FROM semesters WHERE id = ?", (semester_id,)).fetchone()
     if row is None:
         raise LookupError(f"semester {semester_id} not found")
     return semesters_repo._row_to_semester(row)
 
 
 def _earliest_open_date(conn: sqlite3.Connection, semester_id: int) -> str:
-    row = conn.execute(
-        "SELECT starts_on FROM semesters WHERE id = ?", (semester_id,)
-    ).fetchone()
+    row = conn.execute("SELECT starts_on FROM semesters WHERE id = ?", (semester_id,)).fetchone()
     if row is None:
         raise LookupError(f"carry-to semester {semester_id} not found")
     return str(row["starts_on"])

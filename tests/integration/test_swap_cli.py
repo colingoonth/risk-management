@@ -33,9 +33,7 @@ def _seed(db_path: Path) -> int:
     """Seed SP26 + 1 mixer + 15 members + auto-assign. Return event id."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")

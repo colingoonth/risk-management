@@ -30,9 +30,7 @@ def _seed(db_path: Path) -> None:
     """Schema + current SP26 + 1 member + 1 house."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     conn.close()
     _run_cli(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")

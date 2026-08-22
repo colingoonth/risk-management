@@ -40,9 +40,15 @@ def test_role_add_happy(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
     res = _run_cli(
-        db_path, "config", "role", "add", "test_only_role",
-        "--display-name", "Test Only Role",
-        "--automation-key", "test-only-role",
+        db_path,
+        "config",
+        "role",
+        "add",
+        "test_only_role",
+        "--display-name",
+        "Test Only Role",
+        "--automation-key",
+        "test-only-role",
         "--exclude-soft",
         "--default-excluded",
     )
@@ -52,9 +58,7 @@ def test_role_add_happy(tmp_path: Path) -> None:
 def test_role_add_duplicate_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
-    res = _run_cli(
-        db_path, "config", "role", "add", "exec", "--display-name", "Second Exec"
-    )
+    res = _run_cli(db_path, "config", "role", "add", "exec", "--display-name", "Second Exec")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "role.integrity"
 
@@ -62,9 +66,7 @@ def test_role_add_duplicate_errors(tmp_path: Path) -> None:
 def test_role_rename_happy(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
-    res = _run_cli(
-        db_path, "config", "role", "rename", "exec", "--display-name", "Executive"
-    )
+    res = _run_cli(db_path, "config", "role", "rename", "exec", "--display-name", "Executive")
     assert res.returncode == 0, res.stdout + res.stderr
     assert json.loads(res.stdout)["data"]["display_name"] == "Executive"
 
@@ -72,9 +74,7 @@ def test_role_rename_happy(tmp_path: Path) -> None:
 def test_role_rename_unknown_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
-    res = _run_cli(
-        db_path, "config", "role", "rename", "no_such_role", "--display-name", "X"
-    )
+    res = _run_cli(db_path, "config", "role", "rename", "no_such_role", "--display-name", "X")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "role.not_found"
 
@@ -82,17 +82,13 @@ def test_role_rename_unknown_errors(tmp_path: Path) -> None:
 def test_shift_type_add_happy(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
-    res = _run_cli(
-        db_path, "config", "shift-type", "add", "patio", "--display-name", "Patio watch"
-    )
+    res = _run_cli(db_path, "config", "shift-type", "add", "patio", "--display-name", "Patio watch")
     assert res.returncode == 0, res.stdout + res.stderr
 
 
 def test_shift_type_add_duplicate_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
-    res = _run_cli(
-        db_path, "config", "shift-type", "add", "door", "--display-name", "Door"
-    )
+    res = _run_cli(db_path, "config", "shift-type", "add", "door", "--display-name", "Door")
     assert res.returncode != 0
     assert json.loads(res.stdout)["error"]["code"] == "shift_type.integrity"

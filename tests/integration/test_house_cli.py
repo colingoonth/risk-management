@@ -35,24 +35,40 @@ def test_house_set_pref_happy(tmp_path: Path) -> None:
     _bare(db_path)
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db_path, "config", "house", "set-pref", "zta", "mixer", "door",
-        "--min", "2", "--target", "3",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "2",
+        "--target",
+        "3",
     )
     assert code == 0, data
 
     list_data, _ = _run(db_path, "config", "house", "list-prefs", "zta")
     rows = list_data["data"]
-    assert any(
-        r["event_type_slug"] == "mixer" and r["shift_type_slug"] == "door" for r in rows
-    )
+    assert any(r["event_type_slug"] == "mixer" and r["shift_type_slug"] == "door" for r in rows)
 
 
 def test_house_set_pref_unknown_house_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _bare(db_path)
     data, code = _run(
-        db_path, "config", "house", "set-pref", "ghost", "mixer", "door",
-        "--min", "2", "--target", "3",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "ghost",
+        "mixer",
+        "door",
+        "--min",
+        "2",
+        "--target",
+        "3",
     )
     assert code != 0
     assert data["error"]["code"] == "house.not_found"
@@ -63,8 +79,17 @@ def test_house_set_pref_unknown_event_type_errors(tmp_path: Path) -> None:
     _bare(db_path)
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db_path, "config", "house", "set-pref", "zta", "bogus", "door",
-        "--min", "1", "--target", "1",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "bogus",
+        "door",
+        "--min",
+        "1",
+        "--target",
+        "1",
     )
     assert code != 0
     assert data["error"]["code"] == "event_type.not_found"
@@ -75,8 +100,17 @@ def test_house_set_pref_unknown_shift_type_errors(tmp_path: Path) -> None:
     _bare(db_path)
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     data, code = _run(
-        db_path, "config", "house", "set-pref", "zta", "mixer", "bogus",
-        "--min", "1", "--target", "1",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "bogus",
+        "--min",
+        "1",
+        "--target",
+        "1",
     )
     assert code != 0
     assert data["error"]["code"] == "shift_type.not_found"
@@ -87,16 +121,23 @@ def test_house_clear_pref_round_trip(tmp_path: Path) -> None:
     _bare(db_path)
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(
-        db_path, "config", "house", "set-pref", "zta", "mixer", "door",
-        "--min", "2", "--target", "3",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "2",
+        "--target",
+        "3",
     )
     clear_data, clear_code = _run(db_path, "config", "house", "clear-pref", "zta", "mixer", "door")
     assert clear_code == 0, clear_data
     list_data, _ = _run(db_path, "config", "house", "list-prefs", "zta")
     rows = list_data["data"]
-    assert not any(
-        r["event_type_slug"] == "mixer" and r["shift_type_slug"] == "door" for r in rows
-    )
+    assert not any(r["event_type_slug"] == "mixer" and r["shift_type_slug"] == "door" for r in rows)
 
 
 def test_house_clear_pref_unknown_house_errors(tmp_path: Path) -> None:
@@ -120,8 +161,17 @@ def test_house_revert_prefs_dry_run_then_apply(tmp_path: Path) -> None:
     _bare(db_path)
     _run(db_path, "config", "house", "add", "zta", "--display-name", "ZTA")
     _run(
-        db_path, "config", "house", "set-pref", "zta", "mixer", "door",
-        "--min", "2", "--target", "3",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "2",
+        "--target",
+        "3",
     )
     time.sleep(1.1)  # Ensure timestamp difference for history snapshot.
     checkpoint_data, _ = _run(db_path, "config", "house", "pref-history", "zta")
@@ -131,8 +181,17 @@ def test_house_revert_prefs_dry_run_then_apply(tmp_path: Path) -> None:
     revert_to = history[0]["changed_at"]
     # Mutate the pref after the checkpoint.
     _run(
-        db_path, "config", "house", "set-pref", "zta", "mixer", "door",
-        "--min", "1", "--target", "1",
+        db_path,
+        "config",
+        "house",
+        "set-pref",
+        "zta",
+        "mixer",
+        "door",
+        "--min",
+        "1",
+        "--target",
+        "1",
     )
     # Dry-run revert.
     dry_data, dry_code = _run(

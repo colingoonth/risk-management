@@ -15,6 +15,16 @@ CREATE TABLE IF NOT EXISTS unavailability (
   starts_at_time TEXT NULL,
   ends_at_time TEXT NULL,
   repeats_weekday INTEGER NULL,
+  -- A PREFERENCE rather than a conflict. 0 means the member genuinely cannot
+  -- work (a tournament, a flight); 1 means they would rather not, and should be
+  -- picked only if the slot would otherwise go unfilled.
+  --
+  -- Added in 0019 for a cross-country runner's "I'd rather not be on party risk 2 days
+  -- before a meet, but setup and cleanup is chill" — which is a real constraint
+  -- worth honouring and a terrible one to treat as absolute, since it covers 9
+  -- of 43 parties for one runner and would compound the moment anyone else
+  -- asked for the same.
+  is_soft INTEGER NOT NULL DEFAULT 0 CHECK (is_soft IN (0, 1)),
   reason TEXT NULL,
   CHECK (ends_on >= starts_on),
   CHECK (starts_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),

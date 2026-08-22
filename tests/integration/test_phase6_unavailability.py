@@ -14,8 +14,9 @@ from risk.repos import houses as houses_repo
 from risk.repos import member_statuses as statuses_repo
 from risk.repos import members as members_repo
 from risk.repos import semesters as semesters_repo
+from risk.repos import shift_types as stypes_repo
 from risk.repos import unavailability as unav_repo
-from risk.services import eligibility
+from risk.services import availability, eligibility
 
 pytestmark = pytest.mark.integration
 
@@ -23,19 +24,13 @@ pytestmark = pytest.mark.integration
 def _world(tmp_path: Path):
     conn = connect(tmp_path / "p6.db")
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     with transaction(conn):
         semesters_repo.set_current(conn, "SP26")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    alice = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
-    bob = members_repo.insert(
-        conn, slug="bob", display_name="Bob", status_id=active.id
-    )
+    alice = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
+    bob = members_repo.insert(conn, slug="bob", display_name="Bob", status_id=active.id)
     return conn, sem_id, alice, bob
 
 
@@ -82,34 +77,57 @@ def test_eligibility_excludes_unavailable_member(tmp_path: Path) -> None:
             starts_on="2026-02-13",
             ends_on="2026-02-15",
         )
-    # Without event_date: alice is still eligible (backwards-compat).
-    no_date = eligibility.eligible_for(
+    # eligible_for answers "may this PERSON work this event" and no longer
+    # touches unavailability at all — it cannot, because it is asked once for
+    # the whole event and two of the six shift types are not worked on the
+    # event's date. Alice stays in the pool here.
+    pool = eligibility.eligible_for(
         conn,
         event_id=1,
         semester_id=sem_id,
         host_house_id=zta,
     )
-    alice_in_no_date = any(m.member_id == alice for m in no_date.eligible)
-    assert alice_in_no_date is True
+    assert any(m.member_id == alice for m in pool.eligible)
 
-    # With event_date: alice is filtered out.
-    with_date = eligibility.eligible_for(
+    # The exclusion now happens per shift type, against that type's own window.
+    # Alice is blacked out 13-15 Feb, so she cannot work the party night...
+    door = stypes_repo.get_by_slug(conn, "door")
+    assert door is not None
+    assert not availability.can_cover(
         conn,
-        event_id=1,
+        member_id=alice,
         semester_id=sem_id,
-        host_house_id=zta,
+        shift_type_id=door.id,
         event_date="2026-02-14",
     )
-    alice_in_with_date = any(m.member_id == alice for m in with_date.eligible)
-    assert alice_in_with_date is False
-    assert with_date.excluded_by_unavailability == 1
+    # ...nor the cleanup crew, which is worked the morning of the 15th and is
+    # still inside her window. Under the old date-only rule this second case was
+    # invisible: the shift is stored against the 14th.
+    cleanup = stypes_repo.get_by_slug(conn, "cleanup")
+    assert cleanup is not None
+    assert not availability.can_cover(
+        conn,
+        member_id=alice,
+        semester_id=sem_id,
+        shift_type_id=cleanup.id,
+        event_date="2026-02-14",
+    )
+    # But a party on the 16th has a setup window of the 14th-16th, and she is
+    # free from the 16th, so she can still take a 2h setup block.
+    setup = stypes_repo.get_by_slug(conn, "setup")
+    assert setup is not None
+    assert availability.can_cover(
+        conn,
+        member_id=alice,
+        semester_id=sem_id,
+        shift_type_id=setup.id,
+        event_date="2026-02-16",
+    )
 
 
 def test_unavailability_is_per_semester(tmp_path: Path) -> None:
     conn, sem_a, alice, _bob = _world(tmp_path)
-    sem_b = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15"
-    )
+    sem_b = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15")
     with transaction(conn):
         unav_repo.insert(
             conn,
@@ -119,9 +137,7 @@ def test_unavailability_is_per_semester(tmp_path: Path) -> None:
             ends_on="2026-02-15",
         )
     # Spring window does NOT bleed into fall semester even on a date inside the range.
-    fall_ids = unav_repo.member_ids_unavailable_on(
-        conn, semester_id=sem_b, date="2026-02-12"
-    )
+    fall_ids = unav_repo.member_ids_unavailable_on(conn, semester_id=sem_b, date="2026-02-12")
     assert alice not in fall_ids
 
 

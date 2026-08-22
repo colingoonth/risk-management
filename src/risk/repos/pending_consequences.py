@@ -67,9 +67,7 @@ def insert(
 
 
 def get_by_id(conn: sqlite3.Connection, pc_id: int) -> PendingConsequence | None:
-    row = conn.execute(
-        "SELECT * FROM pending_consequences WHERE id = ?", (pc_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM pending_consequences WHERE id = ?", (pc_id,)).fetchone()
     return _row(row) if row else None
 
 

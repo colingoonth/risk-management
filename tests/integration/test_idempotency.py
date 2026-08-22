@@ -43,9 +43,7 @@ def _seed_semester(db_path: Path) -> None:
     """Ensure schema + SP26 as current semester."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     conn.close()
 
@@ -211,9 +209,7 @@ def _seed_with_auto_assign(db_path: Path) -> None:
     """
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -282,9 +278,7 @@ def test_swap_accept_stale_guard(tmp_path: Path) -> None:
         ).fetchall()
     ]
     unassigned_member = conn.execute(
-        "SELECT id FROM members WHERE id NOT IN ({})".format(
-            ",".join("?" * len(assigned_ids))
-        ),
+        "SELECT id FROM members WHERE id NOT IN ({})".format(",".join("?" * len(assigned_ids))),
         assigned_ids,
     ).fetchone()
     assert unassigned_member is not None, "Need an unassigned member for stale guard test"

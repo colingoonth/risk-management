@@ -33,6 +33,7 @@ pytestmark = pytest.mark.integration
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _run(db_path: Path, *args: str, mode: str = "--json") -> subprocess.CompletedProcess[str]:
     risk_bin = Path(sys.executable).parent / "risk"
     cmd = [str(risk_bin), "--db", str(db_path)]
@@ -46,13 +47,13 @@ def _seed_members(db_path: Path) -> None:
     """Schema + SP26 current + alice + bob."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id, class_year=2027)
+    members_repo.insert(
+        conn, slug="alice", display_name="Alice", status_id=active.id, class_year=2027
+    )
     members_repo.insert(conn, slug="bob", display_name="Bob", status_id=active.id, class_year=2027)
     conn.close()
 
@@ -61,9 +62,7 @@ def _seed_event(db_path: Path) -> int:
     """Schema + SP26 current + zta house + mixer event + 15 members auto-assigned."""
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
     zta_id = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -93,6 +92,7 @@ def _seed_event(db_path: Path) -> int:
 # Bug 1 — Date validation: non-ISO date rejected before DB insert
 # ---------------------------------------------------------------------------
 
+
 class TestBug1DateValidation:
     def test_non_iso_date_rejected(self, tmp_path: Path) -> None:
         """'September 12' must be rejected with a clean error, not inserted."""
@@ -106,8 +106,15 @@ class TestBug1DateValidation:
         conn.close()
 
         res = _run(
-            db_path, "event", "add",
-            "--name", "Bad date event", "--type", "mixer", "--date", "September 12",
+            db_path,
+            "event",
+            "add",
+            "--name",
+            "Bad date event",
+            "--type",
+            "mixer",
+            "--date",
+            "September 12",
         )
         assert res.returncode != 0
         err = json.loads(res.stdout)["error"]
@@ -128,8 +135,17 @@ class TestBug1DateValidation:
         conn.close()
 
         res = _run(
-            db_path, "event", "add",
-            "--name", "Good event", "--type", "mixer", "--host", "zta", "--date", "2026-09-12",
+            db_path,
+            "event",
+            "add",
+            "--name",
+            "Good event",
+            "--type",
+            "mixer",
+            "--host",
+            "zta",
+            "--date",
+            "2026-09-12",
         )
         assert res.returncode == 0, res.stdout + res.stderr
         data = json.loads(res.stdout)["data"]
@@ -147,8 +163,15 @@ class TestBug1DateValidation:
         conn.close()
 
         res = _run(
-            db_path, "event", "add",
-            "--name", "E", "--type", "mixer", "--date", "2025-9-12",
+            db_path,
+            "event",
+            "add",
+            "--name",
+            "E",
+            "--type",
+            "mixer",
+            "--date",
+            "2025-9-12",
         )
         assert res.returncode != 0
         err = json.loads(res.stdout)["error"]
@@ -159,6 +182,7 @@ class TestBug1DateValidation:
 # Bug 2 — event add with no shift requirements warns; auto-assign with zero
 #          assignments warns
 # ---------------------------------------------------------------------------
+
 
 class TestBug2NoShiftReqWarning:
     def _seed_empty_event_type(self, db_path: Path) -> None:
@@ -176,9 +200,7 @@ class TestBug2NoShiftReqWarning:
         )
         conn.execute("UPDATE semesters SET is_current = 1 WHERE id = ?", (sem_id,))
         # Insert event type with no rows in event_type_shift_defaults.
-        conn.execute(
-            "INSERT INTO event_types (slug, display_name) VALUES ('formal', 'Formal')"
-        )
+        conn.execute("INSERT INTO event_types (slug, display_name) VALUES ('formal', 'Formal')")
         conn.close()
 
     def test_add_event_with_no_reqs_warns(self, tmp_path: Path) -> None:
@@ -187,8 +209,15 @@ class TestBug2NoShiftReqWarning:
         self._seed_empty_event_type(db_path)
 
         res = _run(
-            db_path, "event", "add",
-            "--name", "Formal 1", "--type", "formal", "--date", "2026-04-01",
+            db_path,
+            "event",
+            "add",
+            "--name",
+            "Formal 1",
+            "--type",
+            "formal",
+            "--date",
+            "2026-04-01",
         )
         assert res.returncode == 0, res.stdout + res.stderr
         data = json.loads(res.stdout)["data"]
@@ -210,8 +239,17 @@ class TestBug2NoShiftReqWarning:
         conn.close()
 
         res = _run(
-            db_path, "event", "add",
-            "--name", "ZTA mixer", "--type", "mixer", "--host", "zta", "--date", "2026-02-14",
+            db_path,
+            "event",
+            "add",
+            "--name",
+            "ZTA mixer",
+            "--type",
+            "mixer",
+            "--host",
+            "zta",
+            "--date",
+            "2026-02-14",
         )
         assert res.returncode == 0, res.stdout + res.stderr
         data = json.loads(res.stdout)["data"]
@@ -257,6 +295,7 @@ class TestBug2NoShiftReqWarning:
 # Bug 3 — unavailability add duplicate window rejected
 # ---------------------------------------------------------------------------
 
+
 class TestBug3UnavailabilityDuplicate:
     def test_duplicate_window_rejected(self, tmp_path: Path) -> None:
         """Adding the same unavailability window twice returns error on second call."""
@@ -264,8 +303,15 @@ class TestBug3UnavailabilityDuplicate:
         _seed_members(db_path)
 
         args = [
-            "unavailability", "add", "alice",
-            "--starts", "2026-10-15", "--ends", "2026-10-20", "--reason", "fall break",
+            "unavailability",
+            "add",
+            "alice",
+            "--starts",
+            "2026-10-15",
+            "--ends",
+            "2026-10-20",
+            "--reason",
+            "fall break",
         ]
 
         first = _run(db_path, *args)
@@ -285,12 +331,24 @@ class TestBug3UnavailabilityDuplicate:
         _seed_members(db_path)
 
         r1 = _run(
-            db_path, "unavailability", "add", "alice",
-            "--starts", "2026-10-15", "--ends", "2026-10-20",
+            db_path,
+            "unavailability",
+            "add",
+            "alice",
+            "--starts",
+            "2026-10-15",
+            "--ends",
+            "2026-10-20",
         )
         r2 = _run(
-            db_path, "unavailability", "add", "alice",
-            "--starts", "2026-11-01", "--ends", "2026-11-05",
+            db_path,
+            "unavailability",
+            "add",
+            "alice",
+            "--starts",
+            "2026-11-01",
+            "--ends",
+            "2026-11-05",
         )
         assert r1.returncode == 0, r1.stdout
         assert r2.returncode == 0, r2.stdout
@@ -301,12 +359,24 @@ class TestBug3UnavailabilityDuplicate:
         _seed_members(db_path)
 
         r1 = _run(
-            db_path, "unavailability", "add", "alice",
-            "--starts", "2026-10-15", "--ends", "2026-10-20",
+            db_path,
+            "unavailability",
+            "add",
+            "alice",
+            "--starts",
+            "2026-10-15",
+            "--ends",
+            "2026-10-20",
         )
         r2 = _run(
-            db_path, "unavailability", "add", "bob",
-            "--starts", "2026-10-15", "--ends", "2026-10-20",
+            db_path,
+            "unavailability",
+            "add",
+            "bob",
+            "--starts",
+            "2026-10-15",
+            "--ends",
+            "2026-10-20",
         )
         assert r1.returncode == 0, r1.stdout
         assert r2.returncode == 0, r2.stdout
@@ -315,6 +385,7 @@ class TestBug3UnavailabilityDuplicate:
 # ---------------------------------------------------------------------------
 # Bug 4 — swap request duplicate open rejected
 # ---------------------------------------------------------------------------
+
 
 class TestBug4SwapDuplicate:
     def test_duplicate_open_swap_rejected(self, tmp_path: Path) -> None:
@@ -330,17 +401,25 @@ class TestBug4SwapDuplicate:
 
         # First request succeeds.
         r1 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s1["id"]),
-            "--to-shift", str(s2["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s1["id"]),
+            "--to-shift",
+            str(s2["id"]),
         )
         assert r1.returncode == 0, r1.stdout + r1.stderr
 
         # Second request for the same from_shift must fail.
         r2 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s1["id"]),
-            "--to-shift", str(s3["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s1["id"]),
+            "--to-shift",
+            str(s3["id"]),
         )
         assert r2.returncode != 0
         err = json.loads(r2.stdout)["error"]
@@ -358,14 +437,22 @@ class TestBug4SwapDuplicate:
         s1, s2, s3 = shifts[0], shifts[1], shifts[2]
 
         r1 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s1["id"]),
-            "--to-shift", str(s2["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s1["id"]),
+            "--to-shift",
+            str(s2["id"]),
         )
         r2 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s2["id"]),
-            "--to-shift", str(s3["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s2["id"]),
+            "--to-shift",
+            str(s3["id"]),
         )
         assert r1.returncode == 0, r1.stdout
         assert r2.returncode == 0, r2.stdout
@@ -380,9 +467,13 @@ class TestBug4SwapDuplicate:
         s1, s2, s3 = shifts[0], shifts[1], shifts[2]
 
         r1 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s1["id"]),
-            "--to-shift", str(s2["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s1["id"]),
+            "--to-shift",
+            str(s2["id"]),
         )
         req_id = json.loads(r1.stdout)["data"]["swap_request"]["id"]
 
@@ -390,8 +481,12 @@ class TestBug4SwapDuplicate:
         assert cancel_res.returncode == 0, cancel_res.stdout
 
         r2 = _run(
-            db_path, "swap", "request",
-            "--from-shift", str(s1["id"]),
-            "--to-shift", str(s3["id"]),
+            db_path,
+            "swap",
+            "request",
+            "--from-shift",
+            str(s1["id"]),
+            "--to-shift",
+            str(s3["id"]),
         )
         assert r2.returncode == 0, r2.stdout + r2.stderr

@@ -67,6 +67,7 @@ def test_exec_members_get_exec_role(db: sqlite3.Connection, tmp_path: Path) -> N
     dave = members_repo.get_by_slug(db, "dave-davis")
     bob = members_repo.get_by_slug(db, "bob-brown")
     assert alice and dave and bob
+
     def roles_of(mid: int) -> set[str]:
         return {
             r.role_slug

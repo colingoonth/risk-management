@@ -178,9 +178,17 @@ def free_intervals(
     semester_id: int,
     shift_type_id: int,
     event_date: str,
+    honor_soft: bool = True,
 ) -> list[Interval]:
     """When ``member_id`` is free to work ``shift_type_id`` for an event on
     ``event_date``, as ordered non-overlapping intervals.
+
+    ``honor_soft=False`` ignores preference rows and answers the narrower
+    question "is this member genuinely unable to work". Assignment asks both:
+    the hard answer decides who is in the pool at all, and the soft answer
+    decides who gets picked last. They cannot be one call, because a preference
+    that removed somebody from the pool would leave a post unstaffed rather than
+    inconveniencing one runner — which is the wrong trade every time.
 
     Each returned interval lies inside a single offset day; intervals are never
     concatenated across a day boundary, because a shift cannot be.
@@ -195,9 +203,9 @@ def free_intervals(
             f"shift type id={shift_type_id} has no row in shift_type_windows; "
             "availability cannot be computed for it"
         )
-    rows = unav_repo.list_for_member_semester(
-        conn, member_id=member_id, semester_id=semester_id
-    )
+    rows = unav_repo.list_for_member_semester(conn, member_id=member_id, semester_id=semester_id)
+    if not honor_soft:
+        rows = [r for r in rows if not r.is_soft]
 
     free: list[Interval] = []
     for span in window_spans(window, event_date):
@@ -219,6 +227,7 @@ def is_free_for_whole_window(
     semester_id: int,
     shift_type_id: int,
     event_date: str,
+    honor_soft: bool = True,
 ) -> bool:
     """Did the entire window survive? The rule for driver/door/bar/dj."""
     window = windows_repo.get_for_shift_type(conn, shift_type_id)
@@ -230,6 +239,7 @@ def is_free_for_whole_window(
         semester_id=semester_id,
         shift_type_id=shift_type_id,
         event_date=event_date,
+        honor_soft=honor_soft,
     ) == window_spans(window, event_date)
 
 
@@ -240,6 +250,7 @@ def can_cover(
     semester_id: int,
     shift_type_id: int,
     event_date: str,
+    honor_soft: bool = True,
 ) -> bool:
     """Can this member work this shift type at all, by that type's own rule?
 
@@ -259,6 +270,7 @@ def can_cover(
         semester_id=semester_id,
         shift_type_id=shift_type_id,
         event_date=event_date,
+        honor_soft=honor_soft,
     )
     if window.min_contiguous_minutes is None:
         return intervals == window_spans(window, event_date)

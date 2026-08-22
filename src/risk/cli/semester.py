@@ -124,9 +124,7 @@ def resync_all(
     name: Annotated[str, typer.Argument(help="Semester to resync.")],
     dry_run: Annotated[
         bool,
-        typer.Option(
-            "--dry-run", help="Report event IDs that would be resynced; do not write."
-        ),
+        typer.Option("--dry-run", help="Report event IDs that would be resynced; do not write."),
     ] = False,
 ) -> None:
     """Re-pull merged shift requirements for every non-terminal event in a semester."""
@@ -261,6 +259,7 @@ def archive(
         return
     if mode is OutputMode.HUMAN:
         from rich.table import Table as _Table
+
         tbl = _Table.grid(padding=(0, 2))
         tbl.add_column(style="bold green")
         tbl.add_column()
@@ -285,9 +284,7 @@ def archive(
 def unarchive(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Semester to unarchive.")],
-    yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")
-    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
 ) -> None:
     """Unarchive a finalized semester. Reverses a prior archive — confirm before running."""
     mode = mode_from_ctx(ctx)

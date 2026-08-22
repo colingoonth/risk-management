@@ -43,9 +43,7 @@ EVENT_DATE = "2026-09-11"
 @pytest.fixture()
 def world(db: sqlite3.Connection) -> tuple[int, int, int, dict[str, int]]:
     """Semester, an off-site mixer, a spare house, and 15 identical members."""
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     house_id = houses_repo.insert(db, slug="stale-house", display_name="Stale House")
     et = etypes_repo.get_by_slug(db, "mixer")
     assert et is not None
@@ -95,16 +93,14 @@ def test_auto_assign_refills_a_slot_freed_by_ineligibility(
         mha_repo.set_assignment(
             db, member_id=members[victim.member_slug], house_id=house_id, semester_id=sem_id
         )
-        db.execute(
-            "UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id)
-        )
+        db.execute("UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id))
 
     with transaction(db):
         second = assignment.auto_assign(db, event_id=event_id, seed=1)
 
-    assert any(
-        "no longer eligible" in w and victim.member_slug in w for w in second.warnings
-    ), f"expected a stale-preserved warning naming {victim.member_slug}: {second.warnings}"
+    assert any("no longer eligible" in w and victim.member_slug in w for w in second.warnings), (
+        f"expected a stale-preserved warning naming {victim.member_slug}: {second.warnings}"
+    )
 
     refilled = [
         a
@@ -139,9 +135,7 @@ def test_auto_assign_is_not_wedged_by_a_stale_assignment(
         mha_repo.set_assignment(
             db, member_id=members[victim.member_slug], house_id=house_id, semester_id=sem_id
         )
-        db.execute(
-            "UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id)
-        )
+        db.execute("UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id))
 
     for attempt in range(3):
         with transaction(db):
@@ -168,9 +162,7 @@ def test_dry_run_reports_the_freed_slot_as_refilled(
         mha_repo.set_assignment(
             db, member_id=members[victim.member_slug], house_id=house_id, semester_id=sem_id
         )
-        db.execute(
-            "UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id)
-        )
+        db.execute("UPDATE events SET host_house_id = ? WHERE id = ?", (house_id, event_id))
 
     dry = assignment.auto_assign(db, event_id=event_id, seed=1, commit=False)
     proposed = [

@@ -1,0 +1,18 @@
+-- Preference-vs-conflict on unavailability. The column is declared on 0009's
+-- CREATE TABLE and back-filled onto existing databases by
+-- schema._ensure_columns, so this file exists to explain the distinction rather
+-- than to alter anything.
+--
+-- WHY IT IS NOT ENOUGH TO JUST NOT RECORD A PREFERENCE.
+-- A soft row still has to reach the solver, because "avoid unless the pool is
+-- short" is a decision only the solver can make — it is the only thing that
+-- knows whether the slot would otherwise go empty. Leaving preferences out of
+-- the database entirely pushes that judgement onto the chair, one party at a
+-- time, which is the manual work this app exists to remove.
+--
+-- Hard and soft are read at different points, deliberately. A hard row removes
+-- the member from the pool for that shift type. A soft row leaves them in and
+-- sorts them behind everyone else, so they are picked last and only if picking
+-- them is the alternative to an unstaffed post. That is why soft is a scoring
+-- concern and hard is an eligibility one, and why the two cannot share a code
+-- path.

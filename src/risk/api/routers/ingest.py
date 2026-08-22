@@ -44,14 +44,10 @@ def gform_roster(
         path = Path(tmp.name)
         with service_errors():
             if dry_run:
-                preview = ingest_svc.preview_gform_roster(
-                    conn, path=path, semester_name=semester
-                )
+                preview = ingest_svc.preview_gform_roster(conn, path=path, semester_name=semester)
                 return {"preview": _summary(preview), "dry_run": True}
             with transaction(conn):
-                result = ingest_svc.apply_gform_roster(
-                    conn, path=path, semester_name=semester
-                )
+                result = ingest_svc.apply_gform_roster(conn, path=path, semester_name=semester)
     return {
         "preview": _summary(result.preview),
         "inserted_members": len(result.inserted_member_ids),

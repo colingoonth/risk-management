@@ -21,12 +21,15 @@ class UnavailabilityWindow:
     # 0=Monday .. 6=Sunday. NULL means the one-off range starts_on..ends_on
     # inclusive. Set means only that weekday within the range.
     repeats_weekday: int | None = None
+    # False = a real conflict, remove them from the pool. True = a preference,
+    # leave them in but pick them last (migration 0019).
+    is_soft: bool = False
 
 
 _SELECT_JOINED = """
 SELECT
   u.id, u.member_id, u.semester_id, u.starts_on, u.ends_on, u.reason,
-  u.starts_at_time, u.ends_at_time, u.repeats_weekday,
+  u.starts_at_time, u.ends_at_time, u.repeats_weekday, u.is_soft,
   m.slug AS member_slug
 FROM unavailability u
 JOIN members m ON m.id = u.member_id
@@ -45,6 +48,7 @@ def _row(r: sqlite3.Row) -> UnavailabilityWindow:
         starts_at_time=r["starts_at_time"],
         ends_at_time=r["ends_at_time"],
         repeats_weekday=r["repeats_weekday"],
+        is_soft=bool(r["is_soft"]),
     )
 
 
@@ -59,6 +63,7 @@ def insert(
     starts_at_time: str | None = None,
     ends_at_time: str | None = None,
     repeats_weekday: int | None = None,
+    is_soft: bool = False,
 ) -> int:
     """Insert an unavailability window.
 
@@ -70,8 +75,8 @@ def insert(
         """
         INSERT INTO unavailability
           (member_id, semester_id, starts_on, ends_on, reason,
-           starts_at_time, ends_at_time, repeats_weekday)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           starts_at_time, ends_at_time, repeats_weekday, is_soft)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             member_id,
@@ -82,6 +87,7 @@ def insert(
             starts_at_time,
             ends_at_time,
             repeats_weekday,
+            int(is_soft),
         ),
     )
     assert cur.lastrowid is not None
@@ -97,16 +103,13 @@ def list_for_member_semester(
     conn: sqlite3.Connection, *, member_id: int, semester_id: int
 ) -> list[UnavailabilityWindow]:
     rows = conn.execute(
-        f"{_SELECT_JOINED} WHERE u.member_id = ? AND u.semester_id = ? "
-        "ORDER BY u.starts_on, u.id",
+        f"{_SELECT_JOINED} WHERE u.member_id = ? AND u.semester_id = ? ORDER BY u.starts_on, u.id",
         (member_id, semester_id),
     ).fetchall()
     return [_row(r) for r in rows]
 
 
-def list_for_semester(
-    conn: sqlite3.Connection, *, semester_id: int
-) -> list[UnavailabilityWindow]:
+def list_for_semester(conn: sqlite3.Connection, *, semester_id: int) -> list[UnavailabilityWindow]:
     rows = conn.execute(
         f"{_SELECT_JOINED} WHERE u.semester_id = ? ORDER BY u.starts_on, u.member_id",
         (semester_id,),
@@ -119,9 +122,7 @@ def delete(conn: sqlite3.Connection, win_id: int) -> int:
     return cur.rowcount
 
 
-def member_ids_unavailable_on(
-    conn: sqlite3.Connection, *, semester_id: int, date: str
-) -> set[int]:
+def member_ids_unavailable_on(conn: sqlite3.Connection, *, semester_id: int, date: str) -> set[int]:
     """Member ids with an unavailability window covering ``date`` (inclusive).
 
     A one-off row (``repeats_weekday IS NULL``) covers every day in its range. A

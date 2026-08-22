@@ -83,13 +83,9 @@ def get_by_id(conn: sqlite3.Connection, req_id: int) -> SwapRequest | None:
     return _row(row) if row else None
 
 
-def list_all(
-    conn: sqlite3.Connection, *, state: str | None = None
-) -> list[SwapRequest]:
+def list_all(conn: sqlite3.Connection, *, state: str | None = None) -> list[SwapRequest]:
     if state is None:
-        rows = conn.execute(
-            f"{_SELECT_JOINED} ORDER BY sr.created_at DESC, sr.id DESC"
-        ).fetchall()
+        rows = conn.execute(f"{_SELECT_JOINED} ORDER BY sr.created_at DESC, sr.id DESC").fetchall()
     else:
         rows = conn.execute(
             f"{_SELECT_JOINED} WHERE sr.state = ? ORDER BY sr.created_at DESC, sr.id DESC",

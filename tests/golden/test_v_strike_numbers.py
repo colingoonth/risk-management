@@ -27,14 +27,10 @@ def test_view_snapshot_after_issue_remove_reissue(tmp_path) -> None:  # type: ig
     fills the gap and renumbers cleanly."""
     conn = connect(tmp_path / "v.db")
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    mid = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
+    mid = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
     voluntary = rm_repo.get_active_by_slug(conn, "voluntary_social_risk")
     assert voluntary is not None
 

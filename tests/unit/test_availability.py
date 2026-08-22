@@ -41,9 +41,7 @@ def _plus_days(day: str, n: int) -> str:
 @pytest.fixture()
 def world(db: sqlite3.Connection) -> tuple[int, int]:
     """A semester and one member. Returns (member_id, semester_id)."""
-    sem_id = semesters_repo.insert(
-        db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     active = statuses_repo.get_by_slug(db, "active")
     assert active is not None
     member_id = members_repo.insert(
@@ -104,9 +102,7 @@ def _free(
 def test_no_unavailability_returns_full_window(
     db: sqlite3.Connection, world: tuple[int, int]
 ) -> None:
-    assert _free(db, world, "door", FRIDAY) == [
-        (_dt(FRIDAY, "20:00"), _dt(FRIDAY, "23:59"))
-    ]
+    assert _free(db, world, "door", FRIDAY) == [(_dt(FRIDAY, "20:00"), _dt(FRIDAY, "23:59"))]
 
 
 def test_setup_returns_one_span_per_offset_day(
@@ -147,9 +143,7 @@ def test_evening_conflict_leaves_exact_remainder(
     db: sqlite3.Connection, world: tuple[int, int]
 ) -> None:
     _busy(db, world, starts_on=FRIDAY, starts_at_time="18:00", ends_at_time="22:00")
-    assert _free(db, world, "door", FRIDAY) == [
-        (_dt(FRIDAY, "22:00"), _dt(FRIDAY, "23:59"))
-    ]
+    assert _free(db, world, "door", FRIDAY) == [(_dt(FRIDAY, "22:00"), _dt(FRIDAY, "23:59"))]
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +154,7 @@ def test_evening_conflict_leaves_exact_remainder(
 def test_recurring_weekday_blocks_matching_day_only(
     db: sqlite3.Connection, world: tuple[int, int]
 ) -> None:
-    """"Every Thursday 18:00-23:00" blocks a Thursday, not the Friday after."""
+    """ "Every Thursday 18:00-23:00" blocks a Thursday, not the Friday after."""
     _busy(
         db,
         world,
@@ -170,9 +164,7 @@ def test_recurring_weekday_blocks_matching_day_only(
         ends_at_time="23:00",
         repeats_weekday=3,  # Thursday
     )
-    assert _free(db, world, "door", THURSDAY) == [
-        (_dt(THURSDAY, "23:00"), _dt(THURSDAY, "23:59"))
-    ]
+    assert _free(db, world, "door", THURSDAY) == [(_dt(THURSDAY, "23:00"), _dt(THURSDAY, "23:59"))]
     assert _free(db, world, "door", FRIDAY_AFTER_THURSDAY) == [
         (
             _dt(FRIDAY_AFTER_THURSDAY, "20:00"),
@@ -199,9 +191,7 @@ def test_recurring_weekday_outside_date_range_has_no_effect(
         ends_at_time="23:00",
         repeats_weekday=3,
     )
-    assert _free(db, world, "door", THURSDAY) == [
-        (_dt(THURSDAY, "20:00"), _dt(THURSDAY, "23:59"))
-    ]
+    assert _free(db, world, "door", THURSDAY) == [(_dt(THURSDAY, "20:00"), _dt(THURSDAY, "23:59"))]
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +204,8 @@ def _leave_gap_every_setup_day(
 ) -> None:
     """Busy 08:00-20:00 and gap_end-23:59 on each of the three setup days."""
     first, last = _plus_days(FRIDAY, -2), FRIDAY
-    _busy(db, world, starts_on=first, ends_on=last,
-          starts_at_time="08:00", ends_at_time="20:00")
-    _busy(db, world, starts_on=first, ends_on=last,
-          starts_at_time=gap_end, ends_at_time="23:59")
+    _busy(db, world, starts_on=first, ends_on=last, starts_at_time="08:00", ends_at_time="20:00")
+    _busy(db, world, starts_on=first, ends_on=last, starts_at_time=gap_end, ends_at_time="23:59")
 
 
 def test_setup_90_minute_gap_fails_120_minute_minimum(
@@ -313,9 +301,7 @@ def test_cleanup_morning_conflict_clips_window(
     """
     next_day = _plus_days(FRIDAY, 1)
     _busy(db, world, starts_on=next_day, starts_at_time="09:00", ends_at_time="14:00")
-    assert _free(db, world, "cleanup", FRIDAY) == [
-        (_dt(next_day, "00:00"), _dt(next_day, "09:00"))
-    ]
+    assert _free(db, world, "cleanup", FRIDAY) == [(_dt(next_day, "00:00"), _dt(next_day, "09:00"))]
 
 
 # ---------------------------------------------------------------------------
@@ -328,9 +314,7 @@ def test_overlapping_unavailability_is_merged_not_double_counted(
 ) -> None:
     _busy(db, world, starts_on=FRIDAY, starts_at_time="20:00", ends_at_time="22:00")
     _busy(db, world, starts_on=FRIDAY, starts_at_time="21:00", ends_at_time="23:00")
-    assert _free(db, world, "door", FRIDAY) == [
-        (_dt(FRIDAY, "23:00"), _dt(FRIDAY, "23:59"))
-    ]
+    assert _free(db, world, "door", FRIDAY) == [(_dt(FRIDAY, "23:00"), _dt(FRIDAY, "23:59"))]
 
 
 def test_merge_intervals_is_pure_and_handles_touching_spans() -> None:
@@ -366,9 +350,7 @@ def test_whole_window_rule_for_event_night_shift_types(
     assert not availability.can_cover(db, **kwargs)
 
 
-def test_shift_type_without_a_window_raises(
-    db: sqlite3.Connection, world: tuple[int, int]
-) -> None:
+def test_shift_type_without_a_window_raises(db: sqlite3.Connection, world: tuple[int, int]) -> None:
     """A missing window must fail loudly, not guess.
 
     Returning "free all the time" would silently over-assign; returning "never

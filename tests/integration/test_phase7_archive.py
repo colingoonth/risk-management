@@ -25,19 +25,13 @@ pytestmark = pytest.mark.integration
 def _world(tmp_path: Path):
     conn = connect(tmp_path / "p7.db")
     ensure_schema(conn)
-    spring = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
-    fall = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15"
-    )
+    spring = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
+    fall = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-15", ends_on="2026-12-15")
     with transaction(conn):
         semesters_repo.set_current(conn, "SP26")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    alice = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
+    alice = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
     return conn, spring, fall, alice
 
 
@@ -76,9 +70,7 @@ def test_archive_without_force_refuses_blockers(tmp_path: Path) -> None:
             reason="r",
         )
     with pytest.raises(ValueError, match="blockers"), transaction(conn):
-        semester_archive.archive(
-            conn, semester_id=spring, archived_at="2026-05-31"
-        )
+        semester_archive.archive(conn, semester_id=spring, archived_at="2026-05-31")
 
 
 def test_archive_with_force_closes_strikes(tmp_path: Path) -> None:
@@ -128,9 +120,7 @@ def test_archive_carries_forward_strikes(tmp_path: Path) -> None:
         )
     assert result.strikes_carried_forward == 2
     # Strikes in fall semester carry the link.
-    fall_strikes = strikes_repo.list_for_member_semester(
-        conn, member_id=alice, semester_id=fall
-    )
+    fall_strikes = strikes_repo.list_for_member_semester(conn, member_id=alice, semester_id=fall)
     assert len(fall_strikes) == 2
     for s in fall_strikes:
         assert s.carried_from_strike_id is not None
@@ -155,12 +145,8 @@ def test_archive_carries_pending_consequences(tmp_path: Path) -> None:
     )
     assert len(pcs) == 1
     with transaction(conn):
-        semester_archive.archive(
-            conn, semester_id=spring, archived_at="2026-05-31", force=True
-        )
-    pcs_after = pc_repo.list_for_member_semester(
-        conn, member_id=alice, semester_id=spring
-    )
+        semester_archive.archive(conn, semester_id=spring, archived_at="2026-05-31", force=True)
+    pcs_after = pc_repo.list_for_member_semester(conn, member_id=alice, semester_id=spring)
     assert all(pc.state == "carried_forward" for pc in pcs_after)
 
 
@@ -202,12 +188,8 @@ def test_archive_cancels_open_swaps(tmp_path: Path) -> None:
     )
     events_repo.update_status(conn, event_id=eid, status="completed")
     # Insert a dummy shift + swap_requests row directly.
-    door_id = conn.execute(
-        "SELECT id FROM shift_types WHERE slug='door'"
-    ).fetchone()["id"]
-    pm_id = conn.execute(
-        "SELECT id FROM pledge_modes WHERE slug='normal'"
-    ).fetchone()["id"]
+    door_id = conn.execute("SELECT id FROM shift_types WHERE slug='door'").fetchone()["id"]
+    pm_id = conn.execute("SELECT id FROM pledge_modes WHERE slug='normal'").fetchone()["id"]
     conn.execute(
         """INSERT INTO shifts (event_id, shift_type_id, slot_index,
            assigned_member_id, effective_pledge_mode_id, status, assigned_at)
@@ -232,9 +214,7 @@ def test_archive_cancels_open_swaps(tmp_path: Path) -> None:
 def test_unarchive_restores(tmp_path: Path) -> None:
     conn, spring, _fall, _alice = _world(tmp_path)
     with transaction(conn):
-        semester_archive.archive(
-            conn, semester_id=spring, archived_at="2026-05-31"
-        )
+        semester_archive.archive(conn, semester_id=spring, archived_at="2026-05-31")
     with transaction(conn):
         semester_archive.unarchive(conn, semester_id=spring)
     sem = semesters_repo.get_by_name(conn, "SP26")
@@ -247,9 +227,7 @@ def test_archive_blocks_writes_via_trigger(tmp_path: Path) -> None:
 
     conn, spring, _fall, alice = _world(tmp_path)
     with transaction(conn):
-        semester_archive.archive(
-            conn, semester_id=spring, archived_at="2026-05-31"
-        )
+        semester_archive.archive(conn, semester_id=spring, archived_at="2026-05-31")
     with pytest.raises(sqlite3.IntegrityError, match="archived"), transaction(conn):
         strike_state.issue_strike(
             conn,

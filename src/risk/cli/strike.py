@@ -20,13 +20,13 @@ from risk.services import policy, strike_state
 
 app = typer.Typer(help="Issue, list, and remove strikes.")
 
-consequences_app = typer.Typer(help="Manage threshold-consequences (extra_shift / probation / expulsion_review).")
+consequences_app = typer.Typer(
+    help="Manage threshold-consequences (extra_shift / probation / expulsion_review)."
+)
 app.add_typer(consequences_app, name="consequences")
 
 
-def _resolve_semester(
-    conn: sqlite3.Connection, mode: OutputMode, semester_name: str | None
-) -> int:
+def _resolve_semester(conn: sqlite3.Connection, mode: OutputMode, semester_name: str | None) -> int:
     if semester_name is not None:
         sem = semesters_repo.get_by_name(conn, semester_name)
         if sem is None:
@@ -124,12 +124,8 @@ def standing(
         return
     sem_id = _resolve_semester(conn, mode, semester)
     active_count = strikes_repo.count_active(conn, member_id=m.id, semester_id=sem_id)
-    total_this_sem = strikes_repo.count_total_in_semester(
-        conn, member_id=m.id, semester_id=sem_id
-    )
-    pending = pc_repo.list_for_member_semester(
-        conn, member_id=m.id, semester_id=sem_id
-    )
+    total_this_sem = strikes_repo.count_total_in_semester(conn, member_id=m.id, semester_id=sem_id)
+    pending = pc_repo.list_for_member_semester(conn, member_id=m.id, semester_id=sem_id)
     lifetime_row = conn.execute(
         "SELECT COUNT(*) AS n FROM strikes WHERE member_id = ?", (m.id,)
     ).fetchone()
@@ -228,9 +224,7 @@ def remove(
             help="Comma-separated strike IDs to close (e.g. 7,12).",
         ),
     ],
-    by: Annotated[
-        str | None, typer.Option("--by", help="Performed-by member slug.")
-    ] = None,
+    by: Annotated[str | None, typer.Option("--by", help="Performed-by member slug.")] = None,
     notes: Annotated[str | None, typer.Option("--notes")] = None,
 ) -> None:
     """Record a removal, close the linked strikes, re-derive numbering."""
@@ -242,9 +236,7 @@ def remove(
         return
     rm = rm_repo.get_active_by_slug(conn, method)
     if rm is None:
-        emit_error(
-            "removal_method.not_found", f"No active removal method {method!r}.", mode=mode
-        )
+        emit_error("removal_method.not_found", f"No active removal method {method!r}.", mode=mode)
         return
     performed_by = None
     if by is not None:
@@ -296,9 +288,7 @@ def consequences_list(
     ctx: typer.Context,
     state: Annotated[
         str | None,
-        typer.Option(
-            "--state", help="Filter by state (pending/served/waived/carried_forward)."
-        ),
+        typer.Option("--state", help="Filter by state (pending/served/waived/carried_forward)."),
     ] = None,
 ) -> None:
     """List threshold-consequences across all members/semesters, optionally filtered."""
@@ -308,8 +298,7 @@ def consequences_list(
 
     # Build member_id → slug map for display.
     member_slugs: dict[int, str] = {
-        r["id"]: r["slug"]
-        for r in conn.execute("SELECT id, slug FROM members").fetchall()
+        r["id"]: r["slug"] for r in conn.execute("SELECT id, slug FROM members").fetchall()
     }
 
     from rich.table import Table as _Table
@@ -350,9 +339,7 @@ def consequences_resolve(
     pc_id: Annotated[int, typer.Argument(help="pending_consequences.id")],
     as_: Annotated[
         str,
-        typer.Option(
-            "--as", help="New state: served | waived | carried_forward."
-        ),
+        typer.Option("--as", help="New state: served | waived | carried_forward."),
     ],
 ) -> None:
     """Transition a pending threshold-consequence to served/waived/carried_forward."""

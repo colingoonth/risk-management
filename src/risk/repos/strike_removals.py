@@ -68,9 +68,7 @@ def link_strike(conn: sqlite3.Connection, *, removal_id: int, strike_id: int) ->
 
 
 def get_by_id(conn: sqlite3.Connection, removal_id: int) -> StrikeRemoval | None:
-    row = conn.execute(
-        f"{_SELECT_JOINED} WHERE sr.id = ?", (removal_id,)
-    ).fetchone()
+    row = conn.execute(f"{_SELECT_JOINED} WHERE sr.id = ?", (removal_id,)).fetchone()
     return _row(row) if row else None
 
 

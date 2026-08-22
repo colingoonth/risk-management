@@ -30,16 +30,12 @@ def _make_event_with_two_assigned_shifts(
     db_path = tmp_path / "swap.db"
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15"
-    )
+    sem_id = semesters_repo.insert(conn, name="SP26", starts_on="2026-01-15", ends_on="2026-05-15")
     with transaction(conn):
         semesters_repo.set_current(conn, "SP26")
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    alice = members_repo.insert(
-        conn, slug="alice", display_name="Alice", status_id=active.id
-    )
+    alice = members_repo.insert(conn, slug="alice", display_name="Alice", status_id=active.id)
     bob = members_repo.insert(conn, slug="bob", display_name="Bob", status_id=active.id)
     zta = houses_repo.insert(conn, slug="zta", display_name="ZTA")
     et = etypes_repo.get_by_slug(conn, "mixer")
@@ -57,12 +53,8 @@ def _make_event_with_two_assigned_shifts(
     pm = pm_repo.get(conn, "normal")
     assert pm is not None
     # Two slots, both assigned.
-    sid_a = shifts_repo.insert_open(
-        conn, event_id=event_id, shift_type_id=door.id, slot_index=0
-    )
-    sid_b = shifts_repo.insert_open(
-        conn, event_id=event_id, shift_type_id=door.id, slot_index=1
-    )
+    sid_a = shifts_repo.insert_open(conn, event_id=event_id, shift_type_id=door.id, slot_index=0)
+    sid_b = shifts_repo.insert_open(conn, event_id=event_id, shift_type_id=door.id, slot_index=1)
     with transaction(conn):
         shifts_repo.assign(
             conn,
@@ -82,9 +74,7 @@ def _make_event_with_two_assigned_shifts(
 
 
 def test_trade_swap(tmp_path: Path) -> None:
-    db_path, alice, bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(
-        tmp_path
-    )
+    db_path, alice, bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(tmp_path)
     conn = connect(db_path)
     ensure_schema(conn)
     with transaction(conn):
@@ -109,9 +99,7 @@ def test_trade_swap(tmp_path: Path) -> None:
 
 
 def test_reassign_to_open_swap(tmp_path: Path) -> None:
-    db_path, alice, _bob, sid_a, _sid_b, sem_id = _make_event_with_two_assigned_shifts(
-        tmp_path
-    )
+    db_path, alice, _bob, sid_a, _sid_b, sem_id = _make_event_with_two_assigned_shifts(tmp_path)
     conn = connect(db_path)
     ensure_schema(conn)
     door = stypes_repo.get_by_slug(conn, "door")
@@ -145,16 +133,12 @@ def test_reassign_to_open_swap(tmp_path: Path) -> None:
 
 
 def test_counterparty_takeover_swap(tmp_path: Path) -> None:
-    db_path, alice, bob, sid_a, _sid_b, sem_id = _make_event_with_two_assigned_shifts(
-        tmp_path
-    )
+    db_path, alice, bob, sid_a, _sid_b, sem_id = _make_event_with_two_assigned_shifts(tmp_path)
     conn = connect(db_path)
     ensure_schema(conn)
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
-    carol = members_repo.insert(
-        conn, slug="carol", display_name="Carol", status_id=active.id
-    )
+    carol = members_repo.insert(conn, slug="carol", display_name="Carol", status_id=active.id)
     with transaction(conn):
         req_id = swaps.request_swap(
             conn,
@@ -173,9 +157,7 @@ def test_counterparty_takeover_swap(tmp_path: Path) -> None:
 
 
 def test_reject_and_cancel_block_acceptance(tmp_path: Path) -> None:
-    db_path, alice, _bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(
-        tmp_path
-    )
+    db_path, alice, _bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(tmp_path)
     conn = connect(db_path)
     ensure_schema(conn)
     with transaction(conn):
@@ -193,9 +175,7 @@ def test_reject_and_cancel_block_acceptance(tmp_path: Path) -> None:
 
 
 def test_swap_request_validates_initiator_holds_from_shift(tmp_path: Path) -> None:
-    db_path, alice, bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(
-        tmp_path
-    )
+    db_path, alice, bob, sid_a, sid_b, sem_id = _make_event_with_two_assigned_shifts(tmp_path)
     conn = connect(db_path)
     ensure_schema(conn)
     # Bob tries to initiate a swap on alice's shift — rejected.

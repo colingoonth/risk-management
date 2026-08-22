@@ -44,9 +44,7 @@ def get_by_slug(conn: sqlite3.Connection, slug: str) -> Qualification | None:
     return _row(row) if row else None
 
 
-def required_for_shift_type(
-    conn: sqlite3.Connection, shift_type_id: int
-) -> list[Qualification]:
+def required_for_shift_type(conn: sqlite3.Connection, shift_type_id: int) -> list[Qualification]:
     """Qualifications a member must hold to work ``shift_type_id``.
 
     Empty for every shift type but ``dj``. The primary key on

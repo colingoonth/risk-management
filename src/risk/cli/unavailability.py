@@ -18,15 +18,11 @@ from risk.repos import unavailability as repo
 app = typer.Typer(help="Manage member unavailability windows.")
 
 
-def _resolve_semester(
-    conn: sqlite3.Connection, mode: OutputMode, semester_name: str | None
-) -> int:
+def _resolve_semester(conn: sqlite3.Connection, mode: OutputMode, semester_name: str | None) -> int:
     if semester_name is not None:
         sem = semesters_repo.get_by_name(conn, semester_name)
         if sem is None:
-            emit_error(
-                "semester.not_found", f"No semester named {semester_name!r}.", mode=mode
-            )
+            emit_error("semester.not_found", f"No semester named {semester_name!r}.", mode=mode)
         else:
             return sem.id
     current = semesters_repo.get_current(conn)
@@ -92,9 +88,7 @@ def add(
 @app.command("list")
 def list_windows(
     ctx: typer.Context,
-    member: Annotated[
-        str | None, typer.Option("--member", help="Filter by member.")
-    ] = None,
+    member: Annotated[str | None, typer.Option("--member", help="Filter by member.")] = None,
     semester: Annotated[
         str | None, typer.Option("--semester", help="Defaults to current semester.")
     ] = None,
@@ -107,9 +101,7 @@ def list_windows(
         if m is None:
             emit_error("member.not_found", f"No member matching {member!r}.", mode=mode)
             return
-        rows = repo.list_for_member_semester(
-            conn, member_id=m.id, semester_id=sem_id
-        )
+        rows = repo.list_for_member_semester(conn, member_id=m.id, semester_id=sem_id)
     else:
         rows = repo.list_for_semester(conn, semester_id=sem_id)
     emit_success(

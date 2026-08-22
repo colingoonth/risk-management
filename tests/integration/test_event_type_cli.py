@@ -79,9 +79,7 @@ def test_event_type_allow_disallow_shift_type(tmp_path: Path) -> None:
     # Create a new event type so we can mutate allowed list without touching seeds.
     _run_cli(db_path, "config", "event-type", "add", "tailgate", "--display-name", "Tailgate")
 
-    allow_res = _run_cli(
-        db_path, "config", "event-type", "allow-shift-type", "tailgate", "driver"
-    )
+    allow_res = _run_cli(db_path, "config", "event-type", "allow-shift-type", "tailgate", "driver")
     assert allow_res.returncode == 0, allow_res.stdout + allow_res.stderr
 
     show_res = _run_cli(db_path, "config", "event-type", "show", "tailgate")
@@ -98,15 +96,11 @@ def test_event_type_allow_disallow_shift_type(tmp_path: Path) -> None:
 def test_event_type_allow_unknown_slug_errors(tmp_path: Path) -> None:
     db_path = tmp_path / "r.db"
     _seed(db_path)
-    res1 = _run_cli(
-        db_path, "config", "event-type", "allow-shift-type", "no-such-event", "door"
-    )
+    res1 = _run_cli(db_path, "config", "event-type", "allow-shift-type", "no-such-event", "door")
     assert res1.returncode != 0
     assert json.loads(res1.stdout)["error"]["code"] == "event_type.not_found"
 
-    res2 = _run_cli(
-        db_path, "config", "event-type", "allow-shift-type", "mixer", "no-such-shift"
-    )
+    res2 = _run_cli(db_path, "config", "event-type", "allow-shift-type", "mixer", "no-such-shift")
     assert res2.returncode != 0
     assert json.loads(res2.stdout)["error"]["code"] == "shift_type.not_found"
 
@@ -138,9 +132,7 @@ def test_event_type_set_default_and_clear(tmp_path: Path) -> None:
         for d in defaults
     )
 
-    clear_res = _run_cli(
-        db_path, "config", "event-type", "clear-default", "tailgate", "setup"
-    )
+    clear_res = _run_cli(db_path, "config", "event-type", "clear-default", "tailgate", "setup")
     assert clear_res.returncode == 0, clear_res.stdout + clear_res.stderr
 
     show2 = _run_cli(db_path, "config", "event-type", "show", "tailgate")

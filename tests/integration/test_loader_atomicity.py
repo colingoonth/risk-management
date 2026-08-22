@@ -50,9 +50,7 @@ def _events_csv(path: Path, rows: list[dict[str, str]]) -> Path:
 def _db_with_semester(path: Path) -> None:
     conn = connect(path)
     ensure_schema(conn)
-    semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    semesters_repo.insert(conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     conn.commit()
     conn.close()
 
@@ -113,9 +111,7 @@ def test_a_failed_load_writes_nothing(loaded: tuple[Path, Path]) -> None:
 
     assert result.returncode != 0, f"expected failure, got:\n{result.stdout}"
     assert "no house" in result.stderr.lower()
-    assert _event_count(db_path) == 0, (
-        "a run that reported an error committed rows anyway"
-    )
+    assert _event_count(db_path) == 0, "a run that reported an error committed rows anyway"
 
 
 def test_a_failed_load_leaves_no_orphan_shift_requirements(
@@ -170,18 +166,14 @@ def test_a_failed_sidecar_load_applies_nothing(tmp_path: Path) -> None:
     db_path = tmp_path / "sidecar.db"
     conn = connect(db_path)
     ensure_schema(conn)
-    sem_id = semesters_repo.insert(
-        conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05"
-    )
+    sem_id = semesters_repo.insert(conn, name="FA26", starts_on="2026-08-25", ends_on="2026-12-05")
     from risk.repos import member_statuses as statuses_repo
     from risk.repos import members as members_repo
 
     active = statuses_repo.get_by_slug(conn, "active")
     assert active is not None
     # The sidecar resolves names by slugifying them, so the slug must match.
-    members_repo.insert(
-        conn, slug="test-person", display_name="Test Person", status_id=active.id
-    )
+    members_repo.insert(conn, slug="test-person", display_name="Test Person", status_id=active.id)
     conn.commit()
     conn.close()
     _ = sem_id
