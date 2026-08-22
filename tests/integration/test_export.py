@@ -387,3 +387,24 @@ def test_setup_costs_less_so_a_setup_heavy_member_works_more_turns(
     assert setup_effort == pytest.approx(4 * 0.7)
     assert night_effort == pytest.approx(4 * 1.0)
     assert setup_effort < night_effort
+
+
+def test_the_scratch_tab_is_never_regenerated(exported: export_svc.SemesterExport) -> None:
+    """The readers' tab must not appear in the push list.
+
+    Four people hold write access to the published sheet. Every other tab is
+    either rebuilt wholesale or mirrored from the app, so anything they type
+    vanishes on the next refresh with nothing to explain where it went. This tab
+    is the exception, and the exception only holds while push does not name it.
+
+    Asserted on the CONSTANT rather than on behaviour because that is the whole
+    mechanism: GENERATED_TABS is an explicit list, not "every tab in the
+    workbook", and the day somebody makes it the latter is the day this breaks
+    silently.
+    """
+    from risk.cli.export import GENERATED_TABS, NOTES_TAB, SCRATCH_TAB, _tab_values
+
+    assert SCRATCH_TAB not in GENERATED_TABS
+    assert SCRATCH_TAB not in _tab_values(exported)
+    # The notes mirror IS regenerated — it is the app's copy, not a scratch pad.
+    assert NOTES_TAB in GENERATED_TABS

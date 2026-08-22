@@ -103,6 +103,49 @@ nothing to explain why.
 """
 
 
+SCRATCH_TAB = "Scratch Pad"
+"""The one tab that belongs to the readers rather than to this program.
+
+Four people have write access to the published sheet, and every tab in it is
+either regenerated wholesale on each push (Schedule, Tally, By Brother) or
+mirrored out of the app (Risk Notes). So anything they type anywhere disappears
+on the next refresh, silently, with nothing to explain where it went. A
+spreadsheet you can type into but must not is a trap, and the fix is one tab
+that is genuinely theirs.
+
+Kept out of GENERATED_TABS, which is why push never names it. That list is
+explicit rather than "every tab in the workbook" precisely so this works.
+"""
+
+
+def _write_scratch(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
+    """Header only. The rest of the tab is deliberately left empty."""
+    from openpyxl.utils import get_column_letter
+
+    ws.append([f"SCRATCH PAD — {data.semester_name}"])
+    ws.cell(row=1, column=1).font = st["title"]
+    for line in (
+        "This tab is yours. Type anything — it is never overwritten.",
+        "",
+        "Every OTHER tab is rebuilt from the app each time the schedule is "
+        "refreshed, so notes written there are lost without warning.",
+        "Swap requests, corrections, questions, anyone who cannot make a shift — "
+        "put them here and they will be picked up.",
+    ):
+        ws.append([line])
+        ws.cell(row=ws.max_row, column=1).font = st["dim"] if line else st["body"]
+    ws.append([])
+    ws.append(["Date", "Who", "What"])
+    for c in range(1, 4):
+        cell = ws.cell(row=ws.max_row, column=c)
+        cell.font = st["header"]
+        cell.fill = st["header_fill"]
+        cell.border = st["border"]
+    for i, w in enumerate([14, 22, 110], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = ws.cell(row=ws.max_row + 1, column=1).coordinate
+
+
 def _write_notes(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
     """Mirror the chair notes into a tab the chapter can read."""
     from openpyxl.styles import Font
@@ -143,8 +186,8 @@ def _notes_values(data: export_svc.SemesterExport) -> list[list[str]]:
     rows: list[list[str]] = [
         [f"RISK NOTES — {data.semester_name}"],
         [
-            "Read-only mirror. Write notes in the app (Notes tab) — anything typed here is "
-            "overwritten on the next refresh."
+            "Read-only mirror of the app's notes. Anything typed HERE is overwritten "
+            f"on the next refresh — use the '{SCRATCH_TAB}' tab instead."
         ],
         [],
         ["Kind", "By", "Note", "Closed", "What was done"],
@@ -309,6 +352,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     ws.cell(row=1, column=1).font = st["title"]
     ws.append(
         [
+            "Auto-generated — do not type here, it is rebuilt on every refresh. "
             "TOTAL is how many shifts. LOAD is the weighted figure the target is "
             "set in — a setup counts 0.7 because it is a 2h block you pick, so 17 "
             "setups is a full quota, not 143% of one. DJ nights and strike make-ups "
@@ -401,6 +445,7 @@ def _write_by_brother(ws, data: export_svc.SemesterExport, st: dict) -> None:  #
     ws.cell(row=1, column=1).font = st["title"]
     ws.append(
         [
+            "Auto-generated — do not type here, it is rebuilt on every refresh. "
             "Find your name. WORKED ON is the day you actually turn up — for "
             "cleanup that is the MORNING AFTER the party."
         ]
@@ -501,6 +546,7 @@ def sheet(
     # Last, so it sits at the right-hand end of the tab strip — it is the tab
     # the chair writes in, not one the chapter reads.
     _write_notes(wb.create_sheet(NOTES_TAB), data, st)
+    _write_scratch(wb.create_sheet(SCRATCH_TAB), data, st)
 
     out = out.expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -512,7 +558,7 @@ def sheet(
         {
             "semester": sem.name,
             "path": str(out),
-            "tabs": ["Schedule", "Tally", "By Brother", NOTES_TAB],
+            "tabs": ["Schedule", "Tally", "By Brother", NOTES_TAB, SCRATCH_TAB],
             "events": len(data.schedule),
             "members": len(data.tally),
             "shift_rows": len(data.by_brother),
@@ -792,6 +838,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
     by_brother: list[list[str]] = [
         [f"EVERY SHIFT, BY BROTHER — {data.semester_name}"],
         [
+            "Auto-generated — do not type here, it is rebuilt on every refresh. "
             "Find your name. WORKED ON is the day you actually turn up — for "
             "cleanup that is the MORNING AFTER the party."
         ],
