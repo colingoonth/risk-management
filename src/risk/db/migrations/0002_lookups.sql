@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS shift_types (
   -- Added in 0016, which also seeds dj to 0; see that file.
   counts_toward_tally INTEGER NOT NULL DEFAULT 1
     CHECK (counts_toward_tally IN (0, 1)),
+  -- What a turn at this post costs the member, relative to standing a party
+  -- night. Fairness is denominated in this rather than in a headcount, so a
+  -- member doing the easier job works more of them to reach the same quota.
+  -- Seeded in 0020; 1.0 for everything except setup.
+  effort_weight REAL NOT NULL DEFAULT 1.0
+    CHECK (effort_weight > 0.0 AND effort_weight <= 1.0),
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*')
 ) STRICT;
 

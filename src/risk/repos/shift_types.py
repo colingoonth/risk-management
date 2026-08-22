@@ -11,6 +11,8 @@ class ShiftType:
     id: int
     slug: str
     display_name: str
+    counts_toward_tally: bool = True
+    effort_weight: float = 1.0
 
 
 def _row(r: sqlite3.Row) -> ShiftType:
@@ -18,6 +20,8 @@ def _row(r: sqlite3.Row) -> ShiftType:
         id=r["id"],
         slug=r["slug"],
         display_name=r["display_name"],
+        counts_toward_tally=bool(r["counts_toward_tally"]),
+        effort_weight=float(r["effort_weight"]),
     )
 
 

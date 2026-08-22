@@ -25,6 +25,26 @@ class UnavailabilityWindow:
     # leave them in but pick them last (migration 0019).
     is_soft: bool = False
 
+    @property
+    def time_label(self) -> str:
+        """``all day`` or ``HH:MM-HH:MM``. Never blank.
+
+        A blank here read as "no restriction" when it meant the opposite.
+        """
+        if self.starts_at_time is None:
+            return "all day"
+        return f"{self.starts_at_time}-{self.ends_at_time}"
+
+    @property
+    def weekday_label(self) -> str:
+        if self.repeats_weekday is None:
+            return "one-off"
+        return ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[self.repeats_weekday] + " only"
+
+    @property
+    def kind_label(self) -> str:
+        return "prefer not" if self.is_soft else "cannot"
+
 
 _SELECT_JOINED = """
 SELECT

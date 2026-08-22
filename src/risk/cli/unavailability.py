@@ -42,12 +42,45 @@ def add(
     member: Annotated[str, typer.Argument(help="Member slug, id, or alias.")],
     starts: Annotated[str, typer.Option("--starts", help="ISO YYYY-MM-DD inclusive.")],
     ends: Annotated[str, typer.Option("--ends", help="ISO YYYY-MM-DD inclusive.")],
+    starts_at: Annotated[
+        str | None,
+        typer.Option("--starts-at", help="HH:MM. Omit both times for an ALL-DAY window."),
+    ] = None,
+    ends_at: Annotated[str | None, typer.Option("--ends-at", help="HH:MM.")] = None,
+    weekday: Annotated[
+        int | None,
+        typer.Option(
+            "--repeats-weekday",
+            help="0=Mon..6=Sun. Only that weekday within the range, not every day.",
+        ),
+    ] = None,
+    soft: Annotated[
+        bool,
+        typer.Option(
+            "--soft",
+            help="A preference, not a conflict: assign only if the slot would go unfilled.",
+        ),
+    ] = False,
     reason: Annotated[str | None, typer.Option("--reason")] = None,
     semester: Annotated[
         str | None, typer.Option("--semester", help="Defaults to current semester.")
     ] = None,
 ) -> None:
-    """Add an unavailability window for a member."""
+    """Add an unavailability window for a member.
+
+    The time and recurrence columns have existed since migration 0012 and were
+    unreachable from any shipped surface until now — so every window the chair
+    could actually record was all-day, which is far blunter than most real
+    conflicts. "Practice Tuesdays 6-9pm" recorded as an all-day block costs the
+    member every setup crew he could have worked that afternoon.
+
+    Examples:
+        risk unavailability add first-last --starts 2026-09-19 --ends 2026-09-19
+        risk unavailability add first-last --starts 2026-09-17 --ends 2026-09-18 \
+            --starts-at 20:00 --ends-at 23:59 --soft --reason "night before a meet"
+        risk unavailability add first-last --starts 2026-08-25 --ends 2026-12-05 \
+            --repeats-weekday 1 --starts-at 18:00 --ends-at 21:00 --reason "practice"
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     m = members_repo.resolve(conn, member)
@@ -63,6 +96,10 @@ def add(
                 semester_id=sem_id,
                 starts_on=starts,
                 ends_on=ends,
+                starts_at_time=starts_at,
+                ends_at_time=ends_at,
+                repeats_weekday=weekday,
+                is_soft=soft,
                 reason=reason,
             )
     except sqlite3.IntegrityError as exc:
@@ -110,11 +147,18 @@ def list_windows(
         table=attr_table(
             f"Unavailability (semester={sem_id})",
             rows,
+            # Times and recurrence are shown because omitting them was a
+            # MISREPORT, not just a gap: a row meaning "busy Thursdays 6-11pm"
+            # rendered identically to "gone from September to December", and a
+            # chair reading that would have written the member off for the term.
             cols=(
                 ("ID", "id"),
                 ("Member", "member_slug"),
                 ("Starts", "starts_on"),
                 ("Ends", "ends_on"),
+                ("Time", "time_label"),
+                ("Repeats", "weekday_label"),
+                ("Kind", "kind_label"),
                 ("Reason", "reason"),
             ),
         ),

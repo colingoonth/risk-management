@@ -72,7 +72,8 @@ class QuotaContext:
 
     senior_target: float
     underclass_target: float
-    rotation_slots: int
+    rotation_slots: float
+    """Total EFFORT the rotation must absorb, not a slot count."""
     senior_count: int
     underclass_count: int
     term_start_year: int
@@ -122,10 +123,14 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
         raise LookupError(f"semester {semester_id} not found")
     term_start_year, term_is_fall = _term_start_year_and_season(sem["starts_on"])
 
-    counted_slots = int(
+    # Effort, not slots — the denominator must match the numerator in
+    # score_member, or a term full of cheap shifts would set targets nobody
+    # could reach and a term full of expensive ones would set targets everybody
+    # blew past in October.
+    counted_effort = float(
         conn.execute(
             """
-            SELECT COALESCE(SUM(r.target_count), 0) AS n
+            SELECT COALESCE(SUM(r.target_count * st.effort_weight), 0.0) AS n
             FROM event_shift_requirements r
             JOIN events e ON e.id = r.event_id
             JOIN shift_types st ON st.id = r.shift_type_id
@@ -177,7 +182,9 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
         )
     )
 
-    rotation_slots = max(counted_slots - strike_slots, 0)
+    # Make-ups come off at full weight. A penalty shift is a penalty whichever
+    # post it is worked at, and discounting it would refund part of it.
+    rotation_slots = max(counted_effort - strike_slots, 0.0)
     senior_target, underclass_target = quota_targets(
         rotation_slots=rotation_slots,
         senior_count=senior_count,
@@ -198,7 +205,8 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
 @dataclass(frozen=True, slots=True)
 class ScoredMember:
     member: EligibleMember
-    shifts_so_far: int
+    shifts_so_far: float
+    """Weighted EFFORT so far, not a headcount — see shifts.rotation_effort_*."""
     target: float
     phantom: float
     score: float
@@ -214,7 +222,7 @@ def score_member(
     quota: QuotaContext,
 ) -> ScoredMember:
     """Compute the fairness score for one member relative to one event."""
-    shifts_so_far = shifts_repo.count_assignments_in_semester_through_date(
+    shifts_so_far = shifts_repo.rotation_effort_in_semester_through_date(
         conn,
         member_id=member.member_id,
         semester_id=semester_id,

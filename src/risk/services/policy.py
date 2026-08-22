@@ -106,7 +106,7 @@ def is_senior_in_term(class_year: int | None, *, term_start_year: int, term_is_f
 
 
 def quota_targets(
-    *, rotation_slots: int, senior_count: int, underclass_count: int
+    *, rotation_slots: float, senior_count: int, underclass_count: int
 ) -> tuple[float, float]:
     """Season shift targets as ``(senior_target, underclass_target)``.
 

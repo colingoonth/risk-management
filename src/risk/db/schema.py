@@ -68,6 +68,10 @@ _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # because every pre-existing row is a real conflict, which is what 0 means —
     # unlike planning_status, there is nothing here to derive from other columns.
     ("unavailability", "is_soft", "INTEGER NOT NULL DEFAULT 0"),
+    # Effort weight per shift type. Carries its DEFAULT for the same reason
+    # counts_toward_tally does: 1.0 is right for every pre-existing row, and
+    # 0020 then adjusts the one type that differs.
+    ("shift_types", "effort_weight", "REAL NOT NULL DEFAULT 1.0"),
 )
 
 

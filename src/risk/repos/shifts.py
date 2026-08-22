@@ -205,11 +205,18 @@ def open_slots_for_event(
     return [_row(r) for r in rows]
 
 
-def count_assignments_in_semester_through_date(
+def rotation_effort_in_semester_through_date(
     conn: sqlite3.Connection, *, member_id: int, semester_id: int, on_or_before: str
-) -> int:
-    """Count ROTATION shifts for ``member_id`` in ``semester_id``, on or before
+) -> float:
+    """ROTATION effort for ``member_id`` in ``semester_id``, on or before
     ``on_or_before``.
+
+    EFFORT, not a headcount. Each shift contributes its type's
+    ``effort_weight``: a setup is 0.7 of a party night, because it is a two-hour
+    block the member picks in daylight rather than 20:00-23:59 sober at a party.
+    So somebody working mostly setup takes more turns to reach the same quota,
+    which is the whole point — it is how "give the sports guys extra in exchange
+    for setup" is expressed as a rule about the JOB rather than about them.
 
     Used by fairness to compute "shifts so far" pinned to event.date (ADR-009).
 
@@ -235,7 +242,7 @@ def count_assignments_in_semester_through_date(
     """
     row = conn.execute(
         """
-        SELECT COUNT(*) AS n
+        SELECT COALESCE(SUM(st.effort_weight), 0.0) AS n
         FROM shifts s
         JOIN events e ON e.id = s.event_id
         JOIN shift_types st ON st.id = s.shift_type_id
@@ -247,7 +254,7 @@ def count_assignments_in_semester_through_date(
         """,
         (member_id, semester_id, on_or_before),
     ).fetchone()
-    return int(row["n"]) if row else 0
+    return float(row["n"]) if row else 0.0
 
 
 def count_of_shift_type_in_semester_through_date(

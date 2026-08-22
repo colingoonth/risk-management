@@ -316,3 +316,74 @@ def test_a_standing_rule_closes_as_retired_not_done(db: sqlite3.Connection) -> N
     assert reopened is not None
     assert reopened.closed_at is None
     assert reopened.closed_note is None, "a reopened note must not still assert how it was resolved"
+
+
+def test_setup_costs_less_so_a_setup_heavy_member_works_more_turns(
+    db: sqlite3.Connection,
+) -> None:
+    """Effort weighting, stated as the outcome Colin asked for.
+
+    "Allocate them to setups and give them extra to make it fair, since setup is
+    the easiest one." That is only expressible if a setup is worth less than a
+    party night — otherwise the quota caps everyone at the same headcount and
+    there is no "extra" to give.
+
+    Weighted by the JOB, never by the person. The chapter can be told "setup
+    counts 0.7 because it is two hours in daylight that you pick"; it cannot be
+    told "these eleven get a bigger quota because they play sports", which is
+    the same schedule and an argument at chapter.
+    """
+    from risk.repos import shift_types as stypes_repo
+    from risk.repos import shifts as shifts_repo
+
+    setup = stypes_repo.get_by_slug(db, "setup")
+    door = stypes_repo.get_by_slug(db, "door")
+    assert setup is not None and door is not None
+    assert setup.effort_weight == pytest.approx(0.7)
+    assert door.effort_weight == pytest.approx(1.0)
+
+    sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19")
+    active = statuses_repo.get_by_slug(db, "active")
+    assert active is not None
+    runner = members_repo.insert(
+        db, slug="setup-only", display_name="Setup Only", status_id=active.id, class_year=2029
+    )
+    regular = members_repo.insert(
+        db, slug="night-only", display_name="Night Only", status_id=active.id, class_year=2029
+    )
+    etype = etypes_repo.get_by_slug(db, "mixer")
+    assert etype is not None
+    from risk.repos import pledge_modes as pmodes_repo
+
+    pm = pmodes_repo.get(db, "normal")
+    assert pm is not None
+    with transaction(db):
+        for i in range(4):
+            ev = events_repo.insert(
+                db,
+                semester_id=sem_id,
+                event_type_id=etype.id,
+                display_name=f"P{i}",
+                date=f"2026-09-0{i + 1}",
+            )
+            for member, stype in ((runner, setup), (regular, door)):
+                sid = shifts_repo.insert_open(db, event_id=ev, shift_type_id=stype.id, slot_index=0)
+                shifts_repo.assign(
+                    db,
+                    shift_id=sid,
+                    member_id=member,
+                    effective_pledge_mode_id=pm.id,
+                    assigned_at=f"2026-09-0{i + 1}",
+                )
+
+    setup_effort = shifts_repo.rotation_effort_in_semester_through_date(
+        db, member_id=runner, semester_id=sem_id, on_or_before="2026-12-31"
+    )
+    night_effort = shifts_repo.rotation_effort_in_semester_through_date(
+        db, member_id=regular, semester_id=sem_id, on_or_before="2026-12-31"
+    )
+    # Same number of turns, different effort — which is what lets the fill hand
+    # the setup member more of them before he reaches quota.
+    assert setup_effort == pytest.approx(4 * 0.7)
+    assert night_effort == pytest.approx(4 * 1.0)
+    assert setup_effort < night_effort

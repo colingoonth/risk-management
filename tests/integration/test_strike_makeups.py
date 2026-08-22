@@ -129,7 +129,7 @@ def test_a_make_up_does_not_count_toward_the_season_total(db: sqlite3.Connection
 
     assert len(_shifts_of(db, ids[3])) == 1, "he is standing a shift"
     assert (
-        shifts_repo.count_assignments_in_semester_through_date(
+        shifts_repo.rotation_effort_in_semester_through_date(
             db, member_id=ids[3], semester_id=sem_id, on_or_before="2026-12-31"
         )
         == 0
@@ -285,3 +285,59 @@ def test_freeing_a_make_up_slot_releases_the_strike(db: sqlite3.Connection) -> N
     assert [d.strike_id for d in strikes_repo.list_unserved(db, semester_id=sem_id)] == [
         strike_id
     ], "the debt is owed again once nobody is standing it"
+
+
+def test_a_preference_cannot_hand_a_gated_shift_to_one_person(
+    db: sqlite3.Connection,
+) -> None:
+    """Soft unavailability is ignored for gated shift types, by design.
+
+    A gated pool is tiny by construction — two members hold the dj
+    qualification against a 40-party term. Sorting one of them behind the other
+    for a preference does not spread the work; it hands the entire term to
+    whoever is left. Measured on the real calendar before the exception existed:
+    42 nights to one DJ, 1 to the other, which is the same collapse the per-type
+    rotation key was written to prevent.
+
+    With no alternative pool there is no "unless the slot goes unfilled" for the
+    preference to yield to, so the turn count has to win outright.
+    """
+    sem_id, ids = _world(db)
+    dj_qual = quals_repo.get_by_slug(db, "dj")
+    assert dj_qual is not None
+    a, b = ids[0], ids[1]
+    for member_id in (a, b):
+        mq_repo.grant(db, member_id=member_id, qualification_id=dj_qual.id, semester_id=sem_id)
+    # `a` would rather not work party nights. dj IS a party-night window.
+    from risk.repos import unavailability as unav_repo
+
+    with transaction(db):
+        unav_repo.insert(
+            db,
+            member_id=a,
+            semester_id=sem_id,
+            starts_on="2026-08-20",
+            ends_on="2026-12-19",
+            starts_at_time="20:00",
+            ends_at_time="23:59",
+            is_soft=True,
+            reason="prefers setup",
+        )
+    events = [_event(db, sem_id, date=f"2026-09-{d:02d}") for d in (4, 11, 18, 25)]
+    with transaction(db):
+        for event_id in events:
+            assignment.auto_assign(db, event_id=event_id, seed=1)
+
+    counts = {
+        m: db.execute(
+            """SELECT COUNT(*) AS n FROM shifts s
+               JOIN shift_types st ON st.id = s.shift_type_id
+               WHERE s.assigned_member_id = ? AND st.slug = 'dj'""",
+            (m,),
+        ).fetchone()["n"]
+        for m in (a, b)
+    }
+    assert sum(counts.values()) == len(events), "every dj slot filled"
+    assert abs(counts[a] - counts[b]) <= 1, (
+        f"the two DJs must still alternate despite the preference: {counts}"
+    )

@@ -470,7 +470,18 @@ def auto_assign(
             rotation_shift_type_id=(
                 req.shift_type_id if req.shift_type_id in gated_shift_type_ids else None
             ),
-            deprioritized=deprioritized,
+            # Preferences are ignored for GATED types, and that is not a
+            # loophole — it is the only way they can work. A gated pool is tiny
+            # by construction: two members hold the dj qualification and there
+            # are 44 parties. Sorting one of them behind the other for a
+            # preference does not spread the work, it hands the whole term to
+            # whoever is left. Measured, before this line existed: 42 nights to
+            # one DJ and 1 to the other, which is the same 43-to-0 collapse the
+            # rotation key was added to prevent, arriving through a different
+            # door. With no alternative pool there is no "unless the slot goes
+            # unfilled" to fall back on, so the preference has nothing to yield
+            # to and the turn-count has to win outright.
+            deprioritized=(set() if req.shift_type_id in gated_shift_type_ids else deprioritized),
         )
         if pledges_first:
             # Stable secondary sort: pledges before brothers, preserving the
