@@ -408,3 +408,39 @@ def test_the_scratch_tab_is_never_regenerated(exported: export_svc.SemesterExpor
     assert SCRATCH_TAB not in _tab_values(exported)
     # The notes mirror IS regenerated — it is the app's copy, not a scratch pad.
     assert NOTES_TAB in GENERATED_TABS
+
+
+def test_the_pushed_grid_matches_the_workbook(exported: export_svc.SemesterExport) -> None:
+    """The two output paths must not drift, because they already did.
+
+    `export sheet` writes an xlsx and `export push` sends values to the live
+    Sheet, and they built the Tally rows independently. A fix applied to one
+    missed the other, so the file on the desktop said a member was at 100% of
+    quota while the sheet sixty-seven people read said 143% — thirty rows
+    disagreeing on the single most argued-over number in the document.
+
+    Comparing the whole grid rather than the one cell that broke: the point is
+    that ANY future divergence fails here, not just this one.
+    """
+    from openpyxl import Workbook
+
+    from risk.cli.export import _styles, _tab_values, _write_tally
+
+    wb = Workbook()
+    _write_tally(wb.active, exported, _styles())
+    from_workbook = [
+        [("" if c.value is None else str(c.value)) for c in row] for row in wb.active.iter_rows()
+    ]
+    from_push = [[str(c) for c in row] for row in _tab_values(exported)["Tally"]]
+
+    # Trim each row's trailing blanks — the workbook pads short rows to the
+    # widest one, the push payload does not, and that is not a disagreement.
+    def trim(grid: list[list[str]]) -> list[list[str]]:
+        out = []
+        for row in grid:
+            while row and row[-1] == "":
+                row = row[:-1]
+            out.append(row)
+        return out
+
+    assert trim(from_workbook) == trim(from_push)

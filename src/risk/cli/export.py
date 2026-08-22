@@ -327,6 +327,37 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
+TALLY_SUBTITLE = (
+    "Auto-generated — do not type here, it is rebuilt on every refresh. "
+    "TOTAL is how many shifts. LOAD is the weighted figure the target is set in — "
+    "a setup counts 0.7 because it is a 2h block you pick, so 17 setups is a full "
+    "quota, not 143% of one. DJ nights and strike make-ups are real nights but "
+    "count toward neither — see NIGHTS ON SITE."
+)
+BY_BROTHER_SUBTITLE = (
+    "Auto-generated — do not type here, it is rebuilt on every refresh. "
+    "Find your name. WORKED ON is the day you actually turn up — for cleanup that "
+    "is the MORNING AFTER the party."
+)
+
+
+def _vs_target(row: export_svc.TallyRow) -> str:
+    """The vs-target cell. ONE definition, used by both the workbook and the push.
+
+    It was two, and they drifted: the workbook divided LOAD by target while the
+    push payload still divided the headcount by it, so the file on the desktop
+    said one setup-heavy brother was at 100% of quota and the sheet the chapter reads said
+    143%. Thirty of sixty-seven rows disagreed, and the one that mattered most
+    was the one people would argue about.
+
+    LOAD, never TOTAL. Both mean "how much did he work"; only LOAD is in the
+    units the target is set in, because a setup counts 0.7.
+    """
+    if row.target > 0:
+        return f"{row.effort / row.target * 100:.0f}%"
+    return "exempt" if row.exempt else ""
+
+
 def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa: ANN001
     from openpyxl.utils import get_column_letter
 
@@ -350,15 +381,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     )
     ws.append([f"SHIFT TALLY — {data.semester_name}"])
     ws.cell(row=1, column=1).font = st["title"]
-    ws.append(
-        [
-            "Auto-generated — do not type here, it is rebuilt on every refresh. "
-            "TOTAL is how many shifts. LOAD is the weighted figure the target is "
-            "set in — a setup counts 0.7 because it is a 2h block you pick, so 17 "
-            "setups is a full quota, not 143% of one. DJ nights and strike make-ups "
-            "are real nights but count toward neither — see NIGHTS ON SITE."
-        ]
-    )
+    ws.append([TALLY_SUBTITLE])
     ws.cell(row=2, column=1).font = st["dim"]
     ws.append([])
     ws.append(header)
@@ -378,13 +401,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     note_col = len(header)
 
     for i, row in enumerate(data.tally):
-        vs = ""
-        if row.target > 0:
-            # LOAD, not TOTAL. Both are "how much did he work", but only one is
-            # in the same units as the target.
-            vs = f"{row.effort / row.target * 100:.0f}%"
-        elif row.exempt:
-            vs = "exempt"
+        vs = _vs_target(row)
         ws.append(
             [row.display_name, row.pledge_class, row.class_label]
             + [row.per_type.get(s, 0) for s in types]
@@ -443,13 +460,7 @@ def _write_by_brother(ws, data: export_svc.SemesterExport, st: dict) -> None:  #
     header = ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"]
     ws.append([f"EVERY SHIFT, BY BROTHER — {data.semester_name}"])
     ws.cell(row=1, column=1).font = st["title"]
-    ws.append(
-        [
-            "Auto-generated — do not type here, it is rebuilt on every refresh. "
-            "Find your name. WORKED ON is the day you actually turn up — for "
-            "cleanup that is the MORNING AFTER the party."
-        ]
-    )
+    ws.append([BY_BROTHER_SUBTITLE])
     ws.cell(row=2, column=1).font = st["dim"]
     ws.append([])
     ws.append(header)
@@ -795,17 +806,13 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
     types = [slug for slug, _ in data.shift_type_columns if slug != "dj"]
     tally: list[list[str]] = [
         [f"SHIFT TALLY — {data.semester_name}"],
-        [
-            "TOTAL is how many shifts. LOAD is the weighted figure the target is "
-            "set in — a setup counts 0.7 because it is a 2h block you pick, so 17 "
-            "setups is a full quota, not 143% of one. DJ nights and strike make-ups "
-            "are real nights but count toward neither — see NIGHTS ON SITE."
-        ],
+        [TALLY_SUBTITLE],
         [],
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
         + [
             "TOTAL",
+            "LOAD",
             "NIGHTS ON SITE",
             "Target",
             "vs target",
@@ -815,11 +822,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
         ],
     ]
     for row in data.tally:
-        vs = (
-            f"{row.counted_total / row.target * 100:.0f}%"
-            if row.target > 0
-            else ("exempt" if row.exempt else "")
-        )
+        vs = _vs_target(row)
         tally.append(
             [row.display_name, row.pledge_class, row.class_label]
             + [str(row.per_type.get(s, 0)) for s in types]
@@ -837,11 +840,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
 
     by_brother: list[list[str]] = [
         [f"EVERY SHIFT, BY BROTHER — {data.semester_name}"],
-        [
-            "Auto-generated — do not type here, it is rebuilt on every refresh. "
-            "Find your name. WORKED ON is the day you actually turn up — for "
-            "cleanup that is the MORNING AFTER the party."
-        ],
+        [BY_BROTHER_SUBTITLE],
         [],
         ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"],
     ]
