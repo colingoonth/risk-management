@@ -41,7 +41,7 @@ _INK = "1C1814"
 _BRASS = "8A6A2F"
 _OXBLOOD = "6E1F1F"
 _RULE = "C9C0B2"
-_STRIKE_BG = "F2E6CE"
+_STRIKE_BG = "FFB74D"  # strike make-ups: orange, Colin's call
 _HEADER_BG = "EFE9DD"
 
 # Lifted from the SP26 sheet, read back off the live document rather than
@@ -76,6 +76,11 @@ def _styles() -> dict[str, object]:
         "mono": Font(name="Menlo", size=9, color=_INK),
         "header_fill": PatternFill("solid", fgColor=_HEADER_BG),
         "strike_fill": PatternFill("solid", fgColor=_STRIKE_BG),
+        "strike_font": Font(name="Helvetica Neue", size=10, bold=True, color=_INK),
+        "band": PatternFill("solid", fgColor="F7F4EE"),
+        "title": Font(name="Helvetica Neue", size=14, bold=True, color=_INK),
+        "dim": Font(name="Helvetica Neue", size=10, color="9A9186"),
+        "total": Font(name="Helvetica Neue", size=11, bold=True, color=_INK),
         "border": Border(bottom=thin),
         "center": Alignment(horizontal="center", vertical="center"),
         "left": Alignment(horizontal="left", vertical="center"),
@@ -191,7 +196,7 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         ("PLACEHOLDER", _LEGACY_PLACEHOLDER),
         ("PLEDGING", _LEGACY_PLEDGING),
         ("UNFILLED", _OXBLOOD),
-        ("(strike) = make-up shift, does not count", _STRIKE_BG),
+        ("(strike) = make-up, uncounted", _STRIKE_BG),
     ]
     ws.append([label for label, _ in legend])
     ws.append([""] * len(legend))
@@ -246,7 +251,7 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
                     cell.font = st["alarm"]
                 elif text.endswith(export_svc.STRIKE_MARKER):
                     cell.fill = st["strike_fill"]
-                    cell.font = st["brass"]
+                    cell.font = st["strike_font"]
 
         # The DATE cell, tinted by weekday against the legend above. Days the
         # chapter does not normally throw parties on stay white, which is what
@@ -283,28 +288,48 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     from openpyxl.utils import get_column_letter
 
     types = [slug for slug, _ in data.shift_type_columns if slug != "dj"]
+    # NIGHTS sits next to TOTAL rather than out past the uncounted columns. The
+    # two answer the same question — how much did he do — and separating them by
+    # four columns is how a DJ on 21 nights reads as somebody who did nothing.
     header = (
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
         + [
             "TOTAL",
+            "NIGHTS ON SITE",
             "Target",
             "vs target",
             "DJ (uncounted)",
             "Strike (uncounted)",
-            "NIGHTS ON SITE",
             "Note",
         ]
     )
+    ws.append([f"SHIFT TALLY — {data.semester_name}"])
+    ws.cell(row=1, column=1).font = st["title"]
+    ws.append(
+        [
+            "TOTAL counts risk shifts only. DJ nights and strike make-ups are real "
+            "nights but do not count toward quota — see NIGHTS ON SITE."
+        ]
+    )
+    ws.cell(row=2, column=1).font = st["dim"]
+    ws.append([])
     ws.append(header)
+    head_row = 4
     for c in range(1, len(header) + 1):
-        cell = ws.cell(row=1, column=c)
+        cell = ws.cell(row=head_row, column=c)
         cell.font = st["header"]
         cell.fill = st["header_fill"]
         cell.alignment = st["center"]
         cell.border = st["border"]
 
-    for row in data.tally:
+    total_col = 3 + len(types) + 1
+    nights_col = total_col + 1
+    vs_col = total_col + 3
+    strike_col = total_col + 5
+    note_col = len(header)
+
+    for i, row in enumerate(data.tally):
         vs = ""
         if row.target > 0:
             vs = f"{row.counted_total / row.target * 100:.0f}%"
@@ -315,11 +340,11 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
             + [row.per_type.get(s, 0) for s in types]
             + [
                 row.counted_total,
+                row.nights_on_site,
                 round(row.target, 1) if row.target else "",
                 vs,
                 row.dj_shifts,
                 row.strike_shifts,
-                row.nights_on_site,
                 row.note,
             ]
         )
@@ -328,18 +353,34 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
             cell = ws.cell(row=r, column=c)
             cell.font = st["body"]
             cell.border = st["border"]
+            # Zebra banding. 67 rows of numbers with no rule is where a reader
+            # slips onto the wrong line and then argues about somebody else's
+            # total.
+            if i % 2:
+                cell.fill = st["band"]
+        ws.cell(row=r, column=total_col).font = st["total"]
+        ws.cell(row=r, column=nights_col).font = st["total"]
         if row.exempt:
             # Not an alarm. An exempt officer at zero is the system working, and
             # the old sheet's habit of rendering low counts as delinquency is
             # exactly what makes a roll unreadable.
             for c in range(1, len(header) + 1):
-                ws.cell(row=r, column=c).font = st["brass"]
+                ws.cell(row=r, column=c).font = st["dim"]
+            ws.cell(row=r, column=vs_col).font = st["brass"]
+        elif row.target > 0:
+            share = row.counted_total / row.target
+            # Brass for over quota, dim for well under. Never oxblood: being
+            # under target is usually the fill's doing, not the member's, and
+            # flagging it red starts an argument the data cannot settle.
+            if share >= 1.15 or share <= 0.6:
+                ws.cell(row=r, column=vs_col).font = st["brass"]
         if row.strike_shifts:
-            ws.cell(row=r, column=len(header) - 1).fill = st["strike_fill"]
-        ws.cell(row=r, column=len(header)).alignment = st["wrap"]
+            ws.cell(row=r, column=strike_col).fill = st["strike_fill"]
+            ws.cell(row=r, column=strike_col).font = st["strike_font"]
+        ws.cell(row=r, column=note_col).alignment = st["wrap"]
 
-    ws.freeze_panes = "A2"
-    widths = [24, 10, 11] + [9] * len(types) + [8, 8, 10, 15, 17, 15, 52]
+    ws.freeze_panes = ws.cell(row=head_row + 1, column=4).coordinate
+    widths = [24, 10, 11] + [9] * len(types) + [8, 15, 8, 10, 15, 17, 52]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -348,15 +389,34 @@ def _write_by_brother(ws, data: export_svc.SemesterExport, st: dict) -> None:  #
     from openpyxl.utils import get_column_letter
 
     header = ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"]
+    ws.append([f"EVERY SHIFT, BY BROTHER — {data.semester_name}"])
+    ws.cell(row=1, column=1).font = st["title"]
+    ws.append(
+        [
+            "Find your name. WORKED ON is the day you actually turn up — for "
+            "cleanup that is the MORNING AFTER the party."
+        ]
+    )
+    ws.cell(row=2, column=1).font = st["dim"]
+    ws.append([])
     ws.append(header)
+    head_row = 4
     for c in range(1, len(header) + 1):
-        cell = ws.cell(row=1, column=c)
+        cell = ws.cell(row=head_row, column=c)
         cell.font = st["header"]
         cell.fill = st["header_fill"]
         cell.alignment = st["center"]
         cell.border = st["border"]
 
+    # Band by PERSON, not by row. 589 alternating rows is noise; alternating
+    # per brother draws the line where the reader's eye needs it — at the point
+    # somebody else's shifts begin.
+    shade = False
+    previous: str | None = None
     for row in data.by_brother:
+        if row.display_name != previous:
+            shade = not shade
+            previous = row.display_name
         ws.append(
             [
                 row.display_name,
@@ -374,15 +434,18 @@ def _write_by_brother(ws, data: export_svc.SemesterExport, st: dict) -> None:  #
             cell = ws.cell(row=r, column=c)
             cell.font = st["body"]
             cell.border = st["border"]
+            if shade:
+                cell.fill = st["band"]
         # The worked-on date is the single most valuable cell in the export:
         # cleanup is the MORNING AFTER the party, and a missed shift is a strike.
-        if row.worked_on != row.date:
+        if row.worked_on_date != row.date:
             ws.cell(row=r, column=8).font = st["brass"]
         if row.is_strike:
             ws.cell(row=r, column=6).fill = st["strike_fill"]
+            ws.cell(row=r, column=6).font = st["strike_font"]
 
-    ws.freeze_panes = "A2"
-    for i, w in enumerate([24, 10, 11, 12, 30, 16, 6, 14], start=1):
+    ws.freeze_panes = ws.cell(row=head_row + 1, column=1).coordinate
+    for i, w in enumerate([24, 10, 11, 12, 30, 22, 6, 46], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
@@ -677,17 +740,23 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
 
     types = [slug for slug, _ in data.shift_type_columns if slug != "dj"]
     tally: list[list[str]] = [
+        [f"SHIFT TALLY — {data.semester_name}"],
+        [
+            "TOTAL counts risk shifts only. DJ nights and strike make-ups are real "
+            "nights but do not count toward quota — see NIGHTS ON SITE."
+        ],
+        [],
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
         + [
             "TOTAL",
+            "NIGHTS ON SITE",
             "Target",
             "vs target",
             "DJ (uncounted)",
             "Strike (uncounted)",
-            "NIGHTS ON SITE",
             "Note",
-        ]
+        ],
     ]
     for row in data.tally:
         vs = (
@@ -700,17 +769,23 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
             + [str(row.per_type.get(s, 0)) for s in types]
             + [
                 str(row.counted_total),
+                str(row.nights_on_site),
                 f"{row.target:.1f}" if row.target else "",
                 vs,
                 str(row.dj_shifts),
                 str(row.strike_shifts),
-                str(row.nights_on_site),
                 row.note,
             ]
         )
 
     by_brother: list[list[str]] = [
-        ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"]
+        [f"EVERY SHIFT, BY BROTHER — {data.semester_name}"],
+        [
+            "Find your name. WORKED ON is the day you actually turn up — for "
+            "cleanup that is the MORNING AFTER the party."
+        ],
+        [],
+        ["Brother", "PC", "Class", "Party date", "Event", "Job", "Slot", "WORKED ON"],
     ]
     for row in data.by_brother:
         by_brother.append(
