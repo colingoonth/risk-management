@@ -50,9 +50,41 @@ from risk.services.eligibility import EligibleMember
 from risk.services.policy import (
     DJ_NIGHT_CREDIT,
     is_senior_in_term,
+    is_sophomore_or_younger_in_term,
     pledge_class_ordinal,
     quota_targets,
 )
+
+SCORE_PRECISION = 9
+"""Decimal places the fairness score is quantized to before it is sorted on.
+
+Not cosmetic. Two members in DIFFERENT quota tiers are mathematically tied
+whenever their efforts stand in the same ratio as their targets, and with
+``SOPHOMORE_QUOTA_RATIO`` at 1.25 that happens constantly, because effort lands
+on multiples of 0.1: a sophomore on 8.5 against a 14.627 target is exactly as
+far through his season as a junior on 6.8 against 11.702.
+
+Exactly, in arithmetic. Not always in binary. Whether ``8.5 / 14.627219`` and
+``6.8 / 11.701775`` produce the same double depends on the targets, and the
+targets move whenever the calendar does. So the same pair of brothers tied on
+one build and differed by one ULP on the next, and that decided which of them
+worked the door on 10 Nov — the ULP silently replacing the documented R3.2-A
+tiebreak chain as the thing that answered "why him?".
+
+Found by ``test_cancelling_a_placeholder_does_not_disturb_the_confirmed_calendar``:
+deleting a held date nobody was ever going to use rescaled every target and moved
+one confirmed-night assignment, which is precisely the property that test exists
+to forbid.
+
+9 places is six orders of magnitude above double-precision noise at these
+magnitudes (scores run 0 to about 5) and far below any difference a chair could
+defend as real — a thousand-millionth of a shift. Ties it creates are ties the
+chain should have been deciding anyway.
+
+Applied in ``score_member`` rather than in the sort key, so the number that gets
+sorted on is the same number the audit row carries. Two definitions of one
+quantity have drifted in this codebase before.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,11 +103,13 @@ class QuotaContext:
     """
 
     senior_target: float
-    underclass_target: float
+    junior_target: float
+    sophomore_target: float
     rotation_slots: float
     """Total EFFORT the rotation must absorb, not a slot count."""
     senior_count: int
-    underclass_count: int
+    junior_count: int
+    sophomore_count: int
     term_start_year: int
     term_is_fall: bool
     dj_qualified: frozenset[int]
@@ -90,13 +124,25 @@ class QuotaContext:
     season fills in."""
 
     def target_for(self, class_year: int | None) -> float:
+        """Which of the three season targets this member is held to.
+
+        Order matters: senior is tested first, because a fifth-year whose
+        graduation year has already passed satisfies ``<= graduating_year`` and
+        would otherwise have to be excluded from the sophomore test by hand.
+        """
         if is_senior_in_term(
             class_year,
             term_start_year=self.term_start_year,
             term_is_fall=self.term_is_fall,
         ):
             return self.senior_target
-        return self.underclass_target
+        if is_sophomore_or_younger_in_term(
+            class_year,
+            term_start_year=self.term_start_year,
+            term_is_fall=self.term_is_fall,
+        ):
+            return self.sophomore_target
+        return self.junior_target
 
 
 def _term_start_year_and_season(starts_on: str) -> tuple[int, bool]:
@@ -176,7 +222,17 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
             r["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
         )
     )
-    underclass_count = len(pool) - senior_count
+    sophomore_count = sum(
+        1
+        for r in pool
+        if not is_senior_in_term(
+            r["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+        )
+        and is_sophomore_or_younger_in_term(
+            r["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+        )
+    )
+    junior_count = len(pool) - senior_count - sophomore_count
 
     dj_qualified = frozenset(
         int(r["member_id"])
@@ -210,17 +266,20 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
     dj_phantom = (dj_slots / len(dj_qualified)) * DJ_NIGHT_CREDIT if dj_qualified else 0.0
 
     rotation_slots = max(counted_effort - strike_slots, 0.0)
-    senior_target, underclass_target = quota_targets(
+    senior_target, junior_target, sophomore_target = quota_targets(
         rotation_slots=rotation_slots,
         senior_count=senior_count,
-        underclass_count=underclass_count,
+        junior_count=junior_count,
+        sophomore_count=sophomore_count,
     )
     return QuotaContext(
         senior_target=senior_target,
-        underclass_target=underclass_target,
+        junior_target=junior_target,
+        sophomore_target=sophomore_target,
         rotation_slots=rotation_slots,
         senior_count=senior_count,
-        underclass_count=underclass_count,
+        junior_count=junior_count,
+        sophomore_count=sophomore_count,
         term_start_year=term_start_year,
         term_is_fall=term_is_fall,
         dj_qualified=dj_qualified,
@@ -276,6 +335,7 @@ def score_member(
     # ZeroDivisionError mid-fill, and the one after that is treating "no quota"
     # as "infinite appetite" and handing them every slot.
     score = float("inf") if target <= 0 else (shifts_so_far + phantom) / target
+    score = round(score, SCORE_PRECISION)
     last = shifts_repo.last_assigned_at(conn, member.member_id)
     return ScoredMember(
         member=member,

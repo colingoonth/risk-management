@@ -58,20 +58,37 @@ def test_is_senior_in_term(
     )
 
 
-def test_quota_targets_hit_the_handoff_numbers_for_fa26() -> None:
+def test_quota_targets_hit_the_ratified_numbers_for_fa26() -> None:
     """The ratified outcome, checked against the real FA26 pool.
 
-    HANDOFF states the intended targets as "Senior 6, Jr/Soph 13.5" over the
-    counted calendar. 30 eligible seniors, 27 eligible juniors and sophomores,
-    543 counted slots. Pinning the arithmetic here means a change to
-    SENIOR_QUOTA_RATIO has to be a deliberate act with a failing test attached,
-    rather than a constant someone nudges.
+    28 eligible seniors, 21 juniors, 11 sophomores, and 318.8 effort under the
+    2026-08-26 weights (rides 1.0, door 0.8, bar 0.8, setup 0.4, cleanup 0.4).
+    Pinning the arithmetic here means a change to SENIOR_QUOTA_RATIO or
+    SOPHOMORE_QUOTA_RATIO has to be a deliberate act with a failing test
+    attached, rather than a constant someone nudges.
     """
-    senior, underclass = policy.quota_targets(
-        rotation_slots=543, senior_count=30, underclass_count=27
+    senior, junior, sophomore = policy.quota_targets(
+        rotation_slots=318.8, senior_count=28, junior_count=21, sophomore_count=11
     )
-    assert senior == pytest.approx(5.85, abs=0.01)
-    assert underclass == pytest.approx(13.61, abs=0.01)
+    assert senior == pytest.approx(2.22, abs=0.01)
+    assert junior == pytest.approx(7.39, abs=0.01)
+    assert sophomore == pytest.approx(9.24, abs=0.01)
+
+
+def test_quota_targets_degenerate_to_two_tiers_without_sophomores() -> None:
+    """A caller that does not split out sophomores gets the old answer exactly.
+
+    Not an approximation — sophomore_count=0 drops the third term from the
+    denominator, so the two-tier solve is a special case of this one rather
+    than a separate code path that could drift from it.
+    """
+    senior, junior, sophomore = policy.quota_targets(
+        rotation_slots=543, senior_count=30, junior_count=27
+    )
+    denominator = 30 * policy.SENIOR_QUOTA_RATIO + 27
+    assert junior == pytest.approx(543 / denominator)
+    assert senior == pytest.approx(junior * policy.SENIOR_QUOTA_RATIO)
+    assert sophomore == pytest.approx(junior * policy.SOPHOMORE_QUOTA_RATIO)
 
 
 def test_quota_targets_survive_an_empty_pool() -> None:
@@ -80,14 +97,12 @@ def test_quota_targets_survive_an_empty_pool() -> None:
     Reachable on a fresh database: a semester exists, the roster has not been
     imported, and something asks for the targets.
     """
-    assert policy.quota_targets(rotation_slots=100, senior_count=0, underclass_count=0) == (
-        0.0,
-        0.0,
-    )
-    assert policy.quota_targets(rotation_slots=0, senior_count=30, underclass_count=27) == (
-        0.0,
-        0.0,
-    )
+    assert policy.quota_targets(
+        rotation_slots=100, senior_count=0, junior_count=0, sophomore_count=0
+    ) == (0.0, 0.0, 0.0)
+    assert policy.quota_targets(
+        rotation_slots=0, senior_count=30, junior_count=17, sophomore_count=10
+    ) == (0.0, 0.0, 0.0)
 
 
 def test_quota_targets_absorb_the_strike_carve_out() -> None:
@@ -98,9 +113,41 @@ def test_quota_targets_absorb_the_strike_carve_out() -> None:
     target slightly — which is correct, because those 21 bodies are staffing
     parties that the rotation therefore does not have to.
     """
-    full, _ = policy.quota_targets(rotation_slots=543, senior_count=30, underclass_count=27)
-    carved, _ = policy.quota_targets(rotation_slots=543 - 21, senior_count=30, underclass_count=27)
+    full, _, _ = policy.quota_targets(
+        rotation_slots=543, senior_count=30, junior_count=17, sophomore_count=10
+    )
+    carved, _, _ = policy.quota_targets(
+        rotation_slots=543 - 21, senior_count=30, junior_count=17, sophomore_count=10
+    )
     assert carved < full
+
+
+def test_sophomores_carry_more_than_juniors_who_carry_more_than_seniors() -> None:
+    """The whole point of the third tier, asserted as an ordering.
+
+    Stated as an ordering rather than as two ratios so that it keeps meaning
+    something if either constant is retuned: a chair may argue about how much
+    harder a sophomore works, but a term where he works LESS than a junior is a
+    bug in every version of the policy.
+    """
+    senior, junior, sophomore = policy.quota_targets(
+        rotation_slots=318.8, senior_count=28, junior_count=21, sophomore_count=11
+    )
+    assert senior < junior < sophomore
+
+
+def test_sophomore_tier_takes_freshmen_too() -> None:
+    """A freshman is cooked at least as hard as a sophomore, never less.
+
+    The roster has no 2030s in it today, so an ``==`` here would look correct
+    all term and go wrong the first time a spring pledge class is entered.
+    """
+    kw = {"term_start_year": 2026, "term_is_fall": True}
+    assert policy.is_sophomore_or_younger_in_term(2029, **kw)  # sophomore
+    assert policy.is_sophomore_or_younger_in_term(2030, **kw)  # freshman
+    assert not policy.is_sophomore_or_younger_in_term(2028, **kw)  # junior
+    assert not policy.is_sophomore_or_younger_in_term(2027, **kw)  # senior
+    assert not policy.is_sophomore_or_younger_in_term(None, **kw)  # unrecorded
 
 
 # --- Pledge-class ordinal (seniority-inverted tiebreaker) ---

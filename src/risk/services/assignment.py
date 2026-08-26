@@ -24,7 +24,7 @@ from risk.repos import events as events_repo
 from risk.repos import qualifications as quals_repo
 from risk.repos import shifts as shifts_repo
 from risk.repos import strikes as strikes_repo
-from risk.services import availability, eligibility, fairness, pledge_mode
+from risk.services import availability, eligibility, fairness, pledge_mode, policy
 from risk.services.eligibility import EligibilityResult
 from risk.services.pledge_mode import MODE_FULL, MODE_NORMAL, MODE_PARTIAL, ResolvedMode
 
@@ -334,6 +334,23 @@ def auto_assign(
         if s.assigned_member_id is not None and s.assigned_member_id in eligible_ids
     }
 
+    # Per-shift-type facts the one-per-event rule below needs. COALESCE to 1 for
+    # a type with no window row: "assume it occupies the night" is the cautious
+    # default, because the cost of guessing wrong that way is a shift not
+    # offered, and the cost of guessing wrong the other way is one man standing
+    # two posts at once.
+    type_flags: dict[int, tuple[bool, bool]] = {
+        int(r["id"]): (bool(r["counts_toward_tally"]), bool(r["occupies_event_night"]))
+        for r in conn.execute(
+            """
+            SELECT st.id, st.counts_toward_tally,
+                   COALESCE(w.occupies_event_night, 1) AS occupies_event_night
+            FROM shift_types st
+            LEFT JOIN shift_type_windows w ON w.shift_type_id = st.id
+            """
+        )
+    }
+
     assignments: list[ProposedAssignment] = []
     warnings: list[str] = []
     if event.resync_pending:
@@ -400,6 +417,48 @@ def auto_assign(
     warnings.extend(makeup_warnings)
     claimed_by_makeup = {(a.shift_type_slug, a.slot_index) for a in makeups}
 
+    # ONE COUNTED SHIFT PER MEMBER PER EVENT, PLUS AN UNCOUNTED ONE ON TOP.
+    #
+    # This replaced a flat "one shift per member per event". That rule was there
+    # to spread load, and for two counted shifts it still is — door+setup at the
+    # same party is two turns for one man and stays blocked. But it also stopped
+    # a DJ taking setup or cleanup at the party he was DJing, and that was wrong
+    # twice over. DJ is 20:00-23:59; setup is a 2h block across the three days up
+    # to the party and cleanup is the next morning, so there is no hour where he
+    # is in two places. And a DJ night counts toward nobody's tally, so pairing
+    # it with a real shift still leaves him exactly one counted turn, like
+    # everyone else — he was being charged a full event for a shift the ledger
+    # does not even record.
+    #
+    # Colin's rule, 2026-08-26: "dj is only not available to work with door and
+    # rides. they can still setup and cleanup." It also unblocks standing note
+    # 15 (both DJs must work a real rotation shift early), which the old rule
+    # actively fought: a man who DJs most parties had almost no event left at
+    # which he could take a rotation turn.
+    #
+    # Two independent counters, not one:
+    #   counted  — at most one shift that counts toward the tally
+    #   night    — at most one shift occupying 20:00-23:59 on the party night
+    # dj is (uncounted, night); setup and cleanup are (counted, not night);
+    # door, rides and bar are (counted, night).
+    counted_at_event: set[int] = set()
+    night_at_event: set[int] = set()
+    slug_to_type_id = {r.shift_type_slug: r.shift_type_id for r in requirements}
+
+    def _remember(member_id: int, shift_type_id: int) -> None:
+        counted, night = type_flags.get(shift_type_id, (True, True))
+        if counted:
+            counted_at_event.add(member_id)
+        if night:
+            night_at_event.add(member_id)
+
+    for s_ in existing_shifts:
+        if s_.assigned_member_id is not None and s_.assigned_member_id in eligible_ids:
+            _remember(s_.assigned_member_id, s_.shift_type_id)
+    for a in makeups:
+        if a.member_id is not None and a.shift_type_slug in slug_to_type_id:
+            _remember(a.member_id, slug_to_type_id[a.shift_type_slug])
+
     for req in sorted(requirements, key=fill_order):
         type_pool = _pool_for_mode(pool, resolved.resolved_slug)
         # Qualification gate. Only `dj` is gated, and the chapter has two DJs, so
@@ -417,10 +476,15 @@ def auto_assign(
                 f"{narrowed.excluded_by_qualification} member(s) filtered out"
             )
         type_pool = narrowed.eligible
-        # One shift per member per event — spreads load even when the partial
-        # unique index would technically allow door+setup for the same person.
-        # Chair can still manually multi-assign via `risk shift assign`.
-        type_pool = [m for m in type_pool if m.member_id not in already_assigned]
+        # See the two counters above. Chair can still override via
+        # `risk shift assign`.
+        req_counted, req_night = type_flags.get(req.shift_type_id, (True, True))
+        type_pool = [
+            m
+            for m in type_pool
+            if not (req_counted and m.member_id in counted_at_event)
+            and not (req_night and m.member_id in night_at_event)
+        ]
 
         # Availability, against THIS shift type's window rather than the party
         # date. Two questions, asked separately and answered differently:
@@ -457,6 +521,72 @@ def auto_assign(
                 f"shift's window ({elig_window_label(conn, req.shift_type_id, event.date)})"
             )
         type_pool = available
+
+        # Krush and Dage: seniors do not stand door, bar or rides.
+        #
+        # Enforced as LAST RESORT rather than as a filter, and that was a
+        # correction. The filter version is the obvious reading of "can't", and
+        # it strands the post the moment the remaining pool is thinner than the
+        # slot count — reachable, and caught by
+        # test_over_21_does_not_gate_the_bar, which builds a dage whose whole
+        # pool is seniors and got back an unstaffed bar.
+        #
+        # An empty bar at a ticketed party at Arena is worse than the thing this
+        # rule prevents; it is the failure risk management exists to stop. So a
+        # barred senior stays in the pool and sorts behind every other
+        # candidate, exactly like soft unavailability: with 27 non-seniors
+        # against seven night slots he is never reached in practice, and in the
+        # pathological case the post is staffed and the chair is told rather
+        # than finding out on the night. See policy.SENIOR_BANNED_EVENT_TYPES.
+        barred: set[int] = set()
+        if policy.senior_is_barred(event.event_type_slug, req.shift_type_slug):
+            barred = {
+                m.member_id
+                for m in type_pool
+                if policy.is_senior_in_term(
+                    m.class_year,
+                    term_start_year=quota.term_start_year,
+                    term_is_fall=quota.term_is_fall,
+                )
+            }
+            deprioritized |= barred
+
+        # Senior night cap. A senior already at his season allowance of THIS
+        # party-night post joins the same deprioritized tier a soft
+        # unavailability row puts somebody in: still in the pool, sorted last,
+        # taken only if the post would otherwise stand empty. Soft rather than a
+        # filter for the reason in policy.SENIOR_NIGHT_TYPE_CAPS — an unstaffed
+        # door is the one outcome a risk schedule cannot produce.
+        #
+        # Counted through the event's own date, like every other count in this
+        # fill (ADR-009), so re-running one event does not see shifts at parties
+        # that come after it and the result stays reproducible.
+        cap = policy.SENIOR_NIGHT_TYPE_CAPS.get(req.shift_type_slug)
+        if cap is not None:
+            at_cap = 0
+            for member in type_pool:
+                if not policy.is_senior_in_term(
+                    member.class_year,
+                    term_start_year=quota.term_start_year,
+                    term_is_fall=quota.term_is_fall,
+                ):
+                    continue
+                worked = shifts_repo.count_of_shift_type_in_semester_through_date(
+                    conn,
+                    member_id=member.member_id,
+                    semester_id=event.semester_id,
+                    shift_type_id=req.shift_type_id,
+                    on_or_before=event.date,
+                )
+                if worked >= cap:
+                    deprioritized.add(member.member_id)
+                    at_cap += 1
+            if at_cap:
+                warnings.append(
+                    f"{req.shift_type_slug}: {at_cap} senior(s) already at the season "
+                    f"cap of {cap} — sorted last, picked only if the post would "
+                    f"otherwise be empty"
+                )
         scored = fairness.sort_by_fairness(
             conn,
             pool=type_pool,
@@ -488,6 +618,7 @@ def auto_assign(
             # fairness order within each group.
             scored = sorted(scored, key=lambda s: (not s.member.is_pledge,))
 
+        seated_barred: list[str] = []
         filled = 0
         for slot_index in range(req.target_count):
             if (req.shift_type_slug, slot_index) in claimed_by_makeup:
@@ -527,6 +658,11 @@ def auto_assign(
                 continue
 
             chosen = scored.pop(0)
+            if chosen.member.member_id in barred:
+                # The pool ran out of everybody else. Say so loudly: this is a
+                # rule being broken to keep a post staffed, and the chair needs
+                # to know on the day rather than at the party.
+                seated_barred.append(chosen.member.display_name)
             assignments.append(
                 ProposedAssignment(
                     shift_type_slug=req.shift_type_slug,
@@ -538,6 +674,7 @@ def auto_assign(
                 )
             )
             already_assigned.add(chosen.member.member_id)
+            _remember(chosen.member.member_id, req.shift_type_id)
             filled += 1
 
             if commit:
@@ -558,6 +695,14 @@ def auto_assign(
                     effective_pledge_mode_id=resolved.resolved_id,
                     assigned_at=event.date,
                 )
+
+        if seated_barred:
+            warnings.append(
+                f"{req.shift_type_slug}: RULE BROKEN TO KEEP THE POST STAFFED — "
+                f"{', '.join(seated_barred)} seated at a {event.event_type_slug} "
+                f"despite seniors not working {req.shift_type_slug} there. The "
+                f"pool held nobody else. Replace by hand if you can."
+            )
 
         if filled < req.min_count:
             warning = (
@@ -655,6 +800,7 @@ def auto_assign_semester(
     reassign: bool = False,
     commit: bool = True,
     on_or_after: str | None = None,
+    on_or_before: str | None = None,
 ) -> list[tuple[events_repo.Event, AutoAssignResult]]:
     """Fill a whole term, in the order :func:`semester_fill_order` defines.
 
@@ -671,6 +817,19 @@ def auto_assign_semester(
     been worked. It is applied AFTER ordering, so the two-pass shape holds
     within whatever range is chosen.
 
+    ``on_or_before`` closes the range at the other end. Added 2026-08-26, when
+    the chapter moved to publishing a FORTNIGHT at a time instead of a whole
+    term: a chair now fills 30 Aug to 13 Sep, sends it, and comes back for the
+    next block. Bounded at both ends rather than open-ended so that the fill
+    cannot quietly reach past what is being published and seat somebody at a
+    party the social chair has not confirmed yet.
+
+    The quota targets stay SEASON-wide either way, deliberately. They are
+    computed from the whole calendar in ``fairness.build_quota_context``, so a
+    member's score is his progress through his year, not through the fortnight,
+    and the blocks stay comparable to each other instead of each one restarting
+    everybody at zero.
+
     No transaction is opened here, matching ``auto_assign``: the caller owns the
     boundary, so a bulk fill either lands whole or not at all.
     """
@@ -679,6 +838,8 @@ def auto_assign_semester(
     ]
     if on_or_after is not None:
         events = [e for e in events if e.date >= on_or_after]
+    if on_or_before is not None:
+        events = [e for e in events if e.date <= on_or_before]
 
     out: list[tuple[events_repo.Event, AutoAssignResult]] = []
     for event in semester_fill_order(events):

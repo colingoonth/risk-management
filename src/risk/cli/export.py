@@ -249,7 +249,17 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         ws.cell(row=2, column=i).font = st["header"]
         ws.cell(row=2, column=i).alignment = st["center"]
         ws.cell(row=3, column=i).fill = PatternFill("solid", fgColor=colour)
-    ws.append([])  # a blank rule between the key and the grid, as SP26 had
+    # Row 4 was a blank rule between the key and the grid, as SP26 had. The
+    # placeholder caption goes THERE rather than under the title, and that is
+    # the whole reason it fits: a push writes values only, so every fill and
+    # merge in the live sheet is static and pinned to a row number. Inserting a
+    # row would slide the grid out from under its own formatting — the failure
+    # the Risk Notes tab is already stuck with. Reusing the spacer costs nothing
+    # and moves nothing.
+    ws.append([data.schedule_note])
+    if data.schedule_note:
+        note = ws.cell(row=4, column=1)
+        note.font = Font(name="Helvetica Neue", size=9, italic=True, color=_INK)
 
     header_top = 5
     ws.append(row1)
@@ -329,13 +339,33 @@ def _write_schedule(ws, data: export_svc.SemesterExport, st: dict) -> None:  # n
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
-TALLY_SUBTITLE = (
-    "Auto-generated — do not type here, it is rebuilt on every refresh. "
-    "TOTAL is how many shifts. LOAD is the weighted figure the target is set in — "
-    "a setup counts 0.7 because it is a 2h block you pick, so 17 setups is a full "
-    "quota, not 143% of one. DJ nights and strike make-ups are real nights but "
-    "count toward neither — see NIGHTS ON SITE."
-)
+def _tally_subtitle(data: export_svc.SemesterExport) -> str:
+    """The Tally caption, with its numbers READ FROM THE MODEL.
+
+    It used to be a constant reading "a setup counts 0.7 … so 17 setups is a
+    full quota". Both numbers went stale the moment the weights were retuned on
+    2026-08-26, and the sheet went on telling the exec the old ones. Same shape
+    of bug as the two vs-target code paths that drifted and shipped a wrong
+    percentage to the chapter — a fact about the model written down a second
+    time, somewhere nothing recomputes it. So it is computed.
+    """
+    setup = data.effort_weights.get("setup", 1.0)
+    target = data.junior_target
+    example = ""
+    if setup > 0 and target > 0:
+        n = round(target / setup)
+        example = (
+            f", so about {n} setups is a full quota rather than "
+            f"{round(n / target * 100)}% of one"
+        )
+    return (
+        "Auto-generated — do not type here, it is rebuilt on every refresh. "
+        "TOTAL is how many shifts. LOAD is the weighted figure the target is set in — "
+        f"a setup counts {setup:g} because it is a 2h block you pick{example}. "
+        "Targets differ by class: seniors carry the smallest, sophomores the largest. "
+        "DJ nights and strike make-ups are real nights but count toward neither "
+        "— see NIGHTS ON SITE."
+    )
 BY_BROTHER_SUBTITLE = (
     "Auto-generated — do not type here, it is rebuilt on every refresh. "
     "Find your name. WORKED ON is the day you actually turn up — for cleanup that "
@@ -383,7 +413,7 @@ def _write_tally(ws, data: export_svc.SemesterExport, st: dict) -> None:  # noqa
     )
     ws.append([f"SHIFT TALLY — {data.semester_name}"])
     ws.cell(row=1, column=1).font = st["title"]
-    ws.append([TALLY_SUBTITLE])
+    ws.append([_tally_subtitle(data)])
     ws.cell(row=2, column=1).font = st["dim"]
     ws.append([])
     ws.append(header)
@@ -522,6 +552,14 @@ def sheet(
     semester: Annotated[
         str | None, typer.Option("--semester", help="Defaults to the current semester.")
     ] = None,
+    block_from: Annotated[
+        str | None,
+        typer.Option("--from", help="Only include events on or after this ISO date."),
+    ] = None,
+    block_to: Annotated[
+        str | None,
+        typer.Option("--to", help="Only include events on or before this ISO date."),
+    ] = None,
 ) -> None:
     """Write the semester schedule to a .xlsx workbook.
 
@@ -546,7 +584,9 @@ def sheet(
             )
             return
 
-    data = export_svc.build(conn, semester_id=sem.id)
+    data = export_svc.build(
+        conn, semester_id=sem.id, on_or_after=block_from, on_or_before=block_to
+    )
 
     from openpyxl import Workbook
 
@@ -578,7 +618,8 @@ def sheet(
             "counted_slots": {"needed": needed, "filled": filled},
             "targets": {
                 "senior": round(data.senior_target, 2),
-                "underclass": round(data.underclass_target, 2),
+                "junior": round(data.junior_target, 2),
+                "sophomore": round(data.sophomore_target, 2),
             },
         },
         mode=mode,
@@ -629,6 +670,14 @@ def push(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Print what would be pushed, write nothing.")
     ] = False,
+    block_from: Annotated[
+        str | None,
+        typer.Option("--from", help="Only include events on or after this ISO date."),
+    ] = None,
+    block_to: Annotated[
+        str | None,
+        typer.Option("--to", help="Only include events on or before this ISO date."),
+    ] = None,
 ) -> None:
     """Refresh the generated tabs of an existing Google Sheet, in place.
 
@@ -662,7 +711,9 @@ def push(
             )
             return
 
-    data = export_svc.build(conn, semester_id=sem.id)
+    data = export_svc.build(
+        conn, semester_id=sem.id, on_or_after=block_from, on_or_before=block_to
+    )
     tabs = _tab_values(data)
 
     # Refuse to touch a sheet whose tabs are not the ones we think they are.
@@ -786,7 +837,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
         [f"RISK {data.semester_name}"],
         legend,
         [""] * len(legend),
-        [],
+        [data.schedule_note],  # row 4: the spacer, see _write_schedule
         row1,
         row2,
     ]
@@ -808,7 +859,7 @@ def _tab_values(data: export_svc.SemesterExport) -> dict[str, list[list[str]]]:
     types = [slug for slug, _ in data.shift_type_columns if slug != "dj"]
     tally: list[list[str]] = [
         [f"SHIFT TALLY — {data.semester_name}"],
-        [TALLY_SUBTITLE],
+        [_tally_subtitle(data)],
         [],
         ["Brother", "PC", "Class"]
         + [export_svc._DISPLAY_LABEL.get(s, s.upper()) for s in types]
@@ -878,6 +929,7 @@ PDF_CSS = """
 body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1C1814; margin: 0; }
 h1 { font-size: 17pt; margin: 0 0 1mm 0; letter-spacing: .02em; }
 .sub { font-size: 8.5pt; color: #6b645c; margin: 0 0 3mm 0; }
+.note { color: #6E1F1F; font-weight: 600; }
 .key { font-size: 7.5pt; margin: 0 0 3mm 0; }
 .key span { padding: 1px 6px; margin-right: 5px; border: .3pt solid #C9C0B2; }
 table { border-collapse: collapse; width: 100%; font-size: 7pt; }
@@ -897,7 +949,7 @@ td.name { font-size: 6.8pt; }
 """
 
 
-def _pdf_html(data: export_svc.SemesterExport) -> str:
+def _pdf_html(data: export_svc.SemesterExport, *, mark_strikes: bool = True) -> str:
     """The Schedule grid as standalone HTML, for weasyprint.
 
     The PUBLIC artefact. It carries the roster and nothing else — no Tally, no
@@ -906,6 +958,12 @@ def _pdf_html(data: export_svc.SemesterExport) -> str:
     A brother needs to know which night he is working; he does not need to be
     able to audit everybody else's load, and publishing that invites exactly the
     argument the Tally exists to settle privately.
+
+    ``mark_strikes=False`` strips the LAST thing on this page that names a
+    discipline case: the orange fill, the " (strike)" suffix and the legend
+    swatch all go, and a make-up reads as an ordinary shift. The assignment
+    itself is unchanged — this only controls whether the page announces WHY
+    somebody is on it. Use it whenever the PDF leaves the exec.
     """
     from html import escape
 
@@ -921,12 +979,21 @@ def _pdf_html(data: export_svc.SemesterExport) -> str:
         '<p class="sub">Sober monitor schedule. Setup is worked in the days BEFORE the party; '
         "cleanup is the MORNING AFTER. Check the window columns — the date a shift is listed "
         "under is the party, not always the day you work.</p>",
+        (
+            f'<p class="sub note">{escape(data.schedule_note)}</p>'
+            if data.schedule_note
+            else ""
+        ),
         '<p class="key">'
         '<span style="background:#FF00FF">TUESDAY</span>'
         '<span style="background:#00FF00">FRIDAY</span>'
         '<span style="background:#FF9900">SATURDAY</span>'
-        '<span style="background:#FFB74D">(strike) = make-up shift</span>'
-        '<span style="color:#6E1F1F;font-weight:700">UNFILLED</span>'
+        + (
+            '<span style="background:#FFB74D">(strike) = make-up shift</span>'
+            if mark_strikes
+            else ""
+        )
+        + '<span style="color:#6E1F1F;font-weight:700">UNFILLED</span>'
         '<span style="color:#6b645c;font-style:italic">placeholder = may not happen</span>'
         "</p>",
         "<table><thead><tr>",
@@ -959,7 +1026,11 @@ def _pdf_html(data: export_svc.SemesterExport) -> str:
                 if v == export_svc.UNFILLED:
                     out.append('<td class="name unfilled">UNFILLED</td>')
                 elif v.endswith(export_svc.STRIKE_MARKER):
-                    out.append(f'<td class="name strike">{escape(v)}</td>')
+                    if mark_strikes:
+                        out.append(f'<td class="name strike">{escape(v)}</td>')
+                    else:
+                        plain = v[: -len(export_svc.STRIKE_MARKER)]
+                        out.append(f'<td class="name">{escape(plain)}</td>')
                 else:
                     out.append(f'<td class="name">{escape(v)}</td>')
         out.append("</tr>")
@@ -980,6 +1051,21 @@ def pdf(
     keep_html: Annotated[
         bool, typer.Option("--keep-html", help="Also write the intermediate .html.")
     ] = False,
+    mark_strikes: Annotated[
+        bool,
+        typer.Option(
+            "--strikes/--no-strikes",
+            help="Mark strike make-ups (orange fill + '(strike)'). --no-strikes hides them.",
+        ),
+    ] = True,
+    block_from: Annotated[
+        str | None,
+        typer.Option("--from", help="Only include events on or after this ISO date."),
+    ] = None,
+    block_to: Annotated[
+        str | None,
+        typer.Option("--to", help="Only include events on or before this ISO date."),
+    ] = None,
 ) -> None:
     """Render the SCHEDULE ONLY to a PDF — the public-facing artefact.
 
@@ -988,8 +1074,13 @@ def pdf(
     roster. A brother needs to know which night he is working, not to be able to
     audit everybody else's load.
 
+    ``--no-strikes`` goes one step further and drops the strike marking too, so
+    the grid names nobody's discipline. The shifts are IDENTICAL either way —
+    this changes what the page says about them, not who works.
+
     Example:
         risk export pdf --semester FA26 --out ~/Desktop/FA26-schedule.pdf
+        risk export pdf --no-strikes --out ~/Desktop/FA26-schedule.pdf
     """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
@@ -1013,11 +1104,13 @@ def pdf(
         )
         return
 
-    data = export_svc.build(conn, semester_id=sem.id)
+    data = export_svc.build(
+        conn, semester_id=sem.id, on_or_after=block_from, on_or_before=block_to
+    )
     out = out.expanduser()
     out.parent.mkdir(parents=True, exist_ok=True)
     html_path = out.with_suffix(".html")
-    html_path.write_text(_pdf_html(data), encoding="utf-8")
+    html_path.write_text(_pdf_html(data, mark_strikes=mark_strikes), encoding="utf-8")
     result = subprocess.run(  # noqa: S603
         [weasy, str(html_path), str(out)], capture_output=True, text=True, check=False
     )
@@ -1034,6 +1127,7 @@ def pdf(
             "size_kb": round(out.stat().st_size / 1024, 1),
             "events": len(data.schedule),
             "contains": "schedule grid only — no tally, no totals, no notes",
+            "strikes_marked": mark_strikes,
         },
         mode=mode,
     )

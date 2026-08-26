@@ -41,7 +41,12 @@ from risk.repos import shifts as shifts_repo
 from risk.services import fairness
 from risk.services import shift_requirements as reqs_svc
 from risk.services.eligibility import EligibleMember
-from risk.services.policy import SENIOR_QUOTA_RATIO, is_senior_in_term, quota_targets
+from risk.services.policy import (
+    SENIOR_QUOTA_RATIO,
+    SOPHOMORE_QUOTA_RATIO,
+    is_senior_in_term,
+    quota_targets,
+)
 
 pytestmark = pytest.mark.property
 
@@ -49,43 +54,60 @@ pytestmark = pytest.mark.property
 @given(
     rotation_slots=st.integers(min_value=1, max_value=5000),
     senior_count=st.integers(min_value=0, max_value=300),
-    underclass_count=st.integers(min_value=0, max_value=300),
+    junior_count=st.integers(min_value=0, max_value=300),
+    sophomore_count=st.integers(min_value=0, max_value=300),
 )
 def test_targets_conserve_the_work(
-    rotation_slots: int, senior_count: int, underclass_count: int
+    rotation_slots: int, senior_count: int, junior_count: int, sophomore_count: int
 ) -> None:
     """Q1. Sum of everyone's quota == the work there actually is.
 
     This is the property that makes a published "Target" column defensible. A
-    hardcoded pair of targets drifts the moment the roster or the calendar
+    hardcoded set of targets drifts the moment the roster or the calendar
     changes, and then the sheet asserts a total nobody is being asked to work.
+
+    It is also the property that a naive third tier breaks. Multiplying the
+    underclass target by 1.25 for sophomores AFTER a two-way solve leaves the
+    quotas summing to more than the work, so every member finishes the term
+    under 100% and the column stops meaning anything. The tier has to go into
+    the solve, which is what this asserts.
     """
-    assume(senior_count + underclass_count > 0)
-    senior_target, underclass_target = quota_targets(
+    assume(senior_count + junior_count + sophomore_count > 0)
+    senior_target, junior_target, sophomore_target = quota_targets(
         rotation_slots=rotation_slots,
         senior_count=senior_count,
-        underclass_count=underclass_count,
+        junior_count=junior_count,
+        sophomore_count=sophomore_count,
     )
-    total = senior_count * senior_target + underclass_count * underclass_target
+    total = (
+        senior_count * senior_target
+        + junior_count * junior_target
+        + sophomore_count * sophomore_target
+    )
     assert total == pytest.approx(rotation_slots, rel=1e-9)
 
 
 @given(
     rotation_slots=st.integers(min_value=1, max_value=5000),
     senior_count=st.integers(min_value=1, max_value=300),
-    underclass_count=st.integers(min_value=1, max_value=300),
+    junior_count=st.integers(min_value=1, max_value=300),
+    sophomore_count=st.integers(min_value=1, max_value=300),
 )
-def test_targets_hold_the_ratio(
-    rotation_slots: int, senior_count: int, underclass_count: int
+def test_targets_hold_the_ratios(
+    rotation_slots: int, senior_count: int, junior_count: int, sophomore_count: int
 ) -> None:
     """Q2. The whole point of the model, asserted directly."""
-    senior_target, underclass_target = quota_targets(
+    senior_target, junior_target, sophomore_target = quota_targets(
         rotation_slots=rotation_slots,
         senior_count=senior_count,
-        underclass_count=underclass_count,
+        junior_count=junior_count,
+        sophomore_count=sophomore_count,
     )
-    assert senior_target / underclass_target == pytest.approx(SENIOR_QUOTA_RATIO)
-    assert senior_target < underclass_target, "seniors must carry the smaller quota"
+    assert senior_target / junior_target == pytest.approx(SENIOR_QUOTA_RATIO)
+    assert sophomore_target / junior_target == pytest.approx(SOPHOMORE_QUOTA_RATIO)
+    assert senior_target < junior_target < sophomore_target, (
+        "seniors carry the smallest quota, sophomores the largest"
+    )
 
 
 @given(

@@ -29,7 +29,7 @@ from risk.repos import events as events_repo
 from risk.repos import members as members_repo
 from risk.repos import pledge_modes as pmodes_repo
 from risk.repos import shifts as shifts_repo
-from risk.services import availability, eligibility
+from risk.services import availability, eligibility, policy
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,16 +118,70 @@ def check(conn: sqlite3.Connection, *, shift: shifts_repo.Shift, member_id: int)
             f"(which is not always the party date — cleanup is the next morning)"
         )
 
-    clash = conn.execute(
+    # Krush and Dage bar seniors from door, bar and rides outright. Checked here
+    # as well as in the fill because the two write paths must agree: a rule the
+    # auto-assign honours and the chair's own `risk shift assign` does not is a
+    # rule that gets broken by the person most likely to be asked why.
+    # --force still lands it, with this in the warnings and on the audit row.
+    if policy.senior_is_barred(event.event_type_slug, shift.shift_type_slug):
+        member = conn.execute(
+            "SELECT class_year FROM members WHERE id = ?", (member_id,)
+        ).fetchone()
+        sem = conn.execute(
+            "SELECT starts_on FROM semesters WHERE id = ?", (event.semester_id,)
+        ).fetchone()
+        if member is not None and sem is not None:
+            term_start_year = int(sem["starts_on"][:4])
+            term_is_fall = int(sem["starts_on"][5:7]) >= 7
+            if policy.is_senior_in_term(
+                member["class_year"],
+                term_start_year=term_start_year,
+                term_is_fall=term_is_fall,
+            ):
+                problems.append(
+                    f"seniors do not work {shift.shift_type_slug} at a "
+                    f"{event.event_type_slug}"
+                )
+
+    # One COUNTED shift per member per event, plus an uncounted one (dj) on top
+    # provided it does not occupy the same hours. Mirrors the rule in
+    # assignment.auto_assign — see the long comment there. A flat "already
+    # working X at this event" was blocking a DJ from the setup crew at the
+    # party he was DJing, which is neither a clash of time (setup runs the three
+    # days up to the party, dj is 20:00-23:59) nor a clash of load (a dj night
+    # counts toward no tally).
+    want = conn.execute(
         """
-        SELECT st.slug FROM shifts s
+        SELECT st.counts_toward_tally,
+               COALESCE(w.occupies_event_night, 1) AS occupies_event_night
+        FROM shift_types st
+        LEFT JOIN shift_type_windows w ON w.shift_type_id = st.id
+        WHERE st.id = ?
+        """,
+        (shift.shift_type_id,),
+    ).fetchone()
+    held = conn.execute(
+        """
+        SELECT st.slug, st.counts_toward_tally,
+               COALESCE(w.occupies_event_night, 1) AS occupies_event_night
+        FROM shifts s
         JOIN shift_types st ON st.id = s.shift_type_id
+        LEFT JOIN shift_type_windows w ON w.shift_type_id = st.id
         WHERE s.event_id = ? AND s.assigned_member_id = ? AND s.id <> ?
         """,
         (shift.event_id, member_id, shift.id),
-    ).fetchone()
-    if clash is not None:
-        problems.append(f"already working {clash['slug']} at this event")
+    ).fetchall()
+    if want is not None:
+        for r in held:
+            if want["counts_toward_tally"] and r["counts_toward_tally"]:
+                problems.append(f"already working {r['slug']} at this event")
+                break
+            if want["occupies_event_night"] and r["occupies_event_night"]:
+                problems.append(
+                    f"already working {r['slug']} on the night of this event "
+                    f"(both are 20:00-23:59)"
+                )
+                break
     return problems
 
 
@@ -203,7 +257,12 @@ def unassign(conn: sqlite3.Connection, *, shift_id: int) -> shifts_repo.Shift:
 
 
 def clear_semester(
-    conn: sqlite3.Connection, *, semester_id: int, keep_chair_set: bool = True
+    conn: sqlite3.Connection,
+    *,
+    semester_id: int,
+    keep_chair_set: bool = True,
+    on_or_after: str | None = None,
+    on_or_before: str | None = None,
 ) -> tuple[int, int]:
     """Wipe a term's shifts before a rebuild. Returns (deleted, kept).
 
@@ -215,9 +274,29 @@ def clear_semester(
 
     ``keep_chair_set=False`` exists for the rare deliberate reset, and says what
     it is doing at the call site rather than being the accidental default.
+
+    ``on_or_after`` / ``on_or_before`` bound the wipe by EVENT DATE. Added
+    2026-08-26 with the move to fortnightly publishing, and it is the half of
+    that change that actually needed code: a chair rebuilding 30 Aug onward must
+    not touch the week already sent out, because those brothers have been told
+    what they are working and a missed shift is a strike. Without a bound the
+    only available operation was "clear the whole term", which is precisely the
+    unbounded delete this function exists to replace — one date wrong and a
+    published weekend evaporates.
+
+    The auto-assign audit rows are deleted over the same range, not the whole
+    term, so a run record survives for the events that were left alone.
     """
-    where = "event_id IN (SELECT id FROM events WHERE semester_id = ?)"
+    where = "event_id IN (SELECT id FROM events WHERE semester_id = ?"
     params: list[object] = [semester_id]
+    if on_or_after is not None:
+        where += " AND date >= ?"
+        params.append(on_or_after)
+    if on_or_before is not None:
+        where += " AND date <= ?"
+        params.append(on_or_before)
+    where += ")"
+
     kept = 0
     if keep_chair_set:
         kept = int(
@@ -226,13 +305,9 @@ def clear_semester(
                 params,
             ).fetchone()["n"]
         )
-        where += " AND chair_set = 0"
-    deleted = conn.execute(f"DELETE FROM shifts WHERE {where}", params).rowcount
-    conn.execute(
-        """
-        DELETE FROM auto_assign_runs
-        WHERE event_id IN (SELECT id FROM events WHERE semester_id = ?)
-        """,
-        (semester_id,),
-    )
+    deleted = conn.execute(
+        f"DELETE FROM shifts WHERE {where}" + (" AND chair_set = 0" if keep_chair_set else ""),
+        params,
+    ).rowcount
+    conn.execute(f"DELETE FROM auto_assign_runs WHERE {where}", params)
     return deleted, kept

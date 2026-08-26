@@ -255,11 +255,19 @@ def test_pledge_class_beats_slug_alpha_order(db: sqlite3.Connection) -> None:
 def test_unknown_class_year_sorts_last_on_tie(db: sqlite3.Connection) -> None:
     """An unrecorded class_year is neutral on score and last on the tiebreak.
 
-    ``is_senior_in_term`` reads None as an underclassman, so the unknown member
-    draws the SAME (larger) target as the known 2028 — deliberately, since
-    over-working an unrecorded member is the direction that gets noticed and
-    corrected. Both idle, so both score 0.0 and the chain runs, where None sorts
-    behind any real year.
+    None lands in the JUNIOR tier: not a senior (``is_senior_in_term`` reads it
+    as False) and not a sophomore either (``is_sophomore_or_younger_in_term``
+    likewise). The middle target, so a member whose year nobody recorded is
+    neither the lightest nor the heaviest quota in the chapter and the error is
+    small in whichever direction it turns out to be wrong.
+
+    The known member is therefore a 2027 — a junior in this SP26 term, where the
+    graduating year is 2026. It used to be a 2028, which the two-tier model also
+    put on the junior target; the sophomore tier moved 2028 to a 1.25x target and
+    the "real tie" this test is built on stopped being one.
+
+    Both idle, so both score 0.0 and the chain runs, where None sorts behind any
+    real year.
     """
     sem_id, status_id = _seed(db)
     unknown = _make_member(
@@ -276,11 +284,12 @@ def test_unknown_class_year_sorts_last_on_tie(db: sqlite3.Connection) -> None:
         sem_id=sem_id,
         status_id=status_id,
         slug="known",
-        class_year=2028,
+        class_year=2027,
         pledge_class=None,
         n_shifts=0,
     )
     quota = fairness.build_quota_context(db, semester_id=sem_id)
+    assert quota.target_for(None) == quota.junior_target, "unrecorded year sits in the middle tier"
     scored = fairness.sort_by_fairness(
         db, pool=[unknown, known], semester_id=sem_id, event_date=EVENT_DATE, quota=quota
     )

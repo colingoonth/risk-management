@@ -33,7 +33,11 @@ from datetime import timedelta
 
 from risk.repos import chair_notes as notes_repo
 from risk.repos import events as events_repo
-from risk.services.policy import is_senior_in_term, quota_targets
+from risk.services.policy import (
+    is_senior_in_term,
+    is_sophomore_or_younger_in_term,
+    quota_targets,
+)
 
 STRIKE_MARKER = " (strike)"
 """Appended to a name working off a strike.
@@ -45,6 +49,17 @@ Aug 28 and then finds a total that does not include it.
 """
 
 UNFILLED = "*** UNFILLED ***"
+
+HOUSE_UNDECIDED = "NA"
+"""Shown when an event has no host house on it.
+
+Was "(off-site)", which asserted a fact the database does not hold. A NULL
+host_house_id means nobody has SAID where the party is; it does not mean the
+party is off-site, and 40 of FA26's 44 events were reading as a settled
+off-site decision that had never been made. "NA" says the true thing — not
+decided yet — and stops the chapter planning around a venue call nobody took.
+Colin 2026-08-23.
+"""
 """What an empty required slot says.
 
 Never a blank. A blank cell cannot be told apart from "this party does not need
@@ -103,7 +118,7 @@ class TallyRow:
     hold two shifts at one party (HANDOFF permits DJ plus setup or cleanup), and
     adding the columns would report him as being there twice.
 
-    Exists because TOTAL alone libels the DJs. one DJ stands 21 DJ nights
+    Exists because TOTAL alone libels the DJs. One DJ stands 21 DJ nights
     and one strike make-up, none of which is rotation work, so his TOTAL is 0
     against a target of 5.1 — printed beside a sophomore on 16 that reads as
     somebody who skated, and the DJ column that explains it is three columns to
@@ -154,7 +169,42 @@ class SemesterExport:
     shift_type_columns: list[tuple[str, int]] = field(default_factory=list)
     column_headers: dict[str, str] = field(default_factory=dict)
     senior_target: float = 0.0
-    underclass_target: float = 0.0
+    junior_target: float = 0.0
+    sophomore_target: float = 0.0
+    effort_weights: dict[str, float] = field(default_factory=dict)
+    """Live ``shift_types.effort_weight`` by slug.
+
+    Carried on the export so the Tally caption can STATE the weighting instead
+    of asserting a number somebody typed once. It shipped "a setup counts 0.7 …
+    so 17 setups is a full quota" to the exec for four days after the weights
+    were retuned to 0.4, which is the same class of bug as the two vs-target
+    code paths that drifted: a fact about the model, written down a second time,
+    somewhere nothing recomputes it.
+    """
+    schedule_note: str = ""
+    """A banner rendered directly above the Schedule grid, or empty.
+
+    Set only when the PUBLISHED range actually contains a placeholder, so a
+    block of nothing but confirmed parties does not carry a paragraph about
+    held dates that are not on it. A standing caption everyone has learned to
+    skip is worth less than one that only appears when it is true.
+    """
+
+
+
+PLACEHOLDER_NOTE = (
+    "PLACEHOLDER rows are HELD DATES, not confirmed parties — about half do not happen. "
+    "If yours is called off you are the first cover: anyone listed on a placeholder may be "
+    "pulled onto another night when somebody cannot make their shift. Do not assume you are "
+    "off until the date has passed."
+)
+"""The caption above the Schedule grid when the published block holds a placeholder.
+
+Colin's instruction, 2026-08-26, on deciding to publish the 18 Sep placeholder
+rather than hide it. Defined once here and rendered by all three surfaces —
+xlsx, the Sheets push and the PDF — because a sentence the chapter is asked to
+act on cannot say three slightly different things depending on where it is read.
+"""
 
 
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -271,8 +321,32 @@ def _class_label(class_year: int | None, *, term_start_year: int, term_is_fall: 
     )
 
 
-def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
-    """Assemble every row of the export in a handful of queries."""
+def build(
+    conn: sqlite3.Connection,
+    *,
+    semester_id: int,
+    on_or_after: str | None = None,
+    on_or_before: str | None = None,
+) -> SemesterExport:
+    """Assemble every row of the export in a handful of queries.
+
+    ``on_or_after`` / ``on_or_before`` narrow the SCHEDULE grid and the
+    By-Brother rows to one published block. Added 2026-08-26 with fortnightly
+    publishing: past the first block the calendar is deliberately unfilled, and
+    a grid of 44 parties with 37 empty rows does not read as "not built yet", it
+    reads as "nobody is working these", which is the more alarming of the two.
+
+    Filtered by DATE, never by "has an assignment". An event that failed to fill
+    must still appear, loudly and empty — a party quietly dropping off the
+    schedule because nobody was seated on it is the single worst thing this
+    export could do.
+
+    THE TALLY IS NOT FILTERED, and that is deliberate. It reports progress
+    against a SEASON target, so restricting it to a fortnight would print
+    everybody at roughly a seventh of their quota and make the "vs target"
+    column meaningless. Season totals, block schedule — the two questions the
+    sheet answers are on different clocks.
+    """
     sem = conn.execute(
         "SELECT name, starts_on FROM semesters WHERE id = ?", (semester_id,)
     ).fetchone()
@@ -351,6 +425,10 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
 
     schedule: list[ScheduleRow] = []
     for event in events_repo.list_for_semester(conn, semester_id):
+        if on_or_after is not None and event.date < on_or_after:
+            continue
+        if on_or_before is not None and event.date > on_or_before:
+            continue
         targets = requirements.get(event.id, {})
         cells: dict[tuple[str, int], str] = {}
         needed = filled = 0
@@ -377,7 +455,7 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
                 # concern; the reader already has the date in column A.
                 display_name=event.display_name.split(" (2")[0],
                 event_type=event.event_type_slug,
-                host_house=event.host_house_slug or "(off-site)",
+                host_house=event.host_house_slug or HOUSE_UNDECIDED,
                 planning_status=event.planning_status,
                 setup_window=_describe_window(setup_w, event.date),
                 # Cleanup is the MORNING AFTER. Every text surface in this app
@@ -390,7 +468,7 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
             )
         )
 
-    senior_target, underclass_target = _targets(conn, semester_id=semester_id)
+    senior_target, junior_target, sophomore_target = _targets(conn, semester_id=semester_id)
     tally, by_brother = _build_member_rows(
         conn,
         semester_id=semester_id,
@@ -398,8 +476,15 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
         term_is_fall=term_is_fall,
         windows=windows,
         senior_target=senior_target,
-        underclass_target=underclass_target,
+        junior_target=junior_target,
+        sophomore_target=sophomore_target,
     )
+    # By Brother answers "which nights am I working", so it follows the block.
+    # The Tally above does NOT — see the docstring.
+    if on_or_after is not None:
+        by_brother = [r for r in by_brother if r.date >= on_or_after]
+    if on_or_before is not None:
+        by_brother = [r for r in by_brother if r.date <= on_or_before]
     notes = [
         NoteRow(
             kind=n.kind,
@@ -413,6 +498,15 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
     ]
     return SemesterExport(
         semester_name=sem["name"],
+        effort_weights={
+            r["slug"]: float(r["effort_weight"])
+            for r in conn.execute("SELECT slug, effort_weight FROM shift_types")
+        },
+        schedule_note=(
+            PLACEHOLDER_NOTE
+            if any(r.planning_status == "placeholder" for r in schedule)
+            else ""
+        ),
         schedule=schedule,
         tally=tally,
         by_brother=by_brother,
@@ -420,15 +514,16 @@ def build(conn: sqlite3.Connection, *, semester_id: int) -> SemesterExport:
         shift_type_columns=shift_type_columns,
         column_headers=column_headers,
         senior_target=senior_target,
-        underclass_target=underclass_target,
+        junior_target=junior_target,
+        sophomore_target=sophomore_target,
     )
 
 
-def _targets(conn: sqlite3.Connection, *, semester_id: int) -> tuple[float, float]:
+def _targets(conn: sqlite3.Connection, *, semester_id: int) -> tuple[float, float, float]:
     from risk.services import fairness
 
     q = fairness.build_quota_context(conn, semester_id=semester_id)
-    return q.senior_target, q.underclass_target
+    return q.senior_target, q.junior_target, q.sophomore_target
 
 
 def _build_member_rows(
@@ -439,7 +534,8 @@ def _build_member_rows(
     term_is_fall: bool,
     windows: dict[str, sqlite3.Row],
     senior_target: float,
-    underclass_target: float,
+    junior_target: float,
+    sophomore_target: float,
 ) -> tuple[list[TallyRow], list[ShiftRow]]:
     """The Tally and By-Brother tabs, from one pass over every assigned shift.
 
@@ -528,6 +624,19 @@ def _build_member_rows(
         senior = is_senior_in_term(
             m["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
         )
+        # Same precedence as fairness.QuotaContext.target_for, and it has to
+        # stay the same: this number is what the sheet PRINTS beside his name,
+        # and the fill divides by the other one. Two of these drifted once
+        # already (the vs-target column) and shipped a wrong percentage to the
+        # chapter.
+        if senior:
+            member_target = senior_target
+        elif is_sophomore_or_younger_in_term(
+            m["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+        ):
+            member_target = sophomore_target
+        else:
+            member_target = junior_target
         tally.append(
             TallyRow(
                 display_name=m["display_name"],
@@ -541,7 +650,7 @@ def _build_member_rows(
                 nights_on_site=len(nights),
                 # An exempt officer has no quota. Printing one would invite the
                 # reading that he is 100% under target rather than out of scope.
-                target=0.0 if m["exempt"] else (senior_target if senior else underclass_target),
+                target=0.0 if m["exempt"] else member_target,
                 exempt=bool(m["exempt"]),
                 note=m["notes"] or "",
             )
@@ -552,11 +661,12 @@ def _build_member_rows(
 
 
 def quota_preview(
-    *, rotation_slots: int, senior_count: int, underclass_count: int
-) -> tuple[float, float]:
+    *, rotation_slots: int, senior_count: int, junior_count: int, sophomore_count: int = 0
+) -> tuple[float, float, float]:
     """Re-exported so a caller can show the targets without a database."""
     return quota_targets(
         rotation_slots=rotation_slots,
         senior_count=senior_count,
-        underclass_count=underclass_count,
+        junior_count=junior_count,
+        sophomore_count=sophomore_count,
     )

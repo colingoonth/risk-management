@@ -196,7 +196,7 @@ def _assigned_rows(db: sqlite3.Connection, semester_id: int) -> list[sqlite3.Row
     return db.execute(
         """
         SELECT s.id, s.event_id, s.slot_index, s.assigned_member_id,
-               st.slug AS shift_slug, e.date, e.host_house_id
+               st.slug AS shift_slug, st.counts_toward_tally, e.date, e.host_house_id
         FROM shifts s
         JOIN events e ON e.id = s.event_id
         JOIN shift_types st ON st.id = s.shift_type_id
@@ -231,24 +231,68 @@ def test_every_slot_is_filled(filled_semester: tuple) -> None:
     assert len(_assigned_rows(db, sem_id)) == required
 
 
-def test_nobody_works_two_shifts_at_one_event(filled_semester: tuple) -> None:
-    """One body cannot staff two posts at the same party.
+def test_nobody_works_two_counted_shifts_at_one_event(filled_semester: tuple) -> None:
+    """One body cannot take two TURNS at the same party.
 
     The partial unique index only forbids the same member twice on the same
     *shift type*; door + setup for one person is legal at the schema level and
     is prevented in ``assignment`` instead. That makes this an assertion about
     the service, not the database.
+
+    COUNTED shifts specifically, since 2026-08-26. A dj night counts toward no
+    tally, so a DJ who also takes setup still has exactly one turn — the same as
+    everybody else — and blocking him was charging him a whole event for a shift
+    the ledger does not record. What must never happen is two shifts that both
+    count. See ``test_nobody_stands_two_posts_on_the_party_night`` for the other
+    half of the rule.
     """
     db, sem_id, _, _ = filled_semester
     per_event: dict[int, Counter[int]] = defaultdict(Counter)
     for row in _assigned_rows(db, sem_id):
-        per_event[row["event_id"]][row["assigned_member_id"]] += 1
+        if row["counts_toward_tally"]:
+            per_event[row["event_id"]][row["assigned_member_id"]] += 1
     doubles = {
         event_id: [m for m, n in counts.items() if n > 1]
         for event_id, counts in per_event.items()
         if any(n > 1 for n in counts.values())
     }
     assert doubles == {}
+
+
+def test_nobody_stands_two_posts_on_the_party_night(filled_semester: tuple) -> None:
+    """The physical half of the rule: one man, one place, 20:00-23:59.
+
+    Relaxing the flat one-per-event rule to let a DJ also work setup is only
+    safe because setup and cleanup happen on OTHER DAYS. Two shifts that both
+    carry ``occupies_event_night`` are the same hours, and no relaxation may
+    ever permit that pair — a DJ on the door is one man at two posts.
+
+    Keyed on the ``occupies_event_night`` FLAG rather than on comparing times,
+    for the reason migration 0012 gives: setup's window is ~72h wide and would
+    look like it overlaps the party if you only compared clocks.
+    """
+    db, sem_id, _, _ = filled_semester
+    per_event: dict[int, Counter[int]] = defaultdict(Counter)
+    for row in db.execute(
+        """
+        SELECT s.assigned_member_id, s.event_id
+        FROM shifts s
+        JOIN events e ON e.id = s.event_id
+        JOIN shift_types st ON st.id = s.shift_type_id
+        LEFT JOIN shift_type_windows w ON w.shift_type_id = st.id
+        WHERE e.semester_id = ?
+          AND s.assigned_member_id IS NOT NULL
+          AND COALESCE(w.occupies_event_night, 1) = 1
+        """,
+        (sem_id,),
+    ):
+        per_event[row["event_id"]][row["assigned_member_id"]] += 1
+    doubles = {
+        event_id: [m for m, n in counts.items() if n > 1]
+        for event_id, counts in per_event.items()
+        if any(n > 1 for n in counts.values())
+    }
+    assert doubles == {}, "somebody is standing two posts at once on a party night"
 
 
 def test_hard_exempt_officers_hold_zero_shifts(filled_semester: tuple) -> None:
