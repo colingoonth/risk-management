@@ -17,10 +17,12 @@ import secrets
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import date as _date
 
 from risk.repos import auto_assign_runs as runs_repo
 from risk.repos import event_shift_requirements as req_repo
 from risk.repos import events as events_repo
+from risk.repos import member_shift_preferences as member_prefs_repo
 from risk.repos import qualifications as quals_repo
 from risk.repos import shifts as shifts_repo
 from risk.repos import strikes as strikes_repo
@@ -521,6 +523,34 @@ def auto_assign(
                 f"shift's window ({elig_window_label(conn, req.shift_type_id, event.date)})"
             )
         type_pool = available
+
+        # Per-member steers: "not rides at all", "door on a Tuesday not a
+        # Friday", "no night post at a Krush". Soft ones join the same
+        # deprioritized tier as everything else here, so the man is taken only
+        # when the post would otherwise stand empty — the honest reading of "try
+        # to avoid". Hard ones are removed outright.
+        #
+        # This is what replaced the blanket sports steer the chair reversed on
+        # 2026-08-26. That version pinned eleven men to setup for the whole term
+        # via season-long unavailability rows and made them unhappy enough to be
+        # withdrawn; these are per person, per shift type, and individually
+        # removable. See migration 0023.
+        pref_soft, pref_hard = member_prefs_repo.matching(
+            conn,
+            semester_id=event.semester_id,
+            shift_type_id=req.shift_type_id,
+            weekday=_date.fromisoformat(event.date).weekday(),
+            event_type_id=event.event_type_id,
+        )
+        if pref_hard:
+            before = len(type_pool)
+            type_pool = [m for m in type_pool if m.member_id not in pref_hard]
+            if before != len(type_pool):
+                warnings.append(
+                    f"{req.shift_type_slug}: {before - len(type_pool)} member(s) "
+                    f"hard-steered off this shift"
+                )
+        deprioritized |= pref_soft & {m.member_id for m in type_pool}
 
         # Krush and Dage: seniors do not stand door, bar or rides.
         #

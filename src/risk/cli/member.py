@@ -15,6 +15,7 @@ from risk.repos import houses as houses_repo
 from risk.repos import member_house_assignments as mha_repo
 from risk.repos import member_qualifications as mq_repo
 from risk.repos import member_roles as mr_repo
+from risk.repos import member_shift_preferences as prefs_repo
 from risk.repos import member_statuses as statuses_repo
 from risk.repos import members as repo
 from risk.repos import qualifications as quals_repo
@@ -353,6 +354,121 @@ def set_notes(
     updated = repo.get_by_id(conn, m.id)
     assert updated is not None
     emit_success({"member": updated.slug, "notes": updated.notes}, mode=mode)
+
+
+@app.command("avoid")
+def avoid(
+    ctx: typer.Context,
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    shift_type: Annotated[str, typer.Argument(help="Shift type slug, e.g. 'driver'.")],
+    weekday: Annotated[
+        str | None,
+        typer.Option("--weekday", help="Limit to one day: mon/tue/wed/thu/fri/sat/sun."),
+    ] = None,
+    event_type: Annotated[
+        str | None, typer.Option("--event-type", help="Limit to one event type, e.g. 'krush'.")
+    ] = None,
+    hard: Annotated[
+        bool, typer.Option("--hard", help="Never assign it, rather than avoid it.")
+    ] = False,
+    reason: Annotated[str | None, typer.Option("--reason")] = None,
+    semester: Annotated[str | None, typer.Option("--semester")] = None,
+) -> None:
+    """Steer a member off a shift type, optionally only on a day or event type.
+
+    SOFT by default: he sorts behind everyone else for that shift and is taken
+    only if the post would otherwise stand empty. That is what "try to avoid"
+    means, and it can never leave a slot unstaffed. ``--hard`` removes him.
+
+    One steer per row, so each is removable on its own as somebody's situation
+    changes. "No rides, and door on Tuesdays rather than Fridays" is three rows:
+    avoid driver; avoid door --weekday fri; avoid door --weekday sat.
+
+    Examples:
+        risk member avoid first-last driver --reason "asked not to drive"
+        risk member avoid first-last door --weekday fri
+        risk member avoid first-last door --event-type krush --hard
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    m = repo.resolve(conn, member)
+    if m is None:
+        emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+        return
+    st = conn.execute("SELECT id FROM shift_types WHERE slug = ?", (shift_type,)).fetchone()
+    if st is None:
+        emit_error("shift_type.not_found", f"No shift type {shift_type!r}.", mode=mode)
+        return
+    day_index = None
+    if weekday is not None:
+        days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        if weekday.lower()[:3] not in days:
+            emit_error("member.bad_request", f"Bad weekday {weekday!r}.", mode=mode)
+            return
+        day_index = days.index(weekday.lower()[:3])
+    et_id = None
+    if event_type is not None:
+        et = conn.execute("SELECT id FROM event_types WHERE slug = ?", (event_type,)).fetchone()
+        if et is None:
+            emit_error("event_type.not_found", f"No event type {event_type!r}.", mode=mode)
+            return
+        et_id = et["id"]
+    sem_id = _resolve_semester(conn, mode, semester)
+    with transaction(conn):
+        pref_id = prefs_repo.add(
+            conn,
+            member_id=m.id,
+            semester_id=sem_id,
+            shift_type_id=st["id"],
+            weekday=day_index,
+            event_type_id=et_id,
+            is_hard=hard,
+            reason=reason,
+        )
+    added = next(
+        p for p in prefs_repo.list_for_semester(conn, semester_id=sem_id) if p.id == pref_id
+    )
+    emit_success({"id": pref_id, "member": m.slug, "steer": added.describe()}, mode=mode)
+
+
+@app.command("unavoid")
+def unavoid(
+    ctx: typer.Context,
+    preference_id: Annotated[int, typer.Argument(help="Steer ID, from `member avoids`.")],
+) -> None:
+    """Drop one steer."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    with transaction(conn):
+        removed = prefs_repo.remove(conn, preference_id=preference_id)
+    emit_success({"removed": removed}, mode=mode)
+
+
+@app.command("avoids")
+def avoids(
+    ctx: typer.Context,
+    member: Annotated[str | None, typer.Argument(help="Member; omit for the whole chapter.")] = None,
+    semester: Annotated[str | None, typer.Option("--semester")] = None,
+) -> None:
+    """List the per-member steers in force."""
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    member_id = None
+    if member is not None:
+        m = repo.resolve(conn, member)
+        if m is None:
+            emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+            return
+        member_id = m.id
+    sem_id = _resolve_semester(conn, mode, semester)
+    rows = prefs_repo.list_for_semester(conn, semester_id=sem_id, member_id=member_id)
+    emit_success(
+        [
+            {"id": p.id, "member": p.member_display_name, "steer": p.describe(), "reason": p.reason}
+            for p in rows
+        ],
+        mode=mode,
+    )
 
 
 @app.command("set-risk-class")
