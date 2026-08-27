@@ -546,7 +546,9 @@ def _build_member_rows(
     """
     members = conn.execute(
         """
-        SELECT m.id, m.display_name, m.pledge_class, m.class_year, m.notes,
+        SELECT m.id, m.display_name, m.pledge_class, m.class_year,
+               COALESCE(m.risk_class_year, m.class_year) AS quota_class_year,
+               m.notes,
                EXISTS(
                  SELECT 1 FROM member_roles mr JOIN roles r ON r.id = mr.role_id
                  WHERE mr.member_id = m.id AND mr.semester_id = ?
@@ -621,8 +623,13 @@ def _build_member_rows(
                     is_strike=is_strike,
                 )
             )
+        # QUOTA year for the target, ROSTER year for the label above. A chair
+        # override changes what a member is held to; it does not change what
+        # class he is in, and printing "Junior" beside a sophomore would be the
+        # sheet lying about the roster to explain a number.
+        quota_year = m["quota_class_year"]
         senior = is_senior_in_term(
-            m["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+            quota_year, term_start_year=term_start_year, term_is_fall=term_is_fall
         )
         # Same precedence as fairness.QuotaContext.target_for, and it has to
         # stay the same: this number is what the sheet PRINTS beside his name,
@@ -632,7 +639,7 @@ def _build_member_rows(
         if senior:
             member_target = senior_target
         elif is_sophomore_or_younger_in_term(
-            m["class_year"], term_start_year=term_start_year, term_is_fall=term_is_fall
+            quota_year, term_start_year=term_start_year, term_is_fall=term_is_fall
         ):
             member_target = sophomore_target
         else:

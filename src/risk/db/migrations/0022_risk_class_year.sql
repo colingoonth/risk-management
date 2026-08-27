@@ -1,0 +1,33 @@
+-- A member's class year for QUOTA purposes, when the chair has decided it
+-- differs from the one on the roster.
+--
+-- Mark Mauriello graduates in 2029, which makes him a sophomore, which under
+-- SOPHOMORE_QUOTA_RATIO is the heaviest tier in the chapter. The chair wants
+-- him held to the junior quota instead. That is a legitimate call for a chair
+-- to make and there was no way to record it.
+--
+-- WHY AN EFFECTIVE YEAR rather than a "tier" column. Every question the quota
+-- model asks — which tier is he in, how many of each tier are in the pool, who
+-- goes first when scores tie — is already a pure function of class_year. An
+-- override of that ONE value answers all of them consistently and needs no new
+-- branch anywhere. A separate tier enum would have to be threaded into the
+-- seniority predicates, the pool counts and the tiebreak chain independently,
+-- and the three would eventually disagree.
+--
+-- IT MUST ALSO MOVE HIM IN THE DENOMINATOR. quota_targets solves for targets
+-- that sum to exactly the work that exists; giving one member a junior target
+-- while still counting him among the sophomores breaks that conservation and
+-- every published "vs target" percentage silently stops adding up. So the pool
+-- count in fairness.build_quota_context reads the same COALESCE this column
+-- feeds, not the raw class_year.
+--
+-- The ROSTER IS NOT REWRITTEN. class_year stays 2029, the Tally still prints
+-- "Sophomore" beside his name, and only the target differs. Editing the real
+-- year would have been one UPDATE and would have quietly lied to every surface
+-- that displays a class, including the sheet the chapter reads.
+-- NO ALTER HERE, deliberately. Every migration in this directory is REPLAYED
+-- on every connect, so a bare ALTER succeeds once and aborts the whole script
+-- forever after. Columns take the two-place route the rest of this schema uses:
+-- declared in the original CREATE TABLE (0005) so fresh databases carry it, and
+-- listed in schema._RECONCILED_COLUMNS so existing ones get it by ALTER exactly
+-- once. This file is the reasoning; that pair is the mechanism.

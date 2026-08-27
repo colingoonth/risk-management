@@ -200,7 +200,7 @@ def build_quota_context(conn: sqlite3.Connection, *, semester_id: int) -> QuotaC
 
     pool = conn.execute(
         """
-        SELECT m.class_year
+        SELECT COALESCE(m.risk_class_year, m.class_year) AS class_year
         FROM members m
         JOIN member_statuses ms ON ms.id = m.status_id
         WHERE ms.excludes_from_assignment = 0

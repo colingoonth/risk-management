@@ -355,6 +355,65 @@ def set_notes(
     emit_success({"member": updated.slug, "notes": updated.notes}, mode=mode)
 
 
+@app.command("set-risk-class")
+def set_risk_class(
+    ctx: typer.Context,
+    member: Annotated[str, typer.Argument(help="Member slug, ID, or alias.")],
+    year: Annotated[
+        int | None,
+        typer.Option("--year", help="Graduation year to hold him to for QUOTA purposes."),
+    ] = None,
+    clear: Annotated[
+        bool, typer.Option("--clear", help="Drop the override; go back to his real class year.")
+    ] = False,
+) -> None:
+    """Hold a member to a different class year's QUOTA than his own.
+
+    The roster is not rewritten. ``class_year`` still says what it said, the
+    Tally still prints his real class, and only the TARGET he is measured
+    against changes — along with his place in the younger-first tiebreak, which
+    reads the same effective year so the two cannot disagree.
+
+    It also moves him in the DENOMINATOR. Targets are solved so they sum to
+    exactly the work that exists, so a member given a junior target while still
+    counted among the sophomores would break that and quietly wrong every
+    published percentage. One value, read everywhere.
+
+    Say WHY in `risk member set-notes` — the Tally prints it beside his name,
+    and a target that differs from his classmates' with no reason next to it is
+    the cell that starts an argument.
+
+    Example:
+        risk member set-risk-class first-last --year 2028
+        risk member set-risk-class first-last --clear
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    m = repo.resolve(conn, member)
+    if m is None:
+        emit_error("member.not_found", f"Could not resolve {member!r}.", mode=mode)
+        return
+    if not clear and year is None:
+        emit_error("member.bad_request", "Pass --year YYYY or --clear.", mode=mode)
+        return
+    with transaction(conn):
+        conn.execute(
+            "UPDATE members SET risk_class_year = ? WHERE id = ?",
+            (None if clear else year, m.id),
+        )
+    row = conn.execute(
+        "SELECT class_year, risk_class_year FROM members WHERE id = ?", (m.id,)
+    ).fetchone()
+    emit_success(
+        {
+            "member": m.slug,
+            "class_year": row["class_year"],
+            "risk_class_year": row["risk_class_year"],
+        },
+        mode=mode,
+    )
+
+
 @app.command("add-alias")
 def add_alias(
     ctx: typer.Context,

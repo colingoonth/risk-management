@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS members (
   -- NOT lexical, so it stays a free-form nullable TEXT label here. Legacy DBs
   -- created before this column existed are reconciled by schema._ensure_columns.
   pledge_class TEXT NULL,
+  -- The class year used for QUOTA ONLY, when the chair has ruled a member sits
+  -- in a different tier than his graduation year implies. NULL means "use
+  -- class_year", which is every member but the handful ruled on. See 0022.
+  risk_class_year INTEGER NULL,
   notes TEXT NULL,
   CHECK (slug GLOB '[a-z]*' AND slug NOT GLOB '*[^a-z0-9_-]*'),
   CHECK (class_year IS NULL OR (class_year BETWEEN 2000 AND 2100))

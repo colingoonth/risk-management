@@ -109,7 +109,11 @@ def eligible_for(
           m.id AS member_id,
           m.slug AS member_slug,
           m.display_name,
-          m.class_year,
+          -- The QUOTA year, not necessarily the roster year. NULL
+          -- risk_class_year (almost everyone) falls through to class_year.
+          -- Applied here rather than at each use so the tier, the pool counts
+          -- and the younger-first tiebreak cannot disagree about a member.
+          COALESCE(m.risk_class_year, m.class_year) AS class_year,
           m.pledge_class,
           ms.excludes_from_assignment AS status_excludes,
           mha.house_id AS member_house_id,

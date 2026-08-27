@@ -40,6 +40,11 @@ MIGRATIONS_DIR = _migrations_dir()
 # byte-identical to a from-files replay).
 _RECONCILED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("members", "pledge_class", "TEXT"),
+    # 0022. The class year used for QUOTA ONLY, when the chair has ruled a
+    # member sits in a different tier than his graduation year implies. Nullable
+    # with no default: NULL means "use class_year", which is every member but
+    # the handful the chair has ruled on.
+    ("members", "risk_class_year", "INTEGER"),
     # Phase 7 unavailability v2. Back-filled without the CHECK constraints the
     # CREATE TABLE carries — SQLite cannot add a CHECK via ALTER. Format is
     # validated in the service layer, so legacy DBs are guarded there instead.
