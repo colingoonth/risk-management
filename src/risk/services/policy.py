@@ -98,6 +98,63 @@ affordable.
 """
 
 
+SENIOR_NIGHT_TYPE_HARD_CAPS: dict[str, int] = {"driver": 2}
+"""Per-SEASON ceiling a senior may not pass, as opposed to the soft target below.
+
+Colin, 2026-08-30: "Id like to have seniors at max 2 rides a sem but pref 1."
+Two numbers, so two mechanisms. The preference is SENIOR_NIGHT_TYPE_CAPS below,
+which sorts a senior on his second rides shift behind everyone and lets him
+through only if the post would otherwise be empty. This is the ceiling: at three
+he is removed from the pool outright.
+
+Hard is defensible here in a way it is not for the Krush ban, because the
+constraint is on ONE MAN rather than on a whole class. Removing every senior can
+strand a post; removing the individuals who have already driven twice cannot,
+because the underclassmen and every senior under the cap are still in the pool.
+
+Only rides. Door has a soft cap and no ceiling — standing at a door is not the
+job anybody was complaining about.
+"""
+
+MAX_SENIOR_FRACTION_PER_EVENT = 0.4
+"""Most of one event's counted slots that may go to seniors.
+
+"Seniors can now work but dont like flood it with just seniors." Measured on the
+first build after the block-1 senior steer was lifted, without this: 8 Sep, 11
+Sep, 12 Sep and 26 Sep each came out at ten or eleven seniors from twelve slots,
+while 15, 18, 19 and 22 Sep had none at all. Entire nights staffed by the class
+that works least, and entire nights with none of them.
+
+That is the ratio model behaving correctly and looking terrible. Holding seniors
+out of a block leaves every one of them on a score of zero, so when the steer
+lifts they are all at the front of the queue at once, fill their small season
+quota in a burst, and then disappear for the rest of the term. Nothing was
+wrong with any individual assignment; the DISTRIBUTION was indefensible.
+
+A fraction rather than a count because events are not the same size — twelve
+slots on a mixer, fifteen on a dage. 0.4 of twelve is four, which is close to
+the proportionate share of a pool that is 46% senior but carries a 0.30 quota
+ratio, and it leaves the majority of every crew to everyone else.
+
+Like every other cap here it YIELDS rather than strand a post.
+"""
+
+MAX_SENIORS_PER_EVENT_SHIFT: dict[str, int] = {"driver": 1}
+"""Most seniors allowed on ONE crew at ONE event.
+
+"Try to keep seniors off rides or at least not 2 seniors on one ride shift."
+The season caps above limit what any single man works; they say nothing about
+who he works it WITH, so three seniors under their own caps could still crew the
+same night's rides between them. Rides is the job the seniors like least and the
+one where a thin crew is most visible, so a night staffed entirely by seniors is
+exactly the picture this is meant to prevent.
+
+Applied while seating, not while filtering: the count is of seniors already
+placed on THIS shift type at THIS event, so the cap binds on the crew being
+built rather than on the pool. If the remaining pool holds nobody else, the slot
+is still filled — an unstaffed rides post is worse than two seniors on one.
+"""
+
 SENIOR_NIGHT_TYPE_CAPS: dict[str, int] = {"door": 1, "driver": 1}
 """Per-SEASON soft cap on the party-night posts a senior is steered into.
 

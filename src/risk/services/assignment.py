@@ -461,6 +461,32 @@ def auto_assign(
         if a.member_id is not None and a.shift_type_slug in slug_to_type_id:
             _remember(a.member_id, slug_to_type_id[a.shift_type_slug])
 
+    def _is_senior(m: eligibility.EligibleMember) -> bool:
+        return policy.is_senior_in_term(
+            m.class_year,
+            term_start_year=quota.term_start_year,
+            term_is_fall=quota.term_is_fall,
+        )
+
+    # Seniors seated at this EVENT so far, across every counted shift type, and
+    # the ceiling for it. Event-scoped rather than per-crew: the crew cap stops
+    # one rides team being all seniors, this stops a whole NIGHT being all
+    # seniors. See policy.MAX_SENIOR_FRACTION_PER_EVENT.
+    counted_slots_here = sum(
+        r.target_count for r in requirements if type_flags.get(r.shift_type_id, (True, True))[0]
+    )
+    senior_slots_allowed = int(counted_slots_here * policy.MAX_SENIOR_FRACTION_PER_EVENT)
+    seniors_at_event = 0
+
+    def _worked_type(member_id: int, shift_type_id: int) -> int:
+        return shifts_repo.count_of_shift_type_in_semester_through_date(
+            conn,
+            member_id=member_id,
+            semester_id=event.semester_id,
+            shift_type_id=shift_type_id,
+            on_or_before=event.date,
+        )
+
     for req in sorted(requirements, key=fill_order):
         type_pool = _pool_for_mode(pool, resolved.resolved_slug)
         # Qualification gate. Only `dj` is gated, and the chapter has two DJs, so
@@ -591,23 +617,31 @@ def auto_assign(
         # Counted through the event's own date, like every other count in this
         # fill (ADR-009), so re-running one event does not see shifts at parties
         # that come after it and the result stays reproducible.
+        # The season CEILING. Unlike the soft cap below this removes the man:
+        # "max 2 rides a sem" is a number he may not pass, not one he is steered
+        # away from. Safe to make hard because it takes out individuals who have
+        # already driven twice, never a whole class, so the pool cannot empty.
+        hard_cap = policy.SENIOR_NIGHT_TYPE_HARD_CAPS.get(req.shift_type_slug)
+        if hard_cap is not None:
+            over = {
+                m.member_id
+                for m in type_pool
+                if _is_senior(m) and _worked_type(m.member_id, req.shift_type_id) >= hard_cap
+            }
+            if over:
+                type_pool = [m for m in type_pool if m.member_id not in over]
+                warnings.append(
+                    f"{req.shift_type_slug}: {len(over)} senior(s) at the season "
+                    f"ceiling of {hard_cap} — removed from the pool"
+                )
+
         cap = policy.SENIOR_NIGHT_TYPE_CAPS.get(req.shift_type_slug)
         if cap is not None:
             at_cap = 0
             for member in type_pool:
-                if not policy.is_senior_in_term(
-                    member.class_year,
-                    term_start_year=quota.term_start_year,
-                    term_is_fall=quota.term_is_fall,
-                ):
+                if not _is_senior(member):
                     continue
-                worked = shifts_repo.count_of_shift_type_in_semester_through_date(
-                    conn,
-                    member_id=member.member_id,
-                    semester_id=event.semester_id,
-                    shift_type_id=req.shift_type_id,
-                    on_or_before=event.date,
-                )
+                worked = _worked_type(member.member_id, req.shift_type_id)
                 if worked >= cap:
                     deprioritized.add(member.member_id)
                     at_cap += 1
@@ -649,6 +683,19 @@ def auto_assign(
             scored = sorted(scored, key=lambda s: (not s.member.is_pledge,))
 
         seated_barred: list[str] = []
+        # Most seniors allowed on THIS crew. Counted as the crew is built, so it
+        # constrains who works together rather than who is eligible — see
+        # policy.MAX_SENIORS_PER_EVENT_SHIFT.
+        crew_cap = policy.MAX_SENIORS_PER_EVENT_SHIFT.get(req.shift_type_slug)
+        seniors_on_crew = sum(
+            1
+            for (stid, _ix), sh in by_type_slot.items()
+            if stid == req.shift_type_id
+            and sh.assigned_member_id is not None
+            and any(
+                m.member_id == sh.assigned_member_id and _is_senior(m) for m in pool
+            )
+        )
         filled = 0
         for slot_index in range(req.target_count):
             if (req.shift_type_slug, slot_index) in claimed_by_makeup:
@@ -687,7 +734,27 @@ def auto_assign(
                 )
                 continue
 
+            req_counts = type_flags.get(req.shift_type_id, (True, True))[0]
+            over_event_cap = req_counts and seniors_at_event >= senior_slots_allowed
+            if over_event_cap or (crew_cap is not None and seniors_on_crew >= crew_cap):
+                # Ceiling reached for this crew: take the best NON-senior. If
+                # there is no such candidate the cap yields — an unstaffed rides
+                # post is worse than two seniors on one.
+                idx = next(
+                    (i for i, sc in enumerate(scored) if not _is_senior(sc.member)), None
+                )
+                if idx is not None and idx > 0:
+                    scored.insert(0, scored.pop(idx))
+                elif idx is None and scored:
+                    warnings.append(
+                        f"{req.shift_type_slug}: senior cap yielded — nobody else "
+                        f"left in the pool"
+                    )
             chosen = scored.pop(0)
+            if _is_senior(chosen.member):
+                seniors_on_crew += 1
+                if req_counts:
+                    seniors_at_event += 1
             if chosen.member.member_id in barred:
                 # The pool ran out of everybody else. Say so loudly: this is a
                 # rule being broken to keep a post staffed, and the chair needs
