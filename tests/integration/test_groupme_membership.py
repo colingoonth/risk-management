@@ -16,6 +16,8 @@ import pytest
 from risk.db.connection import transaction
 from risk.repos import groupme_identities as identities_repo
 from risk.repos import groupme_outbound as ledger_repo
+from risk.repos import member_roles as member_roles_repo
+from risk.repos import roles as roles_repo
 from risk.services import groupme_announce as announce_svc
 from risk.services import groupme_identity as identity_svc
 from risk.services import groupme_membership as membership_svc
@@ -169,6 +171,72 @@ def test_somebody_with_no_shift_in_the_window_is_proposed_for_removal(db) -> Non
     )
     assert plan.remove[0].reason == "no shift in this window"
     assert plan.remove[0].membership_id == "mem-user-1"
+
+
+def test_hard_excluded_roles_are_skipped_but_soft_and_finished_workers_are_removed(
+    db,
+) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    chair_id = seed_member(db, "test-chair", "Test Chair")
+    officer_id = seed_member(db, "test-officer", "Test Officer")
+    soft_id = seed_member(db, "test-soft", "Test Soft")
+    worker_id = seed_member(db, "test-worker", "Test Worker")
+    for member_id, user_id, nickname in (
+        (chair_id, "user-chair", "Test Chair"),
+        (officer_id, "user-officer", "Test Officer"),
+        (soft_id, "user-soft", "Test Soft"),
+        (worker_id, "user-worker", "Test Worker"),
+    ):
+        link(db, member_id, user_id, nickname)
+
+    risk_chair = roles_repo.get_by_slug(db, "risk_chair")
+    exec_role = roles_repo.get_by_slug(db, "exec")
+    pledge_chair = roles_repo.get_by_slug(db, "pledge_chair")
+    assert risk_chair is not None
+    assert exec_role is not None
+    assert pledge_chair is not None
+    with transaction(db):
+        member_roles_repo.set_role(
+            db, member_id=chair_id, role_id=risk_chair.id, semester_id=sem_id
+        )
+        member_roles_repo.set_role(
+            db, member_id=officer_id, role_id=exec_role.id, semester_id=sem_id
+        )
+        member_roles_repo.set_role(
+            db, member_id=soft_id, role_id=pledge_chair.id, semester_id=sem_id
+        )
+
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)
+    assign(db, event_id, worker_id, "door")
+    present = [
+        account("user-chair", "Test Chair"),
+        account("user-officer", "Test Officer"),
+        account("user-soft", "Test Soft"),
+        account("user-worker", "Test Worker"),
+    ]
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=present,
+        now=datetime(2026, 9, 5, 12, 0),
+    )
+
+    assert [r.display_name for r in plan.remove] == ["Test Soft", "Test Worker"]
+    assert [r.reason for r in plan.remove] == [
+        "no shift in this window",
+        "all shifts finished 2026-09-04 23:59",
+    ]
+    assert [e.display_name for e in plan.hard_excluded] == [
+        "Test Chair",
+        "Test Officer",
+    ]
+    assert [e.detail for e in plan.hard_excluded] == [
+        "Risk Chair is hard-excluded from assignment",
+        "Exec is hard-excluded from assignment",
+    ]
 
 
 def test_an_unrecognised_account_is_reported_and_never_removed(db) -> None:

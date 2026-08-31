@@ -124,6 +124,8 @@ export function Ops() {
   const identityDrift = identities.data?.drift ?? []
   const additions = membership.data?.add ?? []
   const removals = membership.data?.remove ?? []
+  const membershipBlocks = membership.data?.blocked ?? []
+  const hardExcluded = membership.data?.hard_excluded ?? []
   const membershipPending = identityDrift.length + additions.length + removals.length
   const membershipAlarm = membershipPending > 0
   const staleGroups = health.data?.groups.filter(
@@ -381,7 +383,8 @@ export function Ops() {
               <p className="border-b border-ink-700/20 py-3 text-sm text-ink-500">
                 <span className="font-mono tabular-nums text-ink-300">{identities.data.linked}</span>{' '}
                 identities linked · <span className="font-mono tabular-nums">{additions.length}</span>{' '}
-                to add · <span className="font-mono tabular-nums">{removals.length}</span> to remove
+                to add · <span className="font-mono tabular-nums">{removals.length}</span> to remove ·{' '}
+                <span className="font-mono tabular-nums">{hardExcluded.length}</span> protected
               </p>
               <ul>
                 {identityDrift.map((item) => (
@@ -414,6 +417,34 @@ export function Ops() {
                       remove after shifts
                     </span>
                     <span className="text-xs text-ink-500 sm:col-span-2">{item.reason}</span>
+                  </li>
+                ))}
+                {membershipBlocks.map((item) => (
+                  <li
+                    key={`blocked-${item.groupme_user_id}`}
+                    className="grid gap-1 border-b border-ink-700/20 py-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <span className="text-sm text-ink-100">{item.display_name}</span>
+                    <span className="font-mono text-xs uppercase tracking-wider text-oxblood-300">
+                      removal blocked
+                    </span>
+                    <span className="text-xs text-ink-500 sm:col-span-2">
+                      {item.reason}: {item.detail}
+                    </span>
+                  </li>
+                ))}
+                {hardExcluded.map((item) => (
+                  <li
+                    key={`hard-excluded-${item.groupme_user_id}`}
+                    className="grid gap-1 border-b border-ink-700/20 py-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <span className="text-sm text-ink-100">{item.display_name}</span>
+                    <span className="font-mono text-xs uppercase tracking-wider text-ink-500">
+                      removal skipped
+                    </span>
+                    <span className="text-xs text-ink-500 sm:col-span-2">
+                      {item.reason}: {item.detail}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -530,6 +530,7 @@ def membership(
         "remove": [asdict(r) for r in plan.remove],
         "unrecognised": [asdict(u) for u in plan.unrecognised],
         "blocked": [asdict(b) for b in plan.blocked],
+        "hard_excluded": [asdict(e) for e in plan.hard_excluded],
         "unlinked_workers": [
             {"member_id": mid, "display_name": name} for mid, name in plan.unlinked_workers
         ],

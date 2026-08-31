@@ -27,6 +27,7 @@ from risk.api.schemas import (
     GroupMeBlockedOut,
     GroupMeConfirmIn,
     GroupMeDriftOut,
+    GroupMeHardExcludedOut,
     GroupMeIdentitiesOut,
     GroupMeIdentityRowOut,
     GroupMeMembershipAddOut,
@@ -221,6 +222,16 @@ def _plan_dto(plan: membership_svc.MembershipPlan) -> GroupMeMembershipPlanOut:
                 detail=b.detail,
             )
             for b in plan.blocked
+        ],
+        hard_excluded=[
+            GroupMeHardExcludedOut(
+                groupme_user_id=e.groupme_user_id,
+                member_id=e.member_id,
+                display_name=e.display_name,
+                reason=e.reason,
+                detail=e.detail,
+            )
+            for e in plan.hard_excluded
         ],
         unlinked_workers=[
             GroupMeUnlinkedOut(member_id=mid, display_name=name)

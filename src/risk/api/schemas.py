@@ -430,6 +430,14 @@ class GroupMeBlockedOut(_Out):
     detail: str
 
 
+class GroupMeHardExcludedOut(_Out):
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    reason: str
+    detail: str
+
+
 class GroupMeIdentitiesOut(_Out):
     linked: int
     unlinked: list[GroupMeUnlinkedOut]
@@ -469,6 +477,7 @@ class GroupMeMembershipPlanOut(_Out):
     remove: list[GroupMeMembershipRemoveOut]
     unrecognised: list[GroupMeUnrecognisedOut] = []
     blocked: list[GroupMeBlockedOut] = []
+    hard_excluded: list[GroupMeHardExcludedOut] = []
     unlinked_workers: list[GroupMeUnlinkedOut] = []
 
 

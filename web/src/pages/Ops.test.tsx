@@ -51,6 +51,7 @@ const MEMBERSHIP = {
   remove: [],
   unrecognised: [],
   blocked: [],
+  hard_excluded: [],
   unlinked_workers: [],
 }
 
@@ -68,7 +69,11 @@ interface Call {
 }
 
 /** Stub `fetch` for the five GETs the page opens with, plus the announce POST. */
-function stubApi(announce: () => Reply, preview: unknown = PREVIEW) {
+function stubApi(
+  announce: () => Reply,
+  preview: unknown = PREVIEW,
+  membership: unknown = MEMBERSHIP,
+) {
   const calls: Call[] = []
   const previewFetches = { count: 0 }
 
@@ -85,7 +90,7 @@ function stubApi(announce: () => Reply, preview: unknown = PREVIEW) {
     if (url.startsWith('/api/groupme/health')) reply = ok(HEALTH)
     else if (url.startsWith('/api/groupme/inbound')) reply = ok([])
     else if (url.startsWith('/api/groupme/identities')) reply = ok(IDENTITIES)
-    else if (url.startsWith('/api/groupme/membership-plan')) reply = ok(MEMBERSHIP)
+    else if (url.startsWith('/api/groupme/membership-plan')) reply = ok(membership)
     else if (url.startsWith('/api/groupme/announce-preview')) {
       previewFetches.count += 1
       reply = ok(preview)
@@ -171,6 +176,33 @@ describe('Ops — approving an announcement', () => {
     await openConfirmStep()
 
     expect(screen.getByText(/Not tagged: Test Charlie/)).toBeTruthy()
+  })
+})
+
+describe('Ops — membership protection', () => {
+  it('shows why a hard-excluded member was kept in the parent group', async () => {
+    const protectedMembership = {
+      ...MEMBERSHIP,
+      hard_excluded: [
+        {
+          groupme_user_id: 'user-chair',
+          member_id: 7,
+          display_name: 'Test Chair',
+          reason: 'hard-excluded role',
+          detail: 'Risk Chair is hard-excluded from assignment',
+        },
+      ],
+    }
+    stubApi(() => ok({ posted: [] }), PREVIEW, protectedMembership)
+    render(<Ops />)
+
+    expect(await screen.findByText('Test Chair')).toBeTruthy()
+    expect(screen.getByText('removal skipped')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'hard-excluded role: Risk Chair is hard-excluded from assignment',
+      ),
+    ).toBeTruthy()
   })
 })
 

@@ -29,6 +29,12 @@ that maps to no roster member is the chair, an exec, an alumnus helping out, or
 someone whose identity mapping is still waiting on a human. Removing on a
 mismatch would make an unmapped brother disappear from the group, which is
 exactly the outcome the identity service refuses to risk.
+
+NOBODY STRUCTURALLY EXEMPT FROM ASSIGNMENT IS EVER PROPOSED FOR REMOVAL. A
+member holding a role marked both default-excluded and not soft-excluded cannot
+normally have a shift in the window, so that absence says nothing about whether
+he belongs in the parent group. Those members are reported separately with the
+role that protected them; soft exclusions do not receive this protection.
 """
 
 from __future__ import annotations
@@ -40,6 +46,8 @@ from datetime import datetime, time, timedelta
 
 from risk.repos import events as events_repo
 from risk.repos import groupme_identities as identities_repo
+from risk.repos import member_roles as member_roles_repo
+from risk.repos import roles as roles_repo
 from risk.repos import shift_type_windows as windows_repo
 from risk.repos import shifts as shifts_repo
 from risk.services import groupme_identity as identity_svc
@@ -84,11 +92,23 @@ class BlockedIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class HardExcludedMember:
+    """A linked member kept because his role structurally has no shifts."""
+
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    reason: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class MembershipPlan:
     add: tuple[MembershipAdd, ...]
     remove: tuple[MembershipRemoval, ...]
     unrecognised: tuple[UnrecognisedPresence, ...]
     blocked: tuple[BlockedIdentity, ...]
+    hard_excluded: tuple[HardExcludedMember, ...]
     unlinked_workers: tuple[tuple[int, str], ...]
     """``(member_id, display_name)`` for people working the window who have no
     GroupMe link — they cannot be added, and the chair has to be told rather than
@@ -183,6 +203,7 @@ def build_plan(
     identities = identities_repo.list_linked(conn)
     by_member = {i.member_id: i for i in identities}
     by_user_id = {i.groupme_user_id: i for i in identities}
+    hard_roles_by_member = _hard_excluded_roles_by_member(conn, semester_id)
 
     # Two accounts can report the same user_id only if GroupMe repeats itself;
     # keep the first membership row so a removal targets something real.
@@ -221,6 +242,7 @@ def build_plan(
 
     removes: list[MembershipRemoval] = []
     unrecognised: list[UnrecognisedPresence] = []
+    hard_excluded: list[HardExcludedMember] = []
     seen_blocked = {b.groupme_user_id for b in blocked}
     for user_id, account in present_by_user.items():
         identity = by_user_id.get(user_id)
@@ -240,6 +262,20 @@ def build_plan(
             if user_id not in seen_blocked:
                 blocked.append(_as_blocked(block))
                 seen_blocked.add(user_id)
+            continue
+        hard_roles = hard_roles_by_member.get(identity.member_id)
+        if hard_roles:
+            role_list = ", ".join(hard_roles)
+            verb = "is" if len(hard_roles) == 1 else "are"
+            hard_excluded.append(
+                HardExcludedMember(
+                    member_id=identity.member_id,
+                    display_name=identity.display_name,
+                    groupme_user_id=user_id,
+                    reason="hard-excluded role",
+                    detail=f"{role_list} {verb} hard-excluded from assignment",
+                )
+            )
             continue
         end = ends.get(identity.member_id)
         if end is None:
@@ -263,6 +299,9 @@ def build_plan(
         remove=tuple(sorted(removes, key=lambda r: (r.display_name, r.member_id))),
         unrecognised=tuple(sorted(unrecognised, key=lambda u: u.nickname)),
         blocked=tuple(sorted(blocked, key=lambda b: (b.display_name, b.groupme_user_id))),
+        hard_excluded=tuple(
+            sorted(hard_excluded, key=lambda e: (e.display_name, e.groupme_user_id))
+        ),
         unlinked_workers=tuple(sorted(unlinked_workers, key=lambda p: p[1])),
     )
 
@@ -292,6 +331,26 @@ def _display_names(conn: sqlite3.Connection, semester_id: int) -> dict[int, str]
     return {int(r["id"]): str(r["display_name"]) for r in rows}
 
 
+def _hard_excluded_roles_by_member(
+    conn: sqlite3.Connection, semester_id: int
+) -> dict[int, tuple[str, ...]]:
+    """Hard-excluded role names by member, using the canonical role flags."""
+    hard_role_names = {
+        role.slug: role.display_name
+        for role in roles_repo.list_all(conn)
+        if role.default_excluded_from_assignment and not role.exclude_is_soft
+    }
+    names_by_member: dict[int, list[str]] = {}
+    for held_role in member_roles_repo.list_for_semester(conn, semester_id):
+        role_name = hard_role_names.get(held_role.role_slug)
+        if role_name is not None:
+            names_by_member.setdefault(held_role.member_id, []).append(role_name)
+    return {
+        member_id: tuple(sorted(role_names))
+        for member_id, role_names in names_by_member.items()
+    }
+
+
 def summarise(plan: MembershipPlan) -> dict[str, int]:
     """Counts, for a confirmation prompt that has to fit on one line."""
     return {
@@ -299,5 +358,6 @@ def summarise(plan: MembershipPlan) -> dict[str, int]:
         "remove": len(plan.remove),
         "unrecognised": len(plan.unrecognised),
         "blocked": len(plan.blocked),
+        "hard_excluded": len(plan.hard_excluded),
         "unlinked_workers": len(plan.unlinked_workers),
     }

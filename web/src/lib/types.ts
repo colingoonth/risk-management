@@ -297,6 +297,14 @@ export interface GroupMeBlockedIdentity {
   detail: string
 }
 
+export interface GroupMeHardExcludedMember {
+  groupme_user_id: string
+  member_id: number
+  display_name: string
+  reason: string
+  detail: string
+}
+
 export interface GroupMeIdentityRow {
   member_id: number
   display_name: string
@@ -350,6 +358,7 @@ export interface GroupMeMembershipPlan extends GroupMeApprovable {
   remove: GroupMeMembershipRemoval[]
   unrecognised: GroupMeUnrecognisedAccount[]
   blocked: GroupMeBlockedIdentity[]
+  hard_excluded: GroupMeHardExcludedMember[]
   unlinked_workers: GroupMeUnlinkedIdentity[]
 }
 
