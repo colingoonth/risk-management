@@ -18,6 +18,7 @@ dependencies = [
 risk = "risk.cli.main:main_entry"
 risk-api = "risk.api.__main__:main"
 risk-desktop = "risk.desktop.__main__:main"
+risk-forwarder = "risk.forwarder:main"
 
 [project.optional-dependencies]
 desktop = [
