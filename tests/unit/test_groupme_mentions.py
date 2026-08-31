@@ -19,7 +19,7 @@ from risk.services.groupme_announce import (
     Assignment,
     MentionMismatchError,
     PreviewMention,
-    format_header_date,
+    format_function_lead_in,
     render_post,
     verify_mentions,
 )
@@ -71,18 +71,29 @@ def test_the_message_matches_the_specified_format_exactly() -> None:
         ],
     )
     assert rendered.text == (
-        "Sample Mixer — Tue 1 Sep\n"
-        "@Test Alpha on door\n"
-        "@Test Bravo on rides\n"
-        "@Test Charlie on bar"
+        "Here's who works next week's Tuesday function\n"
+        "@Test Alpha: door\n"
+        "@Test Bravo: rides\n"
+        "@Test Charlie: bar"
     )
+    assert [(mention.offset, mention.length) for mention in rendered.mentions] == [
+        (46, 11),
+        (64, 11),
+        (83, 13),
+    ]
     _assert_loci_describe_the_text(rendered)
 
 
-def test_header_date_has_no_leading_zero_and_is_locale_independent() -> None:
-    assert format_header_date("2026-09-01") == "Tue 1 Sep"
-    assert format_header_date("2026-12-25") == "Fri 25 Dec"
-    assert format_header_date("2026-01-05") == "Mon 5 Jan"
+def test_function_lead_in_uses_the_party_weekday_and_is_locale_independent() -> None:
+    assert format_function_lead_in("2026-09-01") == (
+        "Here's who works next week's Tuesday function"
+    )
+    assert format_function_lead_in("2026-12-25") == (
+        "Here's who works next week's Friday function"
+    )
+    assert format_function_lead_in("2026-01-05") == (
+        "Here's who works next week's Monday function"
+    )
 
 
 def test_every_shift_type_is_spelled_the_way_the_chapter_says_it() -> None:
@@ -100,12 +111,12 @@ def test_every_shift_type_is_spelled_the_way_the_chapter_says_it() -> None:
     )
     lines = rendered.text.split("\n")[1:]
     assert lines == [
-        "@B on door",
-        "@A on rides",
-        "@C on bar",
-        "@D on DJ",
-        "@E on setup",
-        "@F on cleanup",
+        "@B: door",
+        "@A: rides",
+        "@C: bar",
+        "@D: DJ",
+        "@E: setup",
+        "@F: cleanup",
     ]
     _assert_loci_describe_the_text(rendered)
 
@@ -174,8 +185,8 @@ def test_apostrophe_and_hyphen_nicknames_survive_verbatim() -> None:
             _assignment(2, "Test Bravo-Charlie", "bar", nickname="Test Bravo-Charlie", user_id="b"),
         ],
     )
-    assert "@Test O'Alpha on door" in rendered.text
-    assert "@Test Bravo-Charlie on bar" in rendered.text
+    assert "@Test O'Alpha: door" in rendered.text
+    assert "@Test Bravo-Charlie: bar" in rendered.text
     _assert_loci_describe_the_text(rendered)
 
 
@@ -200,7 +211,7 @@ def test_two_people_with_the_same_nickname_get_distinct_non_overlapping_loci() -
     assert first.offset + first.length <= second.offset
 
 
-def test_a_leading_at_sign_in_the_event_name_does_not_shift_the_loci() -> None:
+def test_the_event_name_does_not_replace_the_chairs_function_lead_in() -> None:
     rendered = render_post(
         event_name="@Sample Mixer @ the house",
         event_date="2026-09-01",
@@ -209,12 +220,12 @@ def test_a_leading_at_sign_in_the_event_name_does_not_shift_the_loci() -> None:
         ],
     )
     _assert_loci_describe_the_text(rendered)
-    # The @ in the header must not be mistaken for the mention.
-    assert rendered.mentions[0].offset > 0
+    assert "@Sample Mixer" not in rendered.text
+    assert rendered.text.startswith("Here's who works next week's Tuesday function")
 
 
-def test_a_newline_inside_the_event_name_keeps_the_loci_honest() -> None:
-    """Offsets are read off the finished string, so an embedded newline is fine."""
+def test_a_newline_inside_the_event_name_cannot_corrupt_the_loci() -> None:
+    """The fixed lead-in never interpolates event data into mention text."""
     rendered = render_post(
         event_name="Sample Mixer\n(moved indoors)",
         event_date="2026-09-01",
@@ -232,7 +243,9 @@ def test_no_mentions_at_all_is_a_valid_message() -> None:
         assignments=[_assignment(1, "Test Alpha", "door")],
     )
     assert rendered.mentions == ()
-    assert rendered.text == "Sample Mixer — Tue 1 Sep\nTest Alpha on door"
+    assert rendered.text == (
+        "Here's who works next week's Tuesday function\nTest Alpha: door"
+    )
     assert [u.member_id for u in rendered.unlinked] == [1]
     verify_mentions(rendered.text, rendered.mentions)
 
@@ -246,7 +259,7 @@ def test_an_unlinked_member_is_listed_without_an_at_and_reported() -> None:
             _assignment(2, "Test Bravo", "bar"),
         ],
     )
-    assert "Test Bravo on bar" in rendered.text
+    assert "Test Bravo: bar" in rendered.text
     assert "@Test Bravo" not in rendered.text
     assert [u.display_name for u in rendered.unlinked] == ["Test Bravo"]
     _assert_loci_describe_the_text(rendered)
@@ -262,7 +275,7 @@ def test_one_line_per_person_when_somebody_holds_two_posts() -> None:
         ],
     )
     assert rendered.text.count("@Test Alpha") == 1
-    assert "@Test Alpha on door and setup" in rendered.text
+    assert "@Test Alpha: door and setup" in rendered.text
     assert len(rendered.mentions) == 1
     _assert_loci_describe_the_text(rendered)
 
@@ -273,16 +286,16 @@ def test_one_line_per_person_when_somebody_holds_two_posts() -> None:
 
 
 def test_verify_rejects_a_locus_that_covers_the_wrong_name() -> None:
-    text = "Sample Mixer — Tue 1 Sep\n@Test Alpha on door"
-    bad = (PreviewMention(user_id="a", display_name="Test Bravo", offset=25, length=11,
+    text = "Here's who works next week's Tuesday function\n@Test Alpha: door"
+    bad = (PreviewMention(user_id="a", display_name="Test Bravo", offset=46, length=11,
                           nickname="Test Bravo"),)
     with pytest.raises(MentionMismatchError, match="covers"):
         verify_mentions(text, bad)
 
 
 def test_verify_rejects_an_off_by_one_offset() -> None:
-    text = "Sample Mixer — Tue 1 Sep\n@Test Alpha on door"
-    off_by_one = (PreviewMention(user_id="a", display_name="Test Alpha", offset=26, length=11,
+    text = "Here's who works next week's Tuesday function\n@Test Alpha: door"
+    off_by_one = (PreviewMention(user_id="a", display_name="Test Alpha", offset=47, length=11,
                                  nickname="Test Alpha"),)
     with pytest.raises(MentionMismatchError):
         verify_mentions(text, off_by_one)

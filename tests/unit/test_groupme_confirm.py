@@ -27,7 +27,9 @@ from risk.services.groupme_confirm import (
 from risk.services.groupme_membership import MembershipAdd, MembershipPlan, MembershipRemoval
 
 
-def _post(text: str = "Sample Mixer — Tue 1 Sep\n@Test Alpha on door", **kw) -> AnnouncePost:
+def _post(
+    text: str = "Here's who works next week's Tuesday function\n@Test Alpha: door", **kw
+) -> AnnouncePost:
     defaults: dict = {
         "group_slug": "risk-tuesday",
         "label": "Risk Tuesday",
@@ -40,7 +42,7 @@ def _post(text: str = "Sample Mixer — Tue 1 Sep\n@Test Alpha on door", **kw) -
             PreviewMention(
                 user_id="a",
                 display_name="Test Alpha",
-                offset=25,
+                offset=46,
                 length=11,
                 nickname="Test Alpha",
             ),
@@ -72,7 +74,9 @@ def test_an_unchanged_plan_verifies() -> None:
 def test_a_changed_message_body_is_rejected() -> None:
     before = announce_digest(_plan(_post()))
     preview = issue(before, post_count=1)
-    after = announce_digest(_plan(_post(text="Sample Mixer — Tue 1 Sep\n@Test Bravo on door")))
+    after = announce_digest(
+        _plan(_post(text="Here's who works next week's Tuesday function\n@Test Bravo: door"))
+    )
     with pytest.raises(PreviewDriftedError, match="changed"):
         verify(
             preview_id=preview.preview_id, submitted_digest=before, current_digest=after
@@ -85,7 +89,7 @@ def test_a_changed_mention_user_id_is_rejected() -> None:
     moved = _post(
         mentions=(
             PreviewMention(
-                user_id="DIFFERENT", display_name="Test Alpha", offset=25, length=11,
+                user_id="DIFFERENT", display_name="Test Alpha", offset=46, length=11,
                 nickname="Test Alpha",
             ),
         )
@@ -105,7 +109,7 @@ def test_changed_loci_alone_are_rejected() -> None:
     shifted = _post(
         mentions=(
             PreviewMention(
-                user_id="a", display_name="Test Alpha", offset=26, length=11,
+                user_id="a", display_name="Test Alpha", offset=47, length=11,
                 nickname="Test Alpha",
             ),
         )

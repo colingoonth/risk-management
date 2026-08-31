@@ -120,8 +120,8 @@ def test_post_message_sends_the_documented_body_shape() -> None:
     transport = FakeTransport(_ok({"message": {"id": "msg-1"}}))
     message_id = _client(transport).post_message(
         "topic-1",
-        "Sample Mixer — Tue 1 Sep\n@Test Alpha on door",
-        mentions=[Mention(user_id="1", offset=25, length=11)],
+        "Here's who works next week's Tuesday function\n@Test Alpha: door",
+        mentions=[Mention(user_id="1", offset=46, length=11)],
         source_guid="guid-1",
     )
     assert message_id == "msg-1"
@@ -131,7 +131,7 @@ def test_post_message_sends_the_documented_body_shape() -> None:
     message = call["body"]["message"]
     assert message["source_guid"] == "guid-1"
     assert message["attachments"] == [
-        {"type": "mentions", "user_ids": ["1"], "loci": [[25, 11]]}
+        {"type": "mentions", "user_ids": ["1"], "loci": [[46, 11]]}
     ]
 
 

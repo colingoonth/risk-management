@@ -126,7 +126,9 @@ def test_the_preview_renders_the_exact_message_and_its_loci(client: TestClient) 
     post = body["posts"][0]
     assert post["group_slug"] == "risk-friday"
     assert post["text"] == (
-        "Sample Mixer — Fri 4 Sep\n@Test Alpha on door\nTest Bravo on bar"
+        "Here's who works next week's Friday function\n"
+        "@Test Alpha: door\n"
+        "Test Bravo: bar"
     )
     mention = post["mentions"][0]
     assert post["text"][mention["offset"] : mention["offset"] + mention["length"]] == (

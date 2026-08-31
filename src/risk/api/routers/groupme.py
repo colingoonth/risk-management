@@ -376,7 +376,7 @@ def announce_preview(
     only thing that can be sent.
 
     Over-length posts (GroupMe's limit is 1000 characters) are separated into
-    ``oversize`` HERE, while there is still time to shorten an event name — not
+    ``oversize`` HERE, while there is still time to fix the rendered body — not
     at send time, halfway through a batch he has already approved.
     """
     with service_errors():

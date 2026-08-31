@@ -49,6 +49,101 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
+def test_wednesday_removes_tuesdays_finished_door_rides_and_bar_crews(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    event_id = seed_event(db, sem_id, "Test Tuesday Party", "2026-09-01")
+    present = []
+    for index, shift_type in enumerate(("door", "driver", "bar"), start=1):
+        member_id = seed_member(db, f"test-night-{index}", f"Test Night {index}")
+        user_id = f"user-night-{index}"
+        link(db, member_id, user_id, f"Test Night {index}")
+        assign(db, event_id, member_id, shift_type)
+        present.append(account(user_id, f"Test Night {index}"))
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-02",
+        on_or_before="2026-09-09",
+        present=present,
+        now=datetime(2026, 9, 2, 9, 0),
+    )
+
+    assert {member.display_name for member in plan.remove} == {
+        "Test Night 1",
+        "Test Night 2",
+        "Test Night 3",
+    }
+
+
+def test_wednesday_keeps_tuesdays_cleanup_until_its_window_closes(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-cleaner", "Test Cleaner")
+    link(db, member_id, "user-cleaner", "Test Cleaner")
+    event_id = seed_event(db, sem_id, "Test Tuesday Party", "2026-09-01")
+    assign(db, event_id, member_id, "cleanup")
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-02",
+        on_or_before="2026-09-09",
+        present=[account("user-cleaner", "Test Cleaner")],
+        now=datetime(2026, 9, 2, 9, 0),
+    )
+
+    assert plan.remove == ()
+
+
+def test_wednesday_adds_the_following_tuesday_crew_including_setup(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    event_id = seed_event(db, sem_id, "Test Next Tuesday Party", "2026-09-08")
+    expected = set()
+    for index, shift_type in enumerate(("driver", "door", "bar", "setup"), start=1):
+        display_name = f"Test Upcoming {index}"
+        member_id = seed_member(db, f"test-upcoming-{index}", display_name)
+        link(db, member_id, f"user-upcoming-{index}", display_name)
+        assign(db, event_id, member_id, shift_type)
+        expected.add(display_name)
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-02",
+        on_or_before="2026-09-09",
+        present=[],
+        now=datetime(2026, 9, 2, 9, 0),
+    )
+
+    added = {member.display_name for member in plan.add}
+    assert added == expected
+    assert "Test Upcoming 4" in added, "the setup worker must be added before setup starts"
+
+
+def test_a_shift_three_weeks_away_does_not_prevent_removal(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-distant", "Test Distant")
+    link(db, member_id, "user-distant", "Test Distant")
+    event_id = seed_event(db, sem_id, "Test Distant Party", "2026-09-23")
+    assign(db, event_id, member_id, "door")
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-02",
+        on_or_before="2026-09-09",
+        present=[account("user-distant", "Test Distant")],
+        now=datetime(2026, 9, 2, 9, 0),
+    )
+
+    assert [member.display_name for member in plan.remove] == ["Test Distant"]
+    assert plan.remove[0].reason == "next shift is after membership horizon 2026-09-09"
+
+
 def test_shift_window_end_uses_the_real_window_not_the_event_date(db) -> None:
     seed_semester(db)
     assert membership_svc.shift_window_end(
@@ -568,6 +663,46 @@ def test_the_same_announcement_is_never_posted_twice(db) -> None:
     assert len(client.posted) == 1
 
 
+def test_an_event_staying_in_the_rolling_window_is_not_announced_again(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-08")
+    assign(db, event_id, member_id, "driver")
+    client = StubClient()
+
+    wednesday = announce_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-02",
+        on_or_before="2026-09-09",
+    )
+    first = outbound_svc.post_announcements(db, client, wednesday.posts, confirm=True)
+
+    thursday = announce_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-03",
+        on_or_before="2026-09-10",
+    )
+    second = outbound_svc.post_announcements(db, client, thursday.posts, confirm=True)
+
+    assert [result.outcome for result in first] == ["sent"]
+    assert [result.outcome for result in second] == ["already_sent"]
+    assert len(client.posted) == 1
+    rows = ledger_repo.list_for_event(db, event_id)
+    assert [
+        (row.event_id, row.destination_slug, row.content_version) for row in rows
+    ] == [
+        (
+            event_id,
+            wednesday.posts[0].group_slug,
+            wednesday.posts[0].content_version,
+        )
+    ]
+
+
 def test_the_ledger_row_is_reserved_before_the_call(db) -> None:
     """The reservation must be durable even when the send never returns."""
     sem_id = seed_semester(db)
@@ -724,8 +859,8 @@ def test_an_oversize_post_cannot_be_sent_even_if_it_reaches_the_sender(db) -> No
     sem_id = seed_semester(db)
     seed_groups(db)
     member_id = seed_member(db, "test-alpha", "Test Alpha")
-    link(db, member_id, "user-1", "Test Alpha")
-    event_id = seed_event(db, sem_id, "S" * 990, FRIDAY)
+    link(db, member_id, "user-1", "T" * 990)
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)
     assign(db, event_id, member_id, "door")
     plan = announce_svc.build_plan(
         db, semester_id=sem_id, on_or_after=FRIDAY, on_or_before=FRIDAY

@@ -210,7 +210,9 @@ def test_announce_is_a_dry_run_by_default(tmp_path: Path) -> None:
     data = _data(proc)
     assert data["dry_run"] is True
     assert data["posted"] == []
-    assert data["posts"][0]["text"] == "Sample Mixer — Fri 4 Sep\n@Test Alpha on door"
+    assert data["posts"][0]["text"] == (
+        "Here's who works next week's Friday function\n@Test Alpha: door"
+    )
     assert data["identity_check"] == "database-only"
 
 
@@ -312,5 +314,4 @@ def test_confirm_refuses_when_the_source_chat_is_not_registered(tmp_path: Path) 
     assert bravo is not None
     assert identities_repo.get_for_member(conn, bravo.id) is None, "no link without a nickname"
     conn.close()
-
 

@@ -8,7 +8,7 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Ops } from './Ops'
+import { Ops, rollingPostWindow } from './Ops'
 
 const PREVIEW_ID = '1756600000.0123456789abcdef0123456789abcdef'
 const DIGEST = 'a'.repeat(64)
@@ -16,7 +16,7 @@ const DIGEST = 'a'.repeat(64)
 // Invented chapter, invented people, invented ids. Nothing here is real and
 // nothing here may become real: this repo is public.
 const ANNOUNCE_TEXT =
-  'Test Mixer — Fri 4 Sep\n@Test Alpha on door\n@Test Bravo on rides'
+  "Here's who works next week's Friday function\n@Test Alpha: door\n@Test Bravo: rides"
 
 const PREVIEW = {
   preview_id: PREVIEW_ID,
@@ -29,8 +29,8 @@ const PREVIEW = {
       event_name: 'Test Mixer',
       text: ANNOUNCE_TEXT,
       mentions: [
-        { user_id: 'user-alpha', display_name: 'Test Alpha', offset: 23, length: 11 },
-        { user_id: 'user-bravo', display_name: 'Test Bravo', offset: 43, length: 11 },
+        { user_id: 'user-alpha', display_name: 'Test Alpha', offset: 45, length: 11 },
+        { user_id: 'user-bravo', display_name: 'Test Bravo', offset: 63, length: 11 },
       ],
       unlinked: [],
       char_count: ANNOUNCE_TEXT.length,
@@ -124,6 +124,13 @@ const alarm = () => document.querySelector('[role="alert"][data-failure]')
 
 beforeEach(() => {
   vi.unstubAllGlobals()
+})
+
+it('uses a rolling window from today through seven days ahead', () => {
+  expect(rollingPostWindow('2026-09-02')).toEqual({
+    on_or_after: '2026-09-02',
+    on_or_before: '2026-09-09',
+  })
 })
 
 describe('Ops — approving an announcement', () => {

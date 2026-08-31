@@ -17,6 +17,13 @@ able to read the chat that tells them when. That failure is silent, it happens t
 the people doing the least popular job, and it is one subtraction away — hence
 this module rather than a date comparison at each call site.
 
+THE MEMBERSHIP HORIZON IS FORWARD-LOOKING AND BOUNDED. A scheduled man belongs
+in the group when at least one shift has not genuinely ended and its PARTY date
+is no later than the rolling horizon's end. There is deliberately no lower
+party-date bound: yesterday's party can still have cleanup working this morning.
+There is deliberately an upper bound: a shift three weeks away is not a reason
+to keep somebody in the group today.
+
 NOBODY WHOSE IDENTITY IS IN DOUBT IS EVER PROPOSED FOR REMOVAL. A link that has
 drifted (the account renamed itself), collides with another link's nickname, or
 carries no nickname at all is blocked — see ``services.groupme_identity``. A
@@ -167,13 +174,10 @@ def last_shift_end_by_member(
     cleanup Sunday is involved until Monday noon, and any earlier answer removes
     him mid-commitment.
 
-    Bounds are OPTIONAL, and passing none is not laziness. Adds are a question
-    about one window — who is needed for the week being announced. Removal is a
-    question about the whole term: a man whose only unfinished shift sits on an
-    event BEFORE the window is still owed to it. Bounding removal by the
-    announcement range is what let a Sunday-morning cleanup crew be ejected at
-    dawn on the Sunday they were due to work, because the window had already
-    rolled forward past their Saturday event.
+    Bounds are optional PARTY-date bounds. Membership deliberately omits the
+    lower bound so a next-morning cleanup remains visible after its party has
+    rolled behind today, while applying the upper bound so distant assignments
+    do not keep the whole term's roster in the group.
     """
     dates_by_event: dict[int, str] = {}
     for event in events_repo.list_for_semester(conn, semester_id):
@@ -220,11 +224,17 @@ def build_plan(
     him from the assignment pool.
     """
     moment = now or datetime.now()
-    ends = last_shift_end_by_member(
-        conn, semester_id=semester_id, on_or_after=on_or_after, on_or_before=on_or_before
+    # Party dates are capped at the forward horizon, but not at its lower edge:
+    # yesterday's cleanup can still be unfinished this morning. The strict
+    # `end > moment` checks below make the shift-window boundary authoritative.
+    horizon_ends = last_shift_end_by_member(
+        conn,
+        semester_id=semester_id,
+        on_or_after=None,
+        on_or_before=on_or_before,
     )
-    # Removal asks a different question from adding, so it gets a different map:
-    # every shift in the term, not just this window's. See the docstring above.
+    # Whole-term ends explain why somebody is removable; they do not protect a
+    # distant worker from rolling turnover.
     ends_anywhere = last_shift_end_by_member(
         conn, semester_id=semester_id, on_or_after=None, on_or_before=None
     )
@@ -258,9 +268,9 @@ def build_plan(
     display_names = _display_names(conn, semester_id)
     display_names.update({row.member_id: row.display_name for row in permanent_rows})
 
-    needed_member_ids = set(ends) | set(permanent_member_ids)
+    needed_member_ids = set(horizon_ends) | set(permanent_member_ids)
     for member_id in needed_member_ids:
-        end = ends.get(member_id)
+        end = horizon_ends.get(member_id)
         if member_id not in permanent_member_ids and end is not None and end <= moment:
             # Already finished everything in the window — adding him now would
             # only be followed by removing him.
@@ -333,13 +343,16 @@ def build_plan(
                 )
             )
             continue
-        end = ends_anywhere.get(identity.member_id)
-        if end is None:
-            reason = "no unfinished shift"
-        elif end <= moment:
-            reason = f"all shifts finished {end.isoformat(sep=' ', timespec='minutes')}"
-        else:
+        horizon_end = horizon_ends.get(identity.member_id)
+        if horizon_end is not None and horizon_end > moment:
             continue
+        last_end = ends_anywhere.get(identity.member_id)
+        if last_end is None:
+            reason = "no unfinished shift"
+        elif last_end <= moment:
+            reason = f"all shifts finished {last_end.isoformat(sep=' ', timespec='minutes')}"
+        else:
+            reason = f"next shift is after membership horizon {on_or_before}"
         removes.append(
             MembershipRemoval(
                 member_id=identity.member_id,

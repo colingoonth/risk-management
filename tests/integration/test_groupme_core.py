@@ -219,11 +219,13 @@ def test_party_night_and_setup_crews_split_into_two_posts_by_the_party_day(db) -
     )
     assert [post.group_slug for post in plan.posts] == ["risk-friday", "setup-cleanup"]
     night, crew = plan.posts
-    assert night.text == "Sample Mixer — Fri 4 Sep\n@Test Alpha on door"
+    assert night.text == (
+        "Here's who works next week's Friday function\n@Test Alpha: door"
+    )
     assert crew.text == (
-        "Sample Mixer — Fri 4 Sep\n"
-        "@Test Bravo on setup\n"
-        "@Test Charlie on cleanup"
+        "Here's who works next week's Friday function\n"
+        "@Test Bravo: setup\n"
+        "@Test Charlie: cleanup"
     )
     assert plan.unroutable == ()
 
@@ -293,8 +295,8 @@ def test_routing_uses_the_window_flag_not_shift_type_names(db) -> None:
     )
 
     by_slug = {post.group_slug: post.text for post in plan.posts}
-    assert "@Test Bravo on setup" in by_slug["risk-friday"]
-    assert "@Test Alpha on door" in by_slug["setup-cleanup"]
+    assert "@Test Bravo: setup" in by_slug["risk-friday"]
+    assert "@Test Alpha: door" in by_slug["setup-cleanup"]
 
 
 def test_an_event_with_nobody_assigned_produces_no_post(db) -> None:
@@ -323,12 +325,12 @@ def test_a_cancelled_event_is_never_announced(db) -> None:
 
 
 def test_an_oversize_post_is_separated_at_preview_time(db) -> None:
-    """Caught while the chair can still shorten the name — never at send time."""
+    """Caught in the rendered body before send, even when a nickname is huge."""
     sem_id = seed_semester(db)
     seed_groups(db)
-    event_id = seed_event(db, sem_id, "S" * 990, "2026-09-01")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-01")
     member_id = seed_member(db, "test-alpha", "Test Alpha")
-    link(db, member_id, "user-1", "Test Alpha")
+    link(db, member_id, "user-1", "T" * 990)
     assign(db, event_id, member_id, "door")
 
     plan = announce_svc.build_plan(
@@ -354,7 +356,7 @@ def test_an_unlinked_member_is_named_without_an_at_and_reported(db) -> None:
         db, semester_id=sem_id, on_or_after="2026-09-01", on_or_before="2026-09-14"
     )
     post = plan.posts[0]
-    assert "@Test Alpha on door" in post.text
-    assert "Test Bravo on bar" in post.text
+    assert "@Test Alpha: door" in post.text
+    assert "Test Bravo: bar" in post.text
     assert "@Test Bravo" not in post.text
     assert [u.display_name for u in post.unlinked] == ["Test Bravo"]

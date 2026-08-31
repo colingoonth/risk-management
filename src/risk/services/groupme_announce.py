@@ -2,10 +2,10 @@
 
 The message the chapter reads is three lines of nothing much::
 
-    Theta Mixer — Tue 1 Sep
-    @Test Alpha on door
-    @Test Bravo on rides
-    @Test Charlie on bar
+    Here's who works next week's Tuesday function
+    @Test Alpha: door
+    @Test Bravo: rides
+    @Test Charlie: bar
 
 and one number per @ that has to be exactly right.
 
@@ -73,20 +73,23 @@ diffed against the previous one shows what changed rather than what re-sorted.""
 MAX_MESSAGE_CHARS = 1000
 """GroupMe's per-message limit, checked at PREVIEW time.
 
-Checked here rather than at send time on purpose. A long event name or a large
-crew is a property of the schedule, not of the network, so it is knowable before
+Checked here rather than at send time on purpose. A long nickname or a large crew
+is a property of the rendered plan, not of the network, so it is knowable before
 the chair reads the preview — and discovering it afterwards means a message he
 already approved fails, in the middle of a batch, with some of the weekend
 announced and some not."""
 
-_DAY_ABBR: tuple[str, ...] = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-_MONTH_ABBR: tuple[str, ...] = (
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+_DAY_NAMES: tuple[str, ...] = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
 )
-# Spelled out rather than taken from strftime: %a and %b follow the process
-# locale, and a header that reads "mar. 1 sept." on somebody else's machine is a
-# bug nobody would think to test for.
+# Spelled out rather than taken from strftime: %A follows the process locale,
+# and the chair's lead-in must not change language on somebody else's machine.
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,10 +180,10 @@ class AnnouncePlan:
 # ---------------------------------------------------------------------------
 
 
-def format_header_date(event_date: str | _date) -> str:
-    """``Tue 1 Sep`` — no leading zero on the day, locale-independent."""
+def format_function_lead_in(event_date: str | _date) -> str:
+    """Name the upcoming function in the chair's own phrasing."""
     day = _date.fromisoformat(event_date) if isinstance(event_date, str) else event_date
-    return f"{_DAY_ABBR[day.weekday()]} {day.day} {_MONTH_ABBR[day.month - 1]}"
+    return f"Here's who works next week's {_DAY_NAMES[day.weekday()]} function"
 
 
 def _sort_key(assignment: Assignment) -> tuple[int, str, int]:
@@ -197,12 +200,12 @@ def render_post(
     """Build the message text and its mention loci together.
 
     ONE LINE PER PERSON, so a brother holding two posts at one party gets
-    ``@Test Alpha on setup and door`` rather than two lines and two pings. Two
+    ``@Test Alpha: setup and door`` rather than two lines and two pings. Two
     lines would mean two loci for one user id in one attachment, which GroupMe
     accepts and clients render as two separate highlights of the same name — it
     reads as a mistake, and it doubles the notification.
     """
-    header = f"{event_name} — {format_header_date(event_date)}"
+    header = format_function_lead_in(event_date)
 
     grouped: dict[int, list[Assignment]] = defaultdict(list)
     for assignment in assignments:
@@ -232,7 +235,7 @@ def render_post(
                     nickname=first.nickname,
                 )
             )
-            line = f"{handle} on {posts}"
+            line = f"{handle}: {posts}"
         else:
             # No link means no guess: his name goes in plain, and he is reported
             # so somebody tells him in person.
@@ -243,7 +246,7 @@ def render_post(
                     reason=first.unlinked_reason,
                 )
             )
-            line = f"{first.display_name} on {posts}"
+            line = f"{first.display_name}: {posts}"
         lines.append(line)
         cursor += len(line) + 1
 
@@ -482,7 +485,7 @@ def build_plan(
                         event_name=event.display_name,
                         weekday=weekday,
                         reason=(
-                            f"no topic registered for {_DAY_ABBR[weekday - 1]} under "
+                            f"no topic registered for {_DAY_NAMES[weekday - 1]} under "
                             f"{parent_slug!r} — seed one or announce this event by hand"
                         ),
                     )

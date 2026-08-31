@@ -3,7 +3,7 @@ import { LedgerDisclosure, PenButton } from '../components/ledger'
 import { api, approvalOf } from '../lib/api'
 import { classifyApprovalFailure } from '../lib/approval'
 import type { ApprovalFailure } from '../lib/approval'
-import { addDays, mondayOf, todayLocal, weekdayMon0 } from '../lib/dates'
+import { addDays, todayLocal } from '../lib/dates'
 import type {
   GroupMeAnnouncementPost,
   GroupMeAnnouncementPreview,
@@ -12,32 +12,32 @@ import type {
 } from '../lib/types'
 import { useAsync } from '../lib/useAsync'
 
-const TODAY = todayLocal()
 const TEXT_ACTION =
   'font-mono text-[11px] uppercase tracking-[0.16em] text-brass-400 transition-colors hover:text-brass-600 disabled:text-ink-700'
 const QUIET_ACTION =
   'font-mono text-[11px] uppercase tracking-[0.16em] text-ink-500 transition-colors hover:text-ink-100 disabled:text-ink-700'
 
-function sundayPostWindow(today = TODAY) {
-  // On Sunday the chair is approving the week ahead. During the week, keep the
-  // page anchored to the current Monday so a reload does not jump past crews
-  // that are still working.
-  const on_or_after = weekdayMon0(today) === 6 ? addDays(today, 1) : mondayOf(today)
-  return { on_or_after, on_or_before: addDays(on_or_after, 6) }
+export function rollingPostWindow(today = todayLocal()) {
+  // The membership service separately keeps a prior party's crew until every
+  // shift window (especially next-morning cleanup) has genuinely closed. That
+  // lets this announcement window move forward every day without dropping a
+  // crew that is still working.
+  return { on_or_after: today, on_or_before: addDays(today, 7) }
 }
 
-const WINDOW = sundayPostWindow()
-
 export function Ops() {
+  // Capture a fresh rolling window for each page load, then keep it stable for
+  // the preview/approval handshake rendered by this instance.
+  const [window] = useState(() => rollingPostWindow())
   const health = useAsync(() => api.groupmeHealth(), [])
   const inbound = useAsync(() => api.groupmeInbound({ limit: 50 }), [])
   const identities = useAsync(() => api.groupmeIdentities(), [])
   const membership = useAsync(
-    () => api.groupmeMembershipPlan(WINDOW.on_or_after, WINDOW.on_or_before),
+    () => api.groupmeMembershipPlan(window.on_or_after, window.on_or_before),
     [],
   )
   const preview = useAsync(
-    () => api.groupmeAnnouncePreview(WINDOW.on_or_after, WINDOW.on_or_before),
+    () => api.groupmeAnnouncePreview(window.on_or_after, window.on_or_before),
     [],
   )
 
@@ -103,7 +103,7 @@ export function Ops() {
     setActionNote(null)
     onFailure(null)
     try {
-      await send(approvalOf(preview, WINDOW))
+      await send(approvalOf(preview, window))
       onSent()
     } catch (error) {
       const failure = classifyApprovalFailure(error)
@@ -154,7 +154,7 @@ export function Ops() {
           </p>
         </div>
         <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-500 tabular-nums">
-          Week {WINDOW.on_or_after} → {WINDOW.on_or_before}
+          Rolling {window.on_or_after} → {window.on_or_before}
         </span>
       </header>
 
