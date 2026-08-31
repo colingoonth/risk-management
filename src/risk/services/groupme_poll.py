@@ -4,8 +4,9 @@ This is the half of the forwarder that talks to GroupMe, and it is READ-ONLY.
 It fetches messages and writes them into the local database. It never posts,
 never adds anybody to a group and never removes anybody — structurally, not by
 convention: what it holds is a single ``list_messages`` callable, not a client
-object, so there is no outbound method in scope to call by accident. Announcing
-and membership are a different feature behind an explicit ``confirm``.
+object and not the client module, so there is no outbound method in scope to
+call by accident. Announcing and membership are a different feature behind an
+explicit ``confirm``.
 
 THE PROBLEM THIS EXISTS TO SOLVE IS A CLOSED LAPTOP.
 ------------------------------------------------------------------
@@ -29,7 +30,7 @@ a party are sitting on GroupMe's side. Everything below follows from that:
   at the start, and not past the gap.
 * **The cursor is never cleared.** Not when the server rejects it, not when a
   page is unusable, not on any error path. A poller that loses its place either
-  replays the night into the terminal or skips it, and "we could not read past
+  replays the night into the feed or skips it, and "we could not read past
   message X" is a state worth keeping.
 * **Every write is conditional on the message id.** The catch-up re-reads
   boundaries, a hand-run overlaps the LaunchAgent, and the API can force a
@@ -48,10 +49,13 @@ The same rule governs every log line here — timestamps, slugs, codes and count
 nothing else. Message text never appears in a log.
 
 WHAT THIS MODULE DOES NOT DO. It does not know how to speak HTTP to GroupMe.
-The client lives in ``risk.services.groupme`` and is reached through an injected
-``list_messages(group_id, after_id)`` callable — which is why the whole
-catch-up path is testable without a network, and why the eight-hour case above
-is a test rather than a hope.
+The client lives in ``risk.services.groupme`` and is reached through a
+``list_messages(group_id, after_id)`` callable — injected by every test, which
+is why the whole catch-up path runs without a network and why the eight-hour
+case above is a test rather than a hope, and resolved in production from the
+single name in :data:`CLIENT_READ_FUNCTION`. That resolution is itself a seam
+worth testing: it was broken for months precisely because injection meant
+nothing ever ran it.
 """
 
 from __future__ import annotations
@@ -386,7 +390,7 @@ def normalize(raw: Mapping[str, Any], *, received_at: str) -> NormalizedMessage 
 
     The text is stored VERBATIM. Colin wants the real words, and this is the
     archive; the sanitising happens at the one boundary where the bytes stop
-    being data and start being typed into a terminal
+    being an archived record and become a line somebody reads
     (:func:`risk.services.groupme_forward.format_line`).
     """
     raw_id = raw.get("id")
@@ -436,7 +440,7 @@ def load_targets(conn: sqlite3.Connection) -> list[PollTarget]:
     Only rows with a ``parent_slug`` are polled. The parent group carries the
     membership and the roster-source group is where identities are read from —
     neither is a place risk traffic is posted, and reading them would forward
-    the whole chapter's chat into Colin's terminal.
+    the whole chapter's chat into Colin's feed.
 
     Guarded on the table existing. ``ensure_schema`` replays every migration on
     every connect so it will be there in the merged tree, but a health check
@@ -463,24 +467,50 @@ def load_targets(conn: sqlite3.Connection) -> list[PollTarget]:
     ]
 
 
+CLIENT_MODULE = "risk.services.groupme"
+CLIENT_READ_FUNCTION = "read_messages_after"
+"""The one name this module resolves out of the client, written down on both sides.
+
+Spelled out as a constant rather than searched for, because the search is what
+broke: this used to try a list of plausible names and take the first callable
+one. Nothing in ``risk.services.groupme`` matched — the reads live on a METHOD
+of ``GroupMeClient`` — so the production path raised on its very first request
+and ``POST /api/groupme/poll`` answered 503. It went unnoticed because every
+test injects a fake, which means this seam was never once exercised. A lookup
+that accepts whatever happens to be callable cannot tell anybody the two halves
+have stopped agreeing; one documented name can.
+"""
+
+
 def _default_list_messages() -> ListMessages:
-    """Resolve the real client at call time.
+    """Resolve the real client's read entry point at call time.
 
     Imported by name rather than with a module-level ``from ... import`` so this
     module keeps working — and its tests keep running — regardless of whether
     the HTTP client is present, and so nothing here has a static dependency on
     a module it does not own.
 
-    Only the READ entry point is pulled out, and only as a bare function. The
-    poller never holds the client module, so no amount of later editing in here
-    can reach a posting or membership call.
+    What comes back is a bare module-level FUNCTION: not the module, and not a
+    method bound to a client object. That is what makes this module's read-only
+    guarantee structural. A function has no ``post_message`` and no
+    ``add_members`` hanging off it, so there is nothing in scope here to reach
+    them with, however this file is edited later.
+
+    ``risk.services.groupme.read_messages_after`` also absorbs the two shape
+    differences between the halves — the cursor is positional in
+    :data:`ListMessages` and keyword-only on the client, and the client returns
+    dataclasses where :func:`normalize` reads mappings. Both are documented
+    there. Neither belongs here: this module does not know what a
+    ``GroupMeClient`` is, and that is the property worth keeping.
     """
-    module = importlib.import_module("risk.services.groupme")
-    for name in ("list_messages_after", "list_messages"):
-        candidate = getattr(module, name, None)
-        if callable(candidate):
-            return candidate  # type: ignore[no-any-return]
-    raise ImportError("risk.services.groupme exposes no list_messages callable")
+    module = importlib.import_module(CLIENT_MODULE)
+    read = getattr(module, CLIENT_READ_FUNCTION, None)
+    if not callable(read):
+        raise ImportError(
+            f"{CLIENT_MODULE} exposes no {CLIENT_READ_FUNCTION}() —"
+            " the forwarder has no read entry point"
+        )
+    return read  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------
@@ -697,13 +727,12 @@ def poll_once(
     targets: Sequence[PollTarget] | None = None,
     now: datetime | None = None,
     forward: bool = True,
-    cmux_target: str | None = None,
-    cmux_say: str | Path | None = None,
+    feed: str | Path | None = None,
     forward_limit: int = groupme_forward.DEFAULT_FORWARD_LIMIT,
     max_pages: int = MAX_PAGES_PER_POLL,
     lease_ttl_seconds: int = LEASE_TTL_SECONDS,
 ) -> PollCycleResult:
-    """One full cycle, under the lease: read every topic, then push into cmux.
+    """One full cycle, under the lease: read every topic, then append what is new.
 
     Returns immediately with ``skipped_locked`` when another poller holds the
     lease. That is the normal answer to a LaunchAgent firing while a long
@@ -712,11 +741,11 @@ def poll_once(
     one cursor.
 
     The forward step is inside the same cycle rather than a separate job so that
-    a message read at 21:04:02 is on Colin's screen at 21:04:03. It is also
+    a message read at 21:04:02 is in Colin's tailed feed at 21:04:03. It is also
     where the machine's two failure modes are kept apart: a topic that will not
     answer is recorded per-topic and does not stop delivery of what other topics
-    returned, and a cmux that is not running is recorded once and does not stop
-    the reading.
+    returned, and an unwritable feed is recorded once and does not stop the
+    reading.
 
     The heartbeat is stamped LAST and unconditionally — including on a cycle
     where every topic failed, because "the process ran and everything was
@@ -784,8 +813,7 @@ def poll_once(
         if forward:
             outcome = groupme_forward.forward_pending(
                 conn,
-                target=cmux_target,
-                cmux_say=cmux_say,
+                feed=feed,
                 limit=forward_limit,
                 now=moment,
                 keepalive=keepalive,

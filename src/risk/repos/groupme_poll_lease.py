@@ -6,7 +6,7 @@ They can overlap, and the thing they would overlap on is a single read cursor
 per topic. Two pollers reading the same page is harmless — the unique index on
 ``groupme_message_id`` absorbs it — but a slow cycle finishing after a fast one
 and writing back its OLDER cursor would replay hours of messages into the
-terminal, and a slow cycle that has been superseded has no business writing a
+feed, and a slow cycle that has been superseded has no business writing a
 cursor at all.
 
 So: a single-row lease with an expiry, taken before the cycle and renewed at

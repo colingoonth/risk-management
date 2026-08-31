@@ -22,10 +22,10 @@
 -- night.
 --
 -- `forwarded_at` is deliberately separate from `received_at`. Storing a message
--- and delivering it to cmux are different acts that fail independently: cmux is
--- often simply not running, and when it is not, the honest state is "we have
--- it, he has not seen it" — which is exactly a row with `received_at` set and
--- `forwarded_at` NULL. That NULL is the delivery queue.
+-- and appending it to the feed file are different acts that fail independently:
+-- the feed's volume can be unmounted or its directory gone, and when it is, the
+-- honest state is "we have it, he has not seen it" — which is exactly a row with
+-- `received_at` set and `forwarded_at` NULL. That NULL is the delivery queue.
 --
 -- `triage` is the human's side of the loop: NULL means untouched, and the three
 -- values mean he has looked. The vocabulary is enforced in the repo, which is
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS groupme_inbound (
   text TEXT NOT NULL,
   created_at TEXT NOT NULL,           -- ISO, from GroupMe created_at epoch
   received_at TEXT NOT NULL,
-  forwarded_at TEXT,                  -- when pushed to cmux; NULL = not yet
+  forwarded_at TEXT,                  -- when appended to the feed; NULL = not yet
   triage TEXT,                        -- NULL | 'urgent' | 'noted' | 'handled'
   triage_note TEXT
 );

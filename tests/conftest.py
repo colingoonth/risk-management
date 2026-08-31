@@ -42,6 +42,37 @@ def pytest_configure(config: pytest.Config) -> None:
         )
 
 
+@pytest.fixture(autouse=True)
+def _no_live_groupme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may reach the real GroupMe, or the keychain that unlocks it.
+
+    ``risk.services.groupme.read_messages_after`` — the bare read function the
+    poller resolves in production — builds a live ``GroupMeClient`` on first
+    use and caches it in a module global. That is right for a LaunchAgent (one
+    keychain subprocess per process rather than one per page) and wrong for a
+    test suite: a test that reached it would shell out to ``/usr/bin/security``
+    on the developer's machine and then open a socket to api.groupme.com with a
+    real full-account token, against the chapter's real chat.
+
+    So the cache is pre-filled with a client that refuses both. A test wanting
+    that path drives it through a stub transport of its own, which simply
+    replaces this one. The global is function-scoped through ``monkeypatch``, so
+    nothing a test wires up survives into the next.
+    """
+    from risk.services import groupme
+
+    def _refuse(*_: object, **__: object) -> object:
+        raise AssertionError(
+            "a test reached the live GroupMe client; inject a transport instead"
+        )
+
+    monkeypatch.setattr(
+        groupme,
+        "_read_client",
+        groupme.GroupMeClient(token_provider=_refuse, transport=_refuse),
+    )
+
+
 @pytest.fixture()
 def db(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     """File-backed SQLite DB with full schema applied. WAL mode is real."""

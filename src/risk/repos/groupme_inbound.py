@@ -11,7 +11,7 @@ already seen after a restart, and the count of rows in this table does not move.
 **"Not yet forwarded" is a NULL, not a flag.** ``forwarded_at IS NULL`` is the
 delivery queue that :mod:`risk.services.groupme_forward` drains, and
 :func:`mark_forwarded` is guarded on that NULL so a double-run cannot restamp a
-message that was already pushed to cmux.
+message that was already appended to the feed.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def list_unforwarded(conn: sqlite3.Connection, *, limit: int = 25) -> list[Inbou
     """The delivery queue, OLDEST first.
 
     Opposite order to :func:`list_recent` on purpose. That one feeds a screen
-    where the newest line belongs at the top; this one feeds a terminal that is
+    where the newest line belongs at the top; this one feeds a file that is
     appended to, where the newest line belongs LAST. A backlog replayed
     newest-first would read as a conversation running backwards.
     """
@@ -202,7 +202,7 @@ def count_unforwarded(conn: sqlite3.Connection) -> int:
 
 
 def mark_forwarded(conn: sqlite3.Connection, *, message_id: int, forwarded_at: str) -> int:
-    """Stamp a message as delivered to cmux.
+    """Stamp a message as delivered to the feed.
 
     Guarded on ``forwarded_at IS NULL`` so re-running the forwarder is a no-op
     returning 0 rather than rewriting when a message was first seen.

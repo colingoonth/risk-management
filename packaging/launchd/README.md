@@ -4,9 +4,15 @@
 what runs it every two minutes, and once immediately whenever it is loaded.
 
 **Nothing installs it for you.** The template carries `__PLACEHOLDERS__` because
-the cmux surface id and the venv path are specific to one machine, and this repo
-is public — a finished plist with real values in it is a leak, not a
-convenience.
+the feed path and the venv path are specific to one machine, and this repo is
+public — a finished plist with real values in it is a leak, not a convenience.
+
+**Where the messages go: a file.** `risk-forwarder` appends each new message to
+`RISK_FORWARD_FEED`, one line per message, and you read it with `tail -f`. It
+does not type them into a terminal, a cmux surface, or an agent. Anybody in the
+chapter's GroupMe can write those lines, and a destination that types them
+somewhere and presses enter is a remote prompt for a hundred people — see the
+module docstring in `src/risk/services/groupme_forward.py`.
 
 ## Install
 
@@ -15,18 +21,22 @@ convenience.
 mkdir -p ~/Library/LaunchAgents
 sed -e "s|__RISK_FORWARDER_BIN__|$PWD/.venv/bin/risk-forwarder|g" \
     -e "s|__HOME__|$HOME|g" \
-    -e "s|__CMUX_SURFACE_ID__|surface:N|g" \
+    -e "s|__FEED_PATH__|$HOME/Library/Application Support/risk-management/groupme-feed.txt|g" \
     packaging/launchd/com.colin.riskforwarder.plist.template \
     > ~/Library/LaunchAgents/com.colin.riskforwarder.plist
 
 # 2. Load it. `bootstrap` also runs it once, because of RunAtLoad.
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.colin.riskforwarder.plist
 
-# 3. Watch it.
+# 3. Watch it run, and watch the messages arrive.
 tail -f ~/Library/Logs/riskforwarder.log
+tail -f "$HOME/Library/Application Support/risk-management/groupme-feed.txt"
 ```
 
-Replace `surface:N` with the cmux surface you want the messages typed into.
+The feed path is yours to choose; it just has to be a file in a directory that
+already exists. The forwarder creates the file `0600` and never creates the
+directory — a feed that materialised a tree somewhere unexpected would be months
+of other people's messages in a place nobody picked.
 
 ## Check, stop, reload
 
@@ -51,7 +61,7 @@ One line per run:
 ```
 
 Timestamps, topic slugs, error codes, counts. Message text and senders are never
-logged — they go to the database and to cmux, and nowhere else.
+logged — they go to the database and to the feed file, and nowhere else.
 
 `skipped=lease_held` is normal, not a fault: the previous cycle was still
 running (a long catch-up after the machine was asleep), and the lease in
@@ -62,9 +72,8 @@ underneath it.
 
 | Symptom | Cause |
 | --- | --- |
-| `cmux=cmux_binary_missing` | `cmux-say` is not at `~/.local/bin/cmux-say`, or `PATH` in the plist is wrong. |
-| `cmux=cmux_not_configured` | `RISK_CMUX_SURFACE` is empty. Messages are still being stored — they queue until it is set. |
-| `cmux=cmux_send_failed` | cmux is not running, or that surface is gone. Harmless; the queue drains when it comes back. |
+| `feed=feed_not_configured` | `RISK_FORWARD_FEED` is empty. Messages are still being stored — they queue until it is set. |
+| `feed=feed_unwritable` | The feed's directory does not exist, the volume is not mounted, the disk is full, or the file is not writable. Harmless; the queue drains once it is fixed. |
 | `failed=<slug>:auth_rejected` | The keychain token is missing or revoked. |
 | `failed=<slug>:rate_limited` | GroupMe pushed back. The topic sits out until its `retry_after` passes; nothing to do. |
 | Nothing in the log at all | The agent is not loaded (`launchctl print`), or the binary path in `ProgramArguments` does not exist. |
