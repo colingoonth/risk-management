@@ -39,7 +39,7 @@ const PREVIEW = {
   ],
   unroutable: [],
   oversize: [],
-  identity_check: 'live',
+  identity_check: 'full',
 }
 
 const HEALTH = { groups: [], heartbeat_age_seconds: 12, healthy: true }
@@ -176,6 +176,47 @@ describe('Ops — approving an announcement', () => {
     await openConfirmStep()
 
     expect(screen.getByText(/Not tagged: Test Charlie/)).toBeTruthy()
+  })
+
+  it("gives the server's own reason for an untagged man, not a guess", async () => {
+    const withReason = {
+      ...PREVIEW,
+      posts: [
+        {
+          ...PREVIEW.posts[0],
+          mentions: [],
+          unlinked: [
+            {
+              member_id: 7,
+              display_name: 'Test Charlie',
+              reason: 'not-in-parent-group: this account is not currently in the parent group',
+            },
+          ],
+        },
+      ],
+    }
+    stubApi(() => ok({ posted: [] }), withReason)
+    render(<Ops />)
+    await openConfirmStep()
+
+    // "No linked identity" would send the chair to `map`, which is a no-op here.
+    expect(
+      screen.getByText(/not-in-parent-group: this account is not currently in the parent group/),
+    ).toBeTruthy()
+    expect(screen.queryByText(/no linked\s+GroupMe identity/)).toBeNull()
+  })
+
+  it('warns about unverified mentions only when the live check did not happen', async () => {
+    stubApi(() => ok({ posted: [] }), { ...PREVIEW, identity_check: 'full' as const })
+    const { unmount } = render(<Ops />)
+    await openConfirmStep()
+    expect(screen.queryByText(/Membership could not be checked/)).toBeNull()
+    unmount()
+
+    stubApi(() => ok({ posted: [] }), { ...PREVIEW, identity_check: 'database-only' as const })
+    render(<Ops />)
+    await openConfirmStep()
+    expect(screen.getByText(/Membership could not be checked/)).toBeTruthy()
   })
 })
 

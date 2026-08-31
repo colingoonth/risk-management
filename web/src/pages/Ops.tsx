@@ -783,7 +783,7 @@ function AnnounceConfirm({
         {taggedPeople === 1 ? 'person' : 'people'} tagged
       </p>
 
-      {preview.identity_check !== 'live' && (
+      {preview.identity_check !== 'full' && (
         <p className="mt-3 text-sm text-oxblood-300">
           Membership could not be checked against GroupMe, so these mentions are read from the
           database alone. Anyone who has left the group will not be tagged.
@@ -837,15 +837,31 @@ function AnnounceConfirm({
   )
 }
 
-// Crew on the post who have no linked GroupMe identity: their line still says
-// their name, but the @ does not reach them. Named, not counted — the chair has
-// to know WHO to chase.
+// Crew on the post whose @ will not reach them. Named, not counted — the chair
+// has to know WHO to chase.
+//
+// The REASON is the server's, never ours. "No linked identity" and "not in the
+// parent group yet" send the chair to opposite commands, and guessing the wrong
+// one costs him a run of `map` that changes nothing while the real fix waits.
+// Grouped by reason so one line does not assert a single cause for men who were
+// skipped for different ones.
 function UnmentionableLine({ post }: { post: GroupMeAnnouncementPost }) {
+  const byReason = new Map<string, string[]>()
+  for (const person of post.unlinked) {
+    const reason = person.reason ?? 'no linked GroupMe identity'
+    const names = byReason.get(reason)
+    if (names) names.push(person.display_name)
+    else byReason.set(reason, [person.display_name])
+  }
   return (
-    <p className="mt-2 text-xs text-oxblood-300">
-      Not tagged: {post.unlinked.map((person) => person.display_name).join(', ')} — no linked
-      GroupMe identity, so they will not be notified.
-    </p>
+    <>
+      {[...byReason].map(([reason, names]) => (
+        <p key={reason} className="mt-2 text-xs text-oxblood-300">
+          Not tagged: {names.join(', ')} — {reason}, so {names.length === 1 ? 'he' : 'they'} will
+          not be notified.
+        </p>
+      ))}
+    </>
   )
 }
 

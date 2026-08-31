@@ -395,9 +395,13 @@ export interface GroupMeAnnouncementPreview extends GroupMeApprovable {
   unroutable: GroupMeUnroutableEvent[]
   /** Over GroupMe's 1000-character limit. Reported here, not sent. */
   oversize: GroupMeAnnouncementPost[]
-  /** `live` when membership was checked against GroupMe, `database-only` when
-   * the API could not be reached and the mentions are unverified. */
-  identity_check: string
+  /** `full` when membership was checked against GroupMe, `database-only` when
+   * the API could not be reached and the mentions are unverified. These are the
+   * literal strings the backend emits (services/groupme_announce.py) — a union
+   * rather than `string` so a rename on either side fails the build instead of
+   * silently showing the outage warning on every healthy preview, which is what
+   * happened when this said `live`. */
+  identity_check: 'full' | 'database-only'
 }
 
 export interface GroupMePosted {
