@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE. Nothing installs this: fill the __PLACEHOLDERS__ in and copy it to
+  ~/Library/LaunchAgents/com.colin.riskforwarder.plist yourself. See the README
+  in this directory. It is a template and not a finished file on purpose — the
+  cmux surface id and the paths are machine-specific, and a plist committed with
+  real values in a PUBLIC repo is exactly the leak this project is careful about.
+
+  WHAT launchd IS FOR HERE: a trigger, and nothing else. It starts one
+  short-lived `risk-forwarder` process; that process polls, forwards, and exits.
+  All the state — the read cursor, the delivery queue, the lease that stops two
+  cycles overlapping — lives in the database, so a missed run, a killed run and
+  a run that overlapped the last one all resolve themselves on the next tick.
+
+  DELIBERATELY ABSENT:
+    KeepAlive     — this is not a daemon. KeepAlive would restart the process
+                    the instant it exited, i.e. continuously, which is a poll
+                    loop with no interval and a fast way to get rate-limited.
+    ThrottleInterval — the default (10s) is well under StartInterval; raising it
+                    would only mask a crash loop that should be visible.
+    StartCalendarInterval — the traffic this watches happens at night and on
+                    weekends. There is no schedule to it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.colin.riskforwarder</string>
+
+  <!-- Absolute path: launchd does not use a shell and will not resolve a bare
+       name or a ~. Point it at the console script in the project's venv, e.g.
+       /Users/<you>/code/risk-management/.venv/bin/risk-forwarder -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__RISK_FORWARDER_BIN__</string>
+  </array>
+
+  <!-- Every two minutes. Fast enough that a question in the risk chat is on
+       screen before it is stale, slow enough to be nothing to the API. -->
+  <key>StartInterval</key>
+  <integer>120</integer>
+
+  <!-- Run once immediately on load, so `launchctl bootstrap` catches up on
+       whatever arrived while the agent was unloaded rather than waiting out a
+       first interval. Also fires at login, which is the case that matters:
+       the machine has just woken and is two hours behind. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd gives a job /usr/bin:/bin:/usr/sbin:/sbin. cmux-say lives in
+         ~/.local/bin and `security` (the keychain lookup for the GroupMe token)
+         lives in /usr/bin, so put both on the path. -->
+    <key>PATH</key>
+    <string>__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+
+    <!-- Which cmux surface the messages are typed into. Machine-specific, and
+         the reason this file is a template. -->
+    <key>RISK_CMUX_SURFACE</key>
+    <string>__CMUX_SURFACE_ID__</string>
+
+    <!-- Optional. Omit to use the app's standard database location. -->
+    <key>RISK_DB_PATH</key>
+    <string>__HOME__/Library/Application Support/risk-management/risk.db</string>
+  </dict>
+
+  <!-- One summary line per run: timestamp, topic slugs, error codes, counts.
+       No message text, no sender, no group id ever reaches these files. -->
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/riskforwarder.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/riskforwarder.err.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>__HOME__</string>
+
+  <!-- Background: lower scheduling and I/O priority, so a catch-up after a
+       week away never competes with whatever Colin is actually doing. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

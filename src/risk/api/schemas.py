@@ -356,3 +356,46 @@ class ShiftAssignOut(_Out):
     display_name: str
     replaced_slug: str | None
     warnings: list[str]
+
+
+# --- GroupMe forwarder (poll health + inbound traffic) ---
+
+
+class GroupmeGroupHealthOut(_Out):
+    """One topic's line in the health payload.
+
+    ``stale`` is computed, not stored — it is ``last_ok_at`` measured against
+    the staleness window in ``services.groupme_poll``, surfaced here so the
+    dashboard does not have to re-derive a threshold the service already owns.
+    """
+
+    slug: str
+    label: str
+    last_polled_at: str | None
+    last_ok_at: str | None
+    consecutive_failures: int
+    last_error: str | None
+    stale: bool
+
+
+class GroupmeHealthOut(_Out):
+    groups: list[GroupmeGroupHealthOut]
+    heartbeat_age_seconds: int | None
+    healthy: bool
+
+
+class GroupmeInboundOut(_Out):
+    """A message as the chair reads it.
+
+    A deliberate subset of the row: ``groupme_message_id``, ``sender_user_id``
+    and ``received_at`` are dedupe and plumbing, and ``sender_user_id`` in
+    particular is a real GroupMe identifier that has no business on a screen.
+    """
+
+    id: int
+    group_slug: str
+    sender_name: str
+    text: str
+    created_at: str
+    triage: str | None
+    triage_note: str | None
