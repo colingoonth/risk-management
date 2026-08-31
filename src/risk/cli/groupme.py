@@ -28,6 +28,7 @@ from risk.cli.output import OutputMode, emit_error, emit_success
 from risk.db.connection import transaction
 from risk.repos import groupme_groups as groups_repo
 from risk.repos import groupme_identities as identities_repo
+from risk.repos import groupme_inbound as inbound_repo
 from risk.repos import groupme_outbound as ledger_repo
 from risk.repos import members as members_repo
 from risk.repos import semesters as semesters_repo
@@ -37,6 +38,11 @@ from risk.services import groupme_identity as identity_svc
 from risk.services import groupme_membership as membership_svc
 from risk.services import groupme_outbound as outbound_svc
 from risk.services.groupme import GroupMeClient, GroupMeError
+
+# The only thing that summons an agent, and the only honest way to tell an
+# agent's own message from the chair's: the rail appends this to every send.
+TRIGGER_PREFIX = "!!!"
+AGENT_ATTRIBUTION = "- claude"
 
 app = typer.Typer(help="GroupMe: chat ids, identity mapping, and the schedule announcement.")
 
@@ -578,6 +584,55 @@ def outbound(ctx: typer.Context) -> None:
                 }
                 for r in rows
             ]
+        },
+        mode=mode,
+    )
+
+
+@app.command("triggers")
+def triggers(
+    ctx: typer.Context,
+    limit: Annotated[int, typer.Option("--limit", help="Most messages to scan.")] = 200,
+) -> None:
+    """Un-actioned `!!!` summons waiting for a handler.
+
+    TWO filters, and the second is the subtle one.
+
+    `!!!` is the only thing that summons an agent, so a message without it is
+    not a summons no matter what it says.
+
+    Messages ending in the rail's attribution are AGENT OUTPUT and are skipped.
+    They have to be, and not by checking the sender: agents post as the chair,
+    so his account and theirs are the same account, and "ignore myself" would
+    make a handler deaf to the person it exists to answer. The suffix is
+    appended by `services.agent_reply` on every send and by nothing else, so it
+    is the only honest way to tell one from the other.
+
+    `triage` is the actioned marker: NULL is waiting, anything else is dealt
+    with. A handler sets it once it has answered.
+    """
+    mode = mode_from_ctx(ctx)
+    conn = open_conn(ctx)
+    waiting = [
+        m
+        for m in inbound_repo.list_recent(conn, limit=limit)
+        if m.triage is None
+        and m.text.lstrip().startswith(TRIGGER_PREFIX)
+        and not m.text.rstrip().endswith(AGENT_ATTRIBUTION)
+    ]
+    emit_success(
+        {
+            "trigger": TRIGGER_PREFIX,
+            "waiting": [
+                {
+                    "id": m.id,
+                    "group_slug": m.group_slug,
+                    "sender_name": m.sender_name,
+                    "text": m.text,
+                    "created_at": m.created_at,
+                }
+                for m in waiting
+            ],
         },
         mode=mode,
     )
