@@ -10,6 +10,13 @@ import type {
   EventRow,
   EventSummaryRow,
   EventType,
+  GroupMeAnnounceResult,
+  GroupMeAnnouncementPreview,
+  GroupMeHealth,
+  GroupMeIdentities,
+  GroupMeInboundMessage,
+  GroupMeMembershipPlan,
+  GroupMeReplyResult,
   House,
   HouseMode,
   Member,
@@ -213,4 +220,41 @@ export const api = {
     form.append('dry_run', String(dryRun))
     return req<RosterIngestResult>('/ingest/gform-roster', { method: 'POST', body: form })
   },
+
+  groupmeHealth: () => req<GroupMeHealth>('/groupme/health'),
+  groupmeInbound: (params: { limit?: number; triage?: string } = {}) => {
+    const q = new URLSearchParams()
+    q.set('limit', String(params.limit ?? 50))
+    if (params.triage !== undefined) q.set('triage', params.triage)
+    return req<GroupMeInboundMessage[]>(`/groupme/inbound?${q.toString()}`)
+  },
+  groupmeIdentities: () => req<GroupMeIdentities>('/groupme/identities'),
+  groupmeMembershipPlan: (on_or_after: string, on_or_before: string) => {
+    const q = new URLSearchParams({ on_or_after, on_or_before })
+    return req<GroupMeMembershipPlan>(`/groupme/membership-plan?${q.toString()}`)
+  },
+  groupmeAnnouncePreview: (on_or_after: string, on_or_before: string) => {
+    const q = new URLSearchParams({ on_or_after, on_or_before })
+    return req<GroupMeAnnouncementPreview>(`/groupme/announce-preview?${q.toString()}`)
+  },
+  groupmeAnnounce: (body: { on_or_after: string; on_or_before: string; confirm: true }) =>
+    req<GroupMeAnnounceResult>('/groupme/announce', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  groupmeReply: (body: { group_slug: string; text: string }) =>
+    req<GroupMeReplyResult>('/groupme/reply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  groupmeMembershipApply: (body: {
+    on_or_after: string
+    on_or_before: string
+    confirm: true
+  }) =>
+    req<unknown>('/groupme/membership/apply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  groupmePoll: () => req<GroupMeHealth>('/groupme/poll', { method: 'POST' }),
 }

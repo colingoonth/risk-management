@@ -5,6 +5,7 @@ import { Calendar } from './pages/Calendar'
 import { Dashboard } from './pages/Dashboard'
 import { Events } from './pages/Events'
 import { Notes } from './pages/Notes'
+import { Ops } from './pages/Ops'
 import { PledgeTakeover } from './pages/PledgeTakeover'
 import { Roster } from './pages/Roster'
 import { Strikes } from './pages/Strikes'
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="pledges" element={<PledgeTakeover />} />
             <Route path="roster" element={<Roster />} />
             <Route path="notes" element={<Notes />} />
+            <Route path="ops" element={<Ops />} />
           </Route>
         </Routes>
       </BrowserRouter>
