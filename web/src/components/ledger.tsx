@@ -1,3 +1,4 @@
+import { useId, useState } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 // Duty Ledger primitives: status encoded WITHOUT pills — fill bars, tally
@@ -28,6 +29,68 @@ export function LedgerSection({
         {action}
       </div>
       {children}
+    </section>
+  )
+}
+
+// A ruled disclosure for operational data. Alarm state is load-bearing: it
+// derives `open` independently of the user's preference and removes the
+// collapse affordance until the alarm clears.
+export function LedgerDisclosure({
+  title,
+  summary,
+  defaultOpen = false,
+  alarm = false,
+  children,
+}: {
+  title: string
+  summary: ReactNode
+  defaultOpen?: boolean
+  alarm?: boolean
+  children: ReactNode
+}) {
+  const contentId = useId()
+  const [userOpen, setUserOpen] = useState(defaultOpen)
+  const open = alarm || userOpen
+
+  return (
+    <section
+      className={`border-b ${alarm ? 'border-oxblood-600/70' : 'border-ink-700/40'}`}
+      data-alarm={alarm ? 'true' : 'false'}
+    >
+      <h2>
+        <button
+          type="button"
+          aria-controls={contentId}
+          aria-expanded={open}
+          disabled={alarm}
+          onClick={() => setUserOpen((value) => !value)}
+          className={`grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-3 px-1 py-3 text-left transition-colors ${
+            alarm
+              ? 'cursor-default text-oxblood-300'
+              : 'text-ink-500 hover:bg-char-850/30 hover:text-ink-100'
+          }`}
+        >
+          <span className={`ledger-cap truncate ${alarm ? '!text-oxblood-300' : ''}`}>
+            {title}
+          </span>
+          <span
+            className={`text-right font-mono text-xs tabular-nums ${
+              alarm ? 'text-oxblood-300' : 'text-ink-300'
+            }`}
+          >
+            {summary}
+          </span>
+          <span className="w-4 text-right font-mono text-xs" aria-hidden>
+            {alarm ? '!' : open ? '−' : '+'}
+          </span>
+        </button>
+      </h2>
+      {open && (
+        <div id={contentId} className={alarm ? 'border-l-[3px] border-oxblood-600' : undefined}>
+          {children}
+        </div>
+      )}
     </section>
   )
 }

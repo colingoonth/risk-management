@@ -13,6 +13,7 @@ const NAV = [
   { to: '/pledges', label: 'Pledges' },
   { to: '/roster', label: 'Roster' },
   { to: '/notes', label: 'Notes' },
+  { to: '/ops', label: 'Ops' },
 ]
 
 export function Shell() {

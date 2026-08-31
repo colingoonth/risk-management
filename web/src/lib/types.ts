@@ -248,3 +248,93 @@ export interface ChairNote {
   /** What was actually done about it. */
   closed_note: string | null
 }
+
+export interface GroupMeHealthGroup {
+  slug: string
+  label: string
+  last_polled_at: string | null
+  last_ok_at: string | null
+  consecutive_failures: number
+  last_error: string | null
+  stale: boolean
+}
+
+export interface GroupMeHealth {
+  groups: GroupMeHealthGroup[]
+  heartbeat_age_seconds: number | null
+  healthy: boolean
+}
+
+export type GroupMeTriage = 'urgent' | 'noted' | 'handled' | null
+
+export interface GroupMeInboundMessage {
+  id: number
+  group_slug: string
+  sender_name: string
+  text: string
+  created_at: string
+  triage: GroupMeTriage
+  triage_note: string | null
+}
+
+export interface GroupMeUnlinkedIdentity {
+  member_id: number
+  display_name: string
+}
+
+export interface GroupMeIdentityDrift {
+  groupme_user_id: string
+  nickname: string
+}
+
+export interface GroupMeIdentities {
+  linked: number
+  unlinked: GroupMeUnlinkedIdentity[]
+  drift: GroupMeIdentityDrift[]
+}
+
+export interface GroupMeMembershipAddition {
+  member_id: number
+  display_name: string
+  groupme_user_id: string
+}
+
+export interface GroupMeMembershipRemoval {
+  member_id: number
+  display_name: string
+  membership_id: string
+  reason: string
+}
+
+export interface GroupMeMembershipPlan {
+  add: GroupMeMembershipAddition[]
+  remove: GroupMeMembershipRemoval[]
+}
+
+export interface GroupMeMention {
+  user_id: string
+  display_name: string
+  offset: number
+  length: number
+}
+
+export interface GroupMeAnnouncementPost {
+  group_slug: string
+  label: string
+  event_date: string
+  event_name: string
+  text: string
+  mentions: GroupMeMention[]
+}
+
+export interface GroupMeAnnouncementPreview {
+  posts: GroupMeAnnouncementPost[]
+}
+
+export interface GroupMeAnnounceResult {
+  posted: unknown[]
+}
+
+export interface GroupMeReplyResult {
+  ok: true
+}
