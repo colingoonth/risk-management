@@ -280,6 +280,8 @@ export interface GroupMeInboundMessage {
 export interface GroupMeUnlinkedIdentity {
   member_id: number
   display_name: string
+  /** Why this one cannot be mentioned, when the server knows. */
+  reason: string | null
 }
 
 export interface GroupMeIdentityDrift {
@@ -287,10 +289,27 @@ export interface GroupMeIdentityDrift {
   nickname: string
 }
 
+export interface GroupMeBlockedIdentity {
+  groupme_user_id: string
+  member_id: number
+  display_name: string
+  reason: string
+  detail: string
+}
+
+export interface GroupMeIdentityRow {
+  member_id: number
+  display_name: string
+  nickname: string | null
+  confidence: string
+}
+
 export interface GroupMeIdentities {
   linked: number
   unlinked: GroupMeUnlinkedIdentity[]
   drift: GroupMeIdentityDrift[]
+  rows: GroupMeIdentityRow[]
+  blocked: GroupMeBlockedIdentity[]
 }
 
 export interface GroupMeMembershipAddition {
@@ -306,9 +325,32 @@ export interface GroupMeMembershipRemoval {
   reason: string
 }
 
-export interface GroupMeMembershipPlan {
+export interface GroupMeUnrecognisedAccount {
+  groupme_user_id: string
+  nickname: string
+}
+
+/**
+ * A preview the chair can approve: the plan PLUS the two values that have to
+ * come back with the approval.
+ *
+ * `preview_id` is issued with the plan and expires (fifteen minutes, and never
+ * across an API restart); `digest` is a hash of exactly what would be sent.
+ * `POST /groupme/membership/apply` and `POST /groupme/announce` rebuild the plan
+ * from live data and refuse unless both still hold, so a client that drops
+ * either of these can approve nothing at all.
+ */
+export interface GroupMeApprovable {
+  preview_id: string
+  digest: string
+}
+
+export interface GroupMeMembershipPlan extends GroupMeApprovable {
   add: GroupMeMembershipAddition[]
   remove: GroupMeMembershipRemoval[]
+  unrecognised: GroupMeUnrecognisedAccount[]
+  blocked: GroupMeBlockedIdentity[]
+  unlinked_workers: GroupMeUnlinkedIdentity[]
 }
 
 export interface GroupMeMention {
@@ -320,19 +362,54 @@ export interface GroupMeMention {
 
 export interface GroupMeAnnouncementPost {
   group_slug: string
+  /** The destination topic as the chapter names it — what the chair reads. */
   label: string
   event_date: string
   event_name: string
   text: string
   mentions: GroupMeMention[]
+  /** Crew on this shift who cannot be @-ed, so they will not see the post. */
+  unlinked: GroupMeUnlinkedIdentity[]
+  char_count: number
+  too_long: boolean
 }
 
-export interface GroupMeAnnouncementPreview {
+export interface GroupMeUnroutableEvent {
+  event_date: string
+  event_name: string
+  weekday: number
+  reason: string
+}
+
+export interface GroupMeAnnouncementPreview extends GroupMeApprovable {
   posts: GroupMeAnnouncementPost[]
+  unroutable: GroupMeUnroutableEvent[]
+  /** Over GroupMe's 1000-character limit. Reported here, not sent. */
+  oversize: GroupMeAnnouncementPost[]
+  /** `live` when membership was checked against GroupMe, `database-only` when
+   * the API could not be reached and the mentions are unverified. */
+  identity_check: string
+}
+
+export interface GroupMePosted {
+  group_slug: string
+  label: string
+  event_date: string
+  event_name: string
+  message_id: string | null
+  mention_count: number
+  outcome: string
+  detail: string | null
 }
 
 export interface GroupMeAnnounceResult {
-  posted: unknown[]
+  posted: GroupMePosted[]
+}
+
+export interface GroupMeMembershipApplyResult {
+  added: string[]
+  removed: string[]
+  results_id: string | null
 }
 
 export interface GroupMeReplyResult {

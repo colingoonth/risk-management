@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -13,5 +14,14 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  // jsdom because the outbound-approval tests drive the real Ops page through
+  // real clicks against a stubbed `fetch` — the bug they exist to catch (a
+  // request body missing preview_id/digest) only shows up in what the client
+  // actually sends, not in what a rendered string contains.
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    restoreMocks: true,
   },
 })

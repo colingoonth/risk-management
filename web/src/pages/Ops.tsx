@@ -1,8 +1,15 @@
 import { useState } from 'react'
 import { LedgerDisclosure, PenButton } from '../components/ledger'
-import { api } from '../lib/api'
+import { api, approvalOf } from '../lib/api'
+import { classifyApprovalFailure } from '../lib/approval'
+import type { ApprovalFailure } from '../lib/approval'
 import { addDays, mondayOf, todayLocal, weekdayMon0 } from '../lib/dates'
-import type { GroupMeInboundMessage } from '../lib/types'
+import type {
+  GroupMeAnnouncementPost,
+  GroupMeAnnouncementPreview,
+  GroupMeApprovable,
+  GroupMeInboundMessage,
+} from '../lib/types'
 import { useAsync } from '../lib/useAsync'
 
 const TODAY = todayLocal()
@@ -37,6 +44,11 @@ export function Ops() {
   const [busy, setBusy] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionNote, setActionNote] = useState<string | null>(null)
+  // Approval refusals are NOT action errors. A 400 here usually means the gate
+  // did its job, and the three reasons send the chair to three different
+  // places, so they are held apart and rendered as their own alarm.
+  const [announceFailure, setAnnounceFailure] = useState<ApprovalFailure | null>(null)
+  const [membershipFailure, setMembershipFailure] = useState<ApprovalFailure | null>(null)
   const [confirmAnnouncement, setConfirmAnnouncement] = useState(false)
   const [confirmMembership, setConfirmMembership] = useState(false)
   const [replyTarget, setReplyTarget] = useState<{
@@ -64,9 +76,50 @@ export function Ops() {
     }
   }
 
+  /**
+   * Send one approval and translate its refusal.
+   *
+   * `preview` is the response the chair was looking at — passed in whole so the
+   * approval can only ever carry the digest of THAT plan. A refusal that leaves
+   * the preview unapprovable (expired, drifted) closes the confirm step, because
+   * a "try again" button over a dead preview would just fail the same way.
+   */
+  async function approve(
+    key: string,
+    preview: GroupMeApprovable,
+    send: (approval: ReturnType<typeof approvalOf>) => Promise<unknown>,
+    {
+      onSent,
+      onStale,
+      onFailure,
+    }: {
+      onSent: () => void
+      onStale: (failure: ApprovalFailure) => void
+      onFailure: (f: ApprovalFailure | null) => void
+    },
+  ) {
+    setBusy(key)
+    setActionError(null)
+    setActionNote(null)
+    onFailure(null)
+    try {
+      await send(approvalOf(preview, WINDOW))
+      onSent()
+    } catch (error) {
+      const failure = classifyApprovalFailure(error)
+      onFailure(failure)
+      if (failure.stale) onStale(failure)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const messages = inbound.data ?? []
   const urgentMessages = messages.filter((message) => message.triage === 'urgent')
   const posts = preview.data?.posts ?? []
+  const taggedPeople = new Set(
+    posts.flatMap((post) => post.mentions.map((mention) => mention.user_id)),
+  ).size
   const unlinked = identities.data?.unlinked ?? []
   const identityDrift = identities.data?.drift ?? []
   const additions = membership.data?.add ?? []
@@ -211,9 +264,18 @@ export function Ops() {
 
       <LedgerDisclosure
         title="Sunday post preview + approve"
-        summary={preview.loading ? 'building…' : `${posts.length} posts`}
+        summary={
+          announceFailure
+            ? 'nothing sent'
+            : preview.loading
+              ? 'building…'
+              : `${posts.length} posts`
+        }
         defaultOpen
-        alarm={false}
+        // A refused approval IS an alarm: oxblood, forced open, not collapsible
+        // until it is dealt with. Nothing outbound should be dismissable by
+        // folding the section it happened in.
+        alarm={announceFailure !== null}
       >
         <div className="px-1 pb-4">
           <DataState loading={preview.loading} error={preview.error} />
@@ -235,39 +297,64 @@ export function Ops() {
               </li>
             ))}
           </ul>
+          {announceFailure && (
+            <ApprovalAlarm
+              failure={announceFailure}
+              busy={busy !== null}
+              onRebuild={
+                announceFailure.kind === 'expired'
+                  ? () => {
+                      setAnnounceFailure(null)
+                      preview.reload()
+                    }
+                  : undefined
+              }
+            />
+          )}
           {posts.length > 0 && !confirmAnnouncement && (
             <div className="flex justify-end border-t border-ink-700/30 pt-3">
               <button
                 type="button"
                 className={TEXT_ACTION}
-                disabled={busy !== null}
-                onClick={() => setConfirmAnnouncement(true)}
+                disabled={busy !== null || !preview.data}
+                onClick={() => {
+                  setAnnounceFailure(null)
+                  setConfirmAnnouncement(true)
+                }}
               >
                 Review approval →
               </button>
             </div>
           )}
-          {confirmAnnouncement && (
-            <ConfirmRow
-              message={`Post ${posts.length} crew ${plural(posts.length, 'notice')} to GroupMe?`}
+          {confirmAnnouncement && preview.data && (
+            <AnnounceConfirm
+              preview={preview.data}
+              taggedPeople={taggedPeople}
               busy={busy === 'announce'}
-              confirmLabel="Confirm & post"
+              disabled={busy !== null}
               onCancel={() => setConfirmAnnouncement(false)}
-              onConfirm={() =>
-                run(
-                  'announce',
-                  () =>
-                    api.groupmeAnnounce({
-                      ...WINDOW,
-                      confirm: true,
-                    }),
-                  () => {
+              onConfirm={() => {
+                const approved = preview.data
+                if (!approved) return
+                approve('announce', approved, (approval) => api.groupmeAnnounce(approval), {
+                  onSent: () => {
                     setConfirmAnnouncement(false)
                     preview.reload()
-                    setActionNote('Crew announcements posted.')
+                    setActionNote(
+                      `Posted ${approved.posts.length} crew ${plural(approved.posts.length, 'notice')}.`,
+                    )
                   },
-                )
-              }
+                  // Drift and expiry both leave this preview unapprovable, so the
+                  // confirm step closes either way. Drift ALSO rebuilds on the
+                  // spot: the plan on screen describes a schedule that no longer
+                  // exists, and the chair must read the new one.
+                  onStale: (failure) => {
+                    setConfirmAnnouncement(false)
+                    if (failure.kind === 'drift') preview.reload()
+                  },
+                  onFailure: setAnnounceFailure,
+                })
+              }}
             />
           )}
         </div>
@@ -276,14 +363,16 @@ export function Ops() {
       <LedgerDisclosure
         title="Membership drift"
         summary={
-          identities.loading || membership.loading
-            ? 'checking…'
-            : membershipAlarm
-              ? `${membershipPending} pending`
-              : 'aligned'
+          membershipFailure
+            ? 'nothing applied'
+            : identities.loading || membership.loading
+              ? 'checking…'
+              : membershipAlarm
+                ? `${membershipPending} pending`
+                : 'aligned'
         }
         defaultOpen={false}
-        alarm={membershipAlarm}
+        alarm={membershipAlarm || membershipFailure !== null}
       >
         <div className="px-1 pb-4">
           <DataState loading={identities.loading || membership.loading} error={identities.error ?? membership.error} />
@@ -328,36 +417,65 @@ export function Ops() {
                   </li>
                 ))}
               </ul>
+              {membershipFailure && (
+                <ApprovalAlarm
+                  failure={membershipFailure}
+                  busy={busy !== null}
+                  onRebuild={
+                    membershipFailure.kind === 'expired'
+                      ? () => {
+                          setMembershipFailure(null)
+                          membership.reload()
+                        }
+                      : undefined
+                  }
+                />
+              )}
               {additions.length + removals.length > 0 && !confirmMembership && (
                 <div className="flex justify-end pt-3">
                   <button
                     type="button"
                     className={TEXT_ACTION}
-                    disabled={busy !== null}
-                    onClick={() => setConfirmMembership(true)}
+                    disabled={busy !== null || !membership.data}
+                    onClick={() => {
+                      setMembershipFailure(null)
+                      setConfirmMembership(true)
+                    }}
                   >
                     Review membership changes →
                   </button>
                 </div>
               )}
-              {confirmMembership && (
+              {confirmMembership && membership.data && (
                 <ConfirmRow
-                  message={`Apply ${additions.length} ${plural(additions.length, 'addition')} and ${removals.length} ${plural(removals.length, 'removal')}?`}
+                  message={`Add ${additions.length} and remove ${removals.length} in the parent group?`}
                   busy={busy === 'membership'}
                   confirmLabel="Confirm membership"
                   onCancel={() => setConfirmMembership(false)}
-                  onConfirm={() =>
-                    run(
+                  onConfirm={() => {
+                    const approved = membership.data
+                    if (!approved) return
+                    approve(
                       'membership',
-                      () => api.groupmeMembershipApply({ ...WINDOW, confirm: true }),
-                      () => {
-                        setConfirmMembership(false)
-                        membership.reload()
-                        identities.reload()
-                        setActionNote('Membership changes applied.')
+                      approved,
+                      (approval) => api.groupmeMembershipApply(approval),
+                      {
+                        onSent: () => {
+                          setConfirmMembership(false)
+                          membership.reload()
+                          identities.reload()
+                          setActionNote(
+                            `Added ${approved.add.length} and removed ${approved.remove.length}.`,
+                          )
+                        },
+                        onStale: (failure) => {
+                          setConfirmMembership(false)
+                          if (failure.kind === 'drift') membership.reload()
+                        },
+                        onFailure: setMembershipFailure,
                       },
                     )
-                  }
+                  }}
                 />
               )}
             </>
@@ -554,6 +672,143 @@ export function Ops() {
         </div>
       </LedgerDisclosure>
     </div>
+  )
+}
+
+/**
+ * A refused approval, in the ledger's alarm register: oxblood, one hairline
+ * rule, no card and no pill. The chair gets three lines — what happened, what to
+ * do, and the API's own words — because a refusal he cannot act on is the same
+ * as no message at all.
+ */
+function ApprovalAlarm({
+  failure,
+  busy,
+  onRebuild,
+}: {
+  failure: ApprovalFailure
+  busy: boolean
+  onRebuild?: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      data-failure={failure.kind}
+      className="mt-3 border-l-[3px] border-oxblood-600 py-3 pl-4"
+    >
+      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-oxblood-300">
+        {failure.kind === 'bug' ? 'Dashboard bug — nothing sent' : 'Nothing was sent'}
+      </p>
+      <p className="mt-2 text-sm text-oxblood-300">{failure.headline}</p>
+      <p className="mt-1 text-sm text-ink-300">{failure.guidance}</p>
+      <p className="mt-3 border-t border-ink-700/30 pt-2 font-mono text-xs leading-5 text-ink-500">
+        {failure.detail}
+      </p>
+      {onRebuild && (
+        <div className="mt-3 flex justify-end">
+          <button type="button" className={TEXT_ACTION} disabled={busy} onClick={onRebuild}>
+            Rebuild preview →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The last screen before anything leaves the building.
+ *
+ * It shows the THREE things the chair is actually approving — the exact text of
+ * every message, the topic each one lands in, and how many people it @-mentions
+ * — because "Post 4 crew notices?" asks him to approve a number, and the number
+ * is not the thing that gets sent.
+ */
+function AnnounceConfirm({
+  preview,
+  taggedPeople,
+  busy,
+  disabled,
+  onCancel,
+  onConfirm,
+}: {
+  preview: GroupMeAnnouncementPreview
+  taggedPeople: number
+  busy: boolean
+  disabled: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const posts = preview.posts
+  return (
+    <div data-confirm="announce" className="mt-3 border-l-[3px] border-brass-500 py-3 pl-4">
+      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-500">
+        Sending {posts.length} {plural(posts.length, 'message')} · {taggedPeople}{' '}
+        {taggedPeople === 1 ? 'person' : 'people'} tagged
+      </p>
+
+      {preview.identity_check !== 'live' && (
+        <p className="mt-3 text-sm text-oxblood-300">
+          Membership could not be checked against GroupMe, so these mentions are read from the
+          database alone. Anyone who has left the group will not be tagged.
+        </p>
+      )}
+      {preview.oversize.length > 0 && (
+        <p className="mt-3 text-sm text-oxblood-300">
+          {preview.oversize.length} {plural(preview.oversize.length, 'message')} exceeded GroupMe's
+          1000-character limit and {preview.oversize.length === 1 ? 'is' : 'are'} not included.
+        </p>
+      )}
+      {preview.unroutable.length > 0 && (
+        <p className="mt-3 text-sm text-oxblood-300">
+          {preview.unroutable.length} {plural(preview.unroutable.length, 'event')} in this window
+          {preview.unroutable.length === 1 ? ' has' : ' have'} no topic and will not be announced.
+        </p>
+      )}
+
+      <ul className="mt-1">
+        {posts.map((post) => (
+          <li
+            key={`approve-${post.group_slug}-${post.event_date}-${post.event_name}`}
+            className="border-b border-ink-700/20 py-3"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <span className="text-sm text-ink-100">
+                To <span className="font-semibold">{post.label}</span>
+              </span>
+              <span className="font-mono text-xs text-ink-500 tabular-nums">
+                {post.mentions.length} {post.mentions.length === 1 ? 'person' : 'people'} tagged ·{' '}
+                {post.char_count} chars
+              </span>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap font-mono text-xs leading-6 text-ink-100">
+              {post.text}
+            </pre>
+            {post.unlinked.length > 0 && <UnmentionableLine post={post} />}
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-3 flex items-center justify-end gap-4">
+        <button type="button" className={QUIET_ACTION} disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+        <PenButton disabled={disabled} onClick={onConfirm}>
+          {busy ? 'Posting…' : 'Confirm & post'}
+        </PenButton>
+      </div>
+    </div>
+  )
+}
+
+// Crew on the post who have no linked GroupMe identity: their line still says
+// their name, but the @ does not reach them. Named, not counted — the chair has
+// to know WHO to chase.
+function UnmentionableLine({ post }: { post: GroupMeAnnouncementPost }) {
+  return (
+    <p className="mt-2 text-xs text-oxblood-300">
+      Not tagged: {post.unlinked.map((person) => person.display_name).join(', ')} — no linked
+      GroupMe identity, so they will not be notified.
+    </p>
   )
 }
 
