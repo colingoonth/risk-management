@@ -106,7 +106,7 @@ def post_announcements(
 
     sent: list[PostedMessage] = []
     for post in posts:
-        row = _reserve(conn, post)
+        row, claimed = _reserve(conn, post)
         if row.state == "sent":
             sent.append(
                 _result(
@@ -117,7 +117,7 @@ def post_announcements(
                 )
             )
             continue
-        if row.state != "pending":
+        if row.state != "pending" or not claimed:
             sent.append(
                 _result(
                     post,
@@ -160,21 +160,32 @@ def post_announcements(
     return sent
 
 
-def _reserve(conn: sqlite3.Connection, post: AnnouncePost) -> ledger_repo.OutboundRow:
+def _reserve(conn: sqlite3.Connection, post: AnnouncePost) -> tuple[ledger_repo.OutboundRow, bool]:
     """Claim this exact message in its own committed transaction.
 
     Its OWN transaction, not the caller's: the reservation has to be durable
     before the request leaves, and a reservation that rolls back with the send is
     no reservation at all.
+
+    The boolean says whether this call acquired the right to send. A pre-existing
+    ``pending`` row has the same stored state as a newly inserted one, so the
+    caller cannot safely infer ownership from the row alone.
     """
     with transaction(conn):
-        return ledger_repo.reserve(
+        existing = ledger_repo.get(
+            conn,
+            event_id=post.event_id,
+            destination_slug=post.group_slug,
+            content_version=post.content_version,
+        )
+        row = ledger_repo.reserve(
             conn,
             event_id=post.event_id,
             destination_slug=post.group_slug,
             content_version=post.content_version,
             reserved_at=_now(),
         )
+        return row, existing is None or existing.state == "failed"
 
 
 def _result(
