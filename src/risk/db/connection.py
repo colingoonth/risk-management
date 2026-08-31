@@ -92,24 +92,37 @@ def connect(db_path: Path, *, cross_thread: bool = False) -> sqlite3.Connection:
     different threads; since each request still owns its own connection,
     this is safe. The CLI keeps the default strict check.
     """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not db_path.exists() or db_path.stat().st_size == 0
+    db_path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    db_path.parent.chmod(0o700)
+    if db_path.exists():
+        db_path.chmod(0o600)
     conn = sqlite3.connect(
         db_path,
         isolation_level=None,
         timeout=BUSY_TIMEOUT_MS / 1000,
         check_same_thread=not cross_thread,
     )
-    if is_new:
+    try:
+        # sqlite3 may have created the file above. Repair it unconditionally so
+        # an existing database whose mode drifted is fixed on every app open.
         db_path.chmod(0o600)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
-    conn.execute("PRAGMA temp_store = MEMORY")
-    conn.execute("PRAGMA cache_size = -64000")
-    return conn
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -64000")
+        # WAL mode can leave persistent sidecars after an unclean shutdown.
+        # SQLite normally creates these privately; audit existing copies too.
+        for suffix in ("-wal", "-shm"):
+            sidecar = db_path.with_name(db_path.name + suffix)
+            if sidecar.exists():
+                sidecar.chmod(0o600)
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 def close_conn(conn: sqlite3.Connection) -> None:
