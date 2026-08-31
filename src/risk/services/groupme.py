@@ -418,10 +418,11 @@ class GroupMeClient:
     ) -> list[InboundMessage]:
         """Explicit alias for :meth:`list_messages`.
 
-        Same call, named so the cursor semantics are unmissable at the call site.
-        Both names are supported deliberately: the poller and this client were
-        written in parallel worktrees, and a method name is a cheap thing to
-        offer twice compared to two halves that do not compose.
+        Same call, named so the cursor semantics are unmissable at the call
+        site. Not the forwarder's entry point — that is the module-level
+        :func:`read_messages_after`, and it deliberately reaches no method on
+        this class. This alias is for code that legitimately holds a client and
+        wants the cursor named in the call it writes.
         """
         return self.list_messages(group_id, after_id=after_id, limit=limit)
 
@@ -490,6 +491,97 @@ class GroupMeClient:
     def remove_member(self, parent_id: str, membership_id: str) -> None:
         """Remove by MEMBERSHIP id, which is not the user id. See ``GroupMeMember``."""
         self._request("POST", f"/groups/{_seg(parent_id)}/members/{_seg(membership_id)}/remove")
+
+
+# ---------------------------------------------------------------------------
+# The read seam
+#
+# `risk.services.groupme_poll` reaches GroupMe through exactly one name in this
+# module: `read_messages_after`. Everything about that is deliberate and is
+# spelled out in the two docstrings below — it is the reason the poller cannot
+# post, and it is where the two halves' shapes are reconciled.
+# ---------------------------------------------------------------------------
+
+
+def message_payload(message: InboundMessage) -> dict[str, Any]:
+    """One :class:`InboundMessage` back in the wire shape the poller parses.
+
+    This client's job is to turn GroupMe's JSON into typed values. The poller's
+    ``normalize`` was written against that JSON directly, and it is the half
+    that must keep working when a payload is malformed — it defends every field
+    and skips a message it cannot key, rather than aborting a catch-up with two
+    thousand good messages behind it.
+
+    Rather than teach either half the other's vocabulary, the seam translates:
+    dataclass in, the same keys GroupMe sends out. ``created_at`` stays epoch
+    seconds because that is what ``normalize`` converts; handing it an ISO
+    string would work by accident, through the fallback branch meant for a
+    payload we could not parse.
+    """
+    return {
+        "id": message.message_id,
+        "group_id": message.group_id,
+        "user_id": message.sender_user_id,
+        "name": message.sender_name,
+        "text": message.text,
+        "created_at": message.created_at,
+        "source_guid": message.source_guid,
+    }
+
+
+_read_client: GroupMeClient | None = None
+"""Module-private, and handed to nobody. See :func:`read_messages_after`."""
+
+
+def _read_only_client() -> GroupMeClient:
+    """The process's one read client, built on first use.
+
+    Cached because the token comes out of the keychain through a subprocess and
+    a single catch-up can make twenty-five calls; building a client per page
+    would mean twenty-five ``security`` invocations for one poll.
+
+    Nothing returns this outside the module. That is the point — see
+    :func:`read_messages_after`.
+    """
+    global _read_client
+    if _read_client is None:
+        _read_client = GroupMeClient()
+    return _read_client
+
+
+def read_messages_after(
+    group_id: str, after_id: str | None = None, *, limit: int = MESSAGE_PAGE_LIMIT
+) -> list[dict[str, Any]]:
+    """The forwarder's entire reach into GroupMe: one page after a cursor.
+
+    THIS FUNCTION IS THE POLLER'S WHOLE VIEW OF THIS MODULE. It imports this
+    module only long enough to pull out this one name, keeps the function and
+    drops the module; it is never handed a :class:`GroupMeClient`, and it never
+    holds a reference it could reach one through. A bare function has no
+    ``post_message`` and no ``add_members`` hanging off it, so the read-only
+    guarantee in ``groupme_poll`` is a property of what is in scope there rather
+    than a rule somebody has to remember. Keep it that way: anything added here
+    that returns the client, or the module, gives that back.
+
+    It also owns the two shape questions the poller must not know about, and
+    both of them are the kind that type-check clean and fail at run time:
+
+    * **The cursor is positional here and keyword-only on the client.** The
+      poller's contract is ``(group_id, after_id)`` — two positional arguments,
+      because that is the whole of what it knows how to ask. ``after_id`` is
+      keyword-only on :meth:`GroupMeClient.list_messages` on purpose (it is one
+      of two same-shaped cursor arguments with opposite semantics; see that
+      method), so the translation happens once, here.
+    * **The client returns dataclasses and the poller parses mappings.**
+      :func:`message_payload` converts each one back.
+
+    ``after_id`` keeps its meaning exactly: the page IMMEDIATELY FOLLOWING the
+    cursor, ascending, and ``None`` means "the most recent page" — the
+    bootstrap. See :meth:`GroupMeClient.list_messages` for why the alternative
+    silently loses a night.
+    """
+    page = _read_only_client().list_messages(group_id, after_id=after_id, limit=limit)
+    return [message_payload(message) for message in page]
 
 
 # ---------------------------------------------------------------------------

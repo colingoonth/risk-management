@@ -75,7 +75,7 @@ def groupme_poll_now(
 
     This is the "I just woke the laptop and do not want to wait 120 seconds"
     button, and it is the same cycle the LaunchAgent runs — including the push
-    to cmux — so pressing it twice in a row is safe: every write behind it keys
+    to the feed — so pressing it twice in a row is safe: every write behind it keys
     on the GroupMe message id.
 
     Returns health rather than the cycle's own counters because that is what the

@@ -4,7 +4,7 @@
   TEMPLATE. Nothing installs this: fill the __PLACEHOLDERS__ in and copy it to
   ~/Library/LaunchAgents/com.colin.riskforwarder.plist yourself. See the README
   in this directory. It is a template and not a finished file on purpose — the
-  cmux surface id and the paths are machine-specific, and a plist committed with
+  feed path and the venv path are machine-specific, and a plist committed with
   real values in a PUBLIC repo is exactly the leak this project is careful about.
 
   WHAT launchd IS FOR HERE: a trigger, and nothing else. It starts one
@@ -49,16 +49,24 @@
 
   <key>EnvironmentVariables</key>
   <dict>
-    <!-- launchd gives a job /usr/bin:/bin:/usr/sbin:/sbin. cmux-say lives in
-         ~/.local/bin and `security` (the keychain lookup for the GroupMe token)
-         lives in /usr/bin, so put both on the path. -->
+    <!-- launchd gives a job /usr/bin:/bin:/usr/sbin:/sbin. `security` (the
+         keychain lookup for the GroupMe token) lives in /usr/bin, which is the
+         only thing off this PATH that the forwarder runs. Delivery is a file
+         append inside this process — there is no helper binary to find. -->
     <key>PATH</key>
-    <string>__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
 
-    <!-- Which cmux surface the messages are typed into. Machine-specific, and
-         the reason this file is a template. -->
-    <key>RISK_CMUX_SURFACE</key>
-    <string>__CMUX_SURFACE_ID__</string>
+    <!-- The file forwarded messages are appended to, one line each; read it
+         with `tail -f`. It accumulates the chapter's chat in the clear, so
+         choosing where it lands is deliberately yours. Machine-specific, and
+         the reason this file is a template.
+
+         A FILE, not a terminal or an agent surface. The lines come from a
+         group chat anybody in the chapter can post to, and a destination that
+         types them somewhere and presses enter would be handing strangers a
+         prompt. See risk/services/groupme_forward.py. -->
+    <key>RISK_FORWARD_FEED</key>
+    <string>__FEED_PATH__</string>
 
     <!-- Optional. Omit to use the app's standard database location. -->
     <key>RISK_DB_PATH</key>

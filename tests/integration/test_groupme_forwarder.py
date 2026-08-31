@@ -22,8 +22,12 @@ id is invented.
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
 import stat
+import subprocess
+import types
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -38,6 +42,7 @@ from risk.db.schema import ensure_schema
 from risk.repos import groupme_inbound as inbound_repo
 from risk.repos import groupme_poll_lease as lease_repo
 from risk.repos import groupme_poll_state as state_repo
+from risk.services import groupme as client_mod
 from risk.services import groupme_forward as fwd
 from risk.services import groupme_poll as poll
 
@@ -159,14 +164,14 @@ class _HttpError(Exception):
 
 
 @pytest.fixture(autouse=True)
-def _no_ambient_cmux(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Never inherit the developer's own cmux config.
+def _no_ambient_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never inherit the developer's own forwarder config.
 
-    Without this a test run on Colin's machine would type invented fixture
-    messages into whatever surface he had configured, and would pass or fail
-    depending on whether cmux happened to be open.
+    Without this a test run on Colin's machine would append invented fixture
+    messages to whatever feed file he had configured, mixed in among the real
+    chapter's.
     """
-    for name in (fwd.SURFACE_ENV, fwd.CMUX_SAY_ENV, poll.HEARTBEAT_ENV):
+    for name in (fwd.FEED_ENV, poll.HEARTBEAT_ENV):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -230,17 +235,9 @@ def _stored_ids(conn: sqlite3.Connection, group_slug: str) -> list[int]:
     ]
 
 
-def _fake_cmux_say(tmp_path: Path, *, exit_code: int = 0) -> tuple[Path, Path]:
-    """A stand-in for ``cmux-say`` that records its argv instead of typing it."""
-    transcript = tmp_path / "cmux-transcript.txt"
-    script = tmp_path / "cmux-say"
-    script.write_text(
-        "#!/bin/sh\n"
-        f'printf "%s\\t%s\\n" "$1" "$2" >> "{transcript}"\n'
-        f"exit {exit_code}\n"
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script, transcript
+def _feed_lines(feed: Path) -> list[str]:
+    """What a ``tail -f`` on the feed would have shown, in order."""
+    return feed.read_text().splitlines() if feed.exists() else []
 
 
 # ---------------------------------------------------------------------------
@@ -679,59 +676,227 @@ def test_the_poller_never_reaches_the_outbound_half_of_the_client(
 
 
 # ---------------------------------------------------------------------------
-# Delivery into cmux.
+# The production read seam.
+#
+# Every test above this line injects ``list_messages``, which is what makes the
+# catch-up testable — and is also why the one path nothing injects went broken
+# for months. ``_default_list_messages`` used to scan ``risk.services.groupme``
+# for a callable named ``list_messages_after`` or ``list_messages``; both live
+# on ``GroupMeClient`` as METHODS, so the scan found nothing, the first real
+# request raised, and ``POST /api/groupme/poll`` answered 503. The suite was
+# green throughout. These tests exercise the seam itself.
 # ---------------------------------------------------------------------------
 
 
-def test_messages_reach_cmux_in_the_exact_format_oldest_first(
+class StubTransport:
+    """The client's own injection point: one HTTP round trip, answered locally.
+
+    Nothing here opens a socket or reads the keychain — the token provider is a
+    lambda, exactly as in the client's own suite. What this DOES exercise is the
+    real :class:`GroupMeClient`, so the argument names and the return type on
+    the other side of the seam are the production ones.
+    """
+
+    def __init__(self, pages: Sequence[Sequence[Mapping[str, Any]]]) -> None:
+        self.pages = list(pages)
+        self.urls: list[str] = []
+
+    def __call__(
+        self, method: str, url: str, *, headers: Mapping[str, str], body: bytes | None
+    ) -> client_mod.HttpResponse:
+        self.urls.append(url)
+        page = self.pages.pop(0) if self.pages else []
+        return client_mod.HttpResponse(
+            status=200, body=json.dumps({"response": {"messages": list(page)}}).encode()
+        )
+
+
+def _wire_real_client(
+    monkeypatch: pytest.MonkeyPatch, *pages: Sequence[Mapping[str, Any]]
+) -> StubTransport:
+    """Point the module-level read function at a real client on a stub transport."""
+    transport = StubTransport(pages)
+    monkeypatch.setattr(
+        client_mod,
+        "_read_client",
+        client_mod.GroupMeClient(token_provider=lambda: "test-token", transport=transport),
+    )
+    return transport
+
+
+def _payload(message_id: int, text: str = "line", name: str = "Test Alpha") -> dict[str, Any]:
+    return {
+        "id": str(message_id),
+        "group_id": TUESDAY.groupme_id,
+        "user_id": "gm-user-alpha",
+        "name": name,
+        "text": text,
+        "created_at": int(T0.timestamp()),
+        "source_guid": f"guid-{message_id}",
+    }
+
+
+def test_the_poller_resolves_a_read_function_that_actually_exists() -> None:
+    """The regression in one line: this used to raise ImportError."""
+    resolved = poll._default_list_messages()
+    assert resolved is client_mod.read_messages_after
+
+
+def test_what_the_poller_resolves_is_a_bare_function_not_a_client() -> None:
+    """The read-only guarantee is a property of what is in scope, not a rule.
+
+    A bare function has no ``post_message`` and no ``add_members`` hanging off
+    it. Hand the poller a client object — or the client module — and one later
+    edit in the poll loop can reach the whole outbound API.
+    """
+    resolved = poll._default_list_messages()
+    assert isinstance(resolved, types.FunctionType)
+    assert not isinstance(resolved, types.MethodType), "a bound method carries its object"
+    assert getattr(resolved, "__self__", None) is None
+    for outbound in ("post_message", "add_members", "remove_member"):
+        assert not hasattr(resolved, outbound)
+
+
+def test_a_cycle_with_nothing_injected_walks_the_real_client(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The whole production path, end to end, with only the socket replaced.
+
+    This is the test whose absence let three separate mismatches sit in the
+    tree at once: no module-level read function to resolve, a cursor passed
+    positionally into a keyword-only parameter, and a client returning
+    dataclasses to a ``normalize`` that reads mappings. Each one raises on the
+    first real request, and every existing test injected past all three.
+    """
+    _wire_real_client(
+        monkeypatch, [_payload(101, "door needs a hand")], [_payload(102, "on my way")], []
+    )
+    feed = tmp_path / "groupme-feed.txt"
+
+    result = poll.poll_once(db, targets=[TUESDAY], now=T0, feed=feed)
+
+    assert result.groups[0].ok is True
+    assert result.groups[0].error_code is None
+    assert result.groups[0].stored == 2
+    assert _stored_ids(db, TUESDAY.group_slug) == [101, 102]
+    assert _feed_lines(feed) == [
+        '"door needs a hand" - Test Alpha',
+        '"on my way" - Test Alpha',
+    ]
+
+
+def test_the_cursor_reaches_the_client_as_after_id_and_advances(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``after_id`` is keyword-only on the client and positional in the poller's
+    contract. The seam translates; if it did not, the first page would raise a
+    TypeError classified as ``invalid_response`` and the cursor would never
+    move.
+
+    ``since_id`` must never appear: it answers with the most recent page rather
+    than the one after the cursor, which is how an eight-hour backlog is lost.
+    """
+    transport = _wire_real_client(monkeypatch, [_payload(101)], [_payload(102)], [])
+
+    poll.poll_once(db, targets=[TUESDAY], now=T0, forward=False)
+
+    assert "after_id" not in transport.urls[0], "a first poll sends no cursor at all"
+    assert "after_id=101" in transport.urls[1]
+    assert "after_id=102" in transport.urls[2]
+    assert not any("since_id" in url for url in transport.urls)
+    state = state_repo.get(db, TUESDAY.group_slug)
+    assert state is not None and state.last_message_id == "102"
+
+
+def test_the_seam_hands_over_mappings_not_dataclasses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``normalize`` reads ``raw.get(...)``; the client returns frozen dataclasses.
+
+    Asserted on the keys because those are the contract: a dataclass reaching
+    ``normalize`` does not crash, it returns ``None`` for every message — a
+    silent, total loss with no error anywhere.
+    """
+    _wire_real_client(monkeypatch, [_payload(101, "hello", name="Test Bravo")])
+    page = poll._default_list_messages()(TUESDAY.groupme_id, None)
+
+    assert [isinstance(m, Mapping) for m in page] == [True]
+    parsed = poll.normalize(page[0], received_at=poll.stamp(T0))
+    assert parsed is not None
+    assert parsed.groupme_message_id == "101"
+    assert parsed.sender_name == "Test Bravo"
+    assert parsed.text == "hello"
+    assert parsed.created_at == poll.stamp(T0)
+
+
+def test_a_client_with_no_read_function_is_still_an_import_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The "client not installed in this build" path, which the API turns into a
+    503 and ``risk-forwarder`` into exit 1. It has to keep working — it is just
+    no longer the answer on a healthy machine."""
+    monkeypatch.delattr(client_mod, poll.CLIENT_READ_FUNCTION)
+    with pytest.raises(ImportError):
+        poll._default_list_messages()
+
+
+# ---------------------------------------------------------------------------
+# Delivery into the feed.
+#
+# The destination is a FILE, and that is a security property, not a packaging
+# detail. See the section below on hostile text.
+# ---------------------------------------------------------------------------
+
+
+def test_messages_reach_the_feed_in_the_exact_format_oldest_first(
     db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    script, transcript = _fake_cmux_say(tmp_path)
+    feed = tmp_path / "groupme-feed.txt"
     fake.add(TUESDAY.groupme_id, message_id=1, text="first", name="Test Alpha")
     fake.add(TUESDAY.groupme_id, message_id=2, text="second", name="Test Bravo")
 
     result = poll.poll_once(
-        db,
-        list_messages=fake.list_messages,
-        targets=[TUESDAY],
-        now=T0,
-        cmux_target="surface:test",
-        cmux_say=script,
+        db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed
     )
 
     assert result.forwarded == 2
     assert result.forward_error is None
-    lines = transcript.read_text().splitlines()
-    assert lines == [
-        'surface:test\t"first" - Test Alpha',
-        'surface:test\t"second" - Test Bravo',
+    assert _feed_lines(feed) == [
+        '"first" - Test Alpha',
+        '"second" - Test Bravo',
     ], "a backlog replayed newest-first reads as a conversation running backwards"
+
+
+def test_the_feed_is_created_owner_only(
+    db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
+) -> None:
+    """It accumulates other people's conversation, same as the database."""
+    feed = tmp_path / "groupme-feed.txt"
+    fake.add(TUESDAY.groupme_id, message_id=1)
+    poll.poll_once(db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed)
+    assert stat.S_IMODE(feed.stat().st_mode) == fwd.FEED_MODE
 
 
 def test_a_message_already_delivered_is_never_sent_again(
     db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    script, transcript = _fake_cmux_say(tmp_path)
+    feed = tmp_path / "groupme-feed.txt"
     fake.add(TUESDAY.groupme_id, message_id=1, text="only once please")
 
     for _ in range(3):
         poll.poll_once(
-            db,
-            list_messages=fake.list_messages,
-            targets=[TUESDAY],
-            now=T0,
-            cmux_target="surface:test",
-            cmux_say=script,
+            db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed
         )
 
-    assert transcript.read_text().splitlines() == ['surface:test\t"only once please" - Test Alpha']
+    assert _feed_lines(feed) == ['"only once please" - Test Alpha']
 
 
-def test_a_missing_cmux_binary_does_not_stop_the_poll_loop(
+def test_an_unwritable_feed_does_not_stop_the_poll_loop(
     db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    """cmux is not running most of the day. If that took down the cycle, a
-    closed terminal would silently become a missing message archive."""
+    """A feed on a volume that is not mounted, or in a directory that moved. If
+    that took down the cycle, an unwritable file would silently become a missing
+    message archive."""
     fake.add_run(TUESDAY.groupme_id, first=1, count=4, at=T0)
 
     result = poll.poll_once(
@@ -739,65 +904,53 @@ def test_a_missing_cmux_binary_does_not_stop_the_poll_loop(
         list_messages=fake.list_messages,
         targets=[TUESDAY],
         now=T0,
-        cmux_target="surface:test",
-        cmux_say=tmp_path / "nothing-here",
+        feed=tmp_path / "no-such-directory" / "feed.txt",
     )
 
     assert result.groups[0].ok is True
     assert result.groups[0].stored == 4, "the messages were still read and stored"
     assert result.forwarded == 0
-    assert result.forward_error == "cmux_binary_missing"
+    assert result.forward_error == "feed_unwritable"
     assert inbound_repo.count_unforwarded(db) == 4, "and they are still queued"
 
 
-def test_a_cmux_that_is_not_running_leaves_the_queue_for_next_time(
+def test_an_unwritable_feed_leaves_the_queue_for_next_time(
     db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    dead, _ = _fake_cmux_say(tmp_path, exit_code=1)
+    missing = tmp_path / "not-yet" / "feed.txt"
     fake.add_run(TUESDAY.groupme_id, first=1, count=3, at=T0)
     poll.poll_once(
-        db,
-        list_messages=fake.list_messages,
-        targets=[TUESDAY],
-        now=T0,
-        cmux_target="surface:test",
-        cmux_say=dead,
+        db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=missing
     )
     assert inbound_repo.count_unforwarded(db) == 3
 
-    later = tmp_path / "later"
-    later.mkdir()
-    alive, _ = _fake_cmux_say(later)
+    missing.parent.mkdir()
     result = poll.poll_once(
-        db,
-        list_messages=fake.list_messages,
-        targets=[TUESDAY],
-        now=T0,
-        cmux_target="surface:test",
-        cmux_say=alive,
+        db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=missing
     )
     assert result.forwarded == 3
     assert inbound_repo.count_unforwarded(db) == 0
+    assert len(_feed_lines(missing)) == 3
 
 
-def test_with_no_surface_configured_nothing_is_sent_and_nothing_is_lost(
+def test_with_no_feed_configured_nothing_is_sent_and_nothing_is_lost(
     db: sqlite3.Connection, fake: FakeGroupMe
 ) -> None:
-    """A wrong surface id is worse than none: it types the chapter's risk
-    traffic into an unrelated session and marks it delivered on the way out."""
+    """The feed holds the chapter's chat in the clear. Where it lands is the
+    installer's decision, so there is no default to fall back on."""
     fake.add(TUESDAY.groupme_id, message_id=1)
     result = poll.poll_once(db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0)
     assert result.forwarded == 0
-    assert result.forward_error == "cmux_not_configured"
+    assert result.forward_error == "feed_not_configured"
     assert inbound_repo.count_unforwarded(db) == 1
 
 
 def test_a_backlog_drains_at_the_forward_limit_per_cycle(
     db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    """Dumping a whole night into a terminal in one burst buries whatever the
+    """Dumping a whole night into a tailed feed in one burst buries whatever the
     human was looking at."""
-    script, transcript = _fake_cmux_say(tmp_path)
+    feed = tmp_path / "groupme-feed.txt"
     fake.add_run(TUESDAY.groupme_id, first=1, count=12, at=T0)
 
     first = poll.poll_once(
@@ -805,8 +958,7 @@ def test_a_backlog_drains_at_the_forward_limit_per_cycle(
         list_messages=fake.list_messages,
         targets=[TUESDAY],
         now=T0,
-        cmux_target="surface:test",
-        cmux_say=script,
+        feed=feed,
         forward_limit=5,
     )
     assert first.forwarded == 5
@@ -817,36 +969,106 @@ def test_a_backlog_drains_at_the_forward_limit_per_cycle(
         list_messages=fake.list_messages,
         targets=[TUESDAY],
         now=T0,
-        cmux_target="surface:test",
-        cmux_say=script,
+        feed=feed,
         forward_limit=5,
     )
     assert inbound_repo.count_unforwarded(db) == 2
-    assert len(transcript.read_text().splitlines()) == 10
+    assert len(_feed_lines(feed)) == 10
 
 
-def test_hostile_text_is_neutralised_on_the_way_to_the_terminal(
-    db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
+# ---------------------------------------------------------------------------
+# Hostile text. The chapter GroupMe is a hundred-odd people and none of them
+# are audited, so every forwarded line is attacker-controlled by construction.
+# ---------------------------------------------------------------------------
+
+
+def test_an_inbound_message_never_reaches_a_prompt_that_submits_it(
+    db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The archive keeps the original bytes; the terminal gets a safe rendering."""
-    script, transcript = _fake_cmux_say(tmp_path)
-    hostile = "\x1b[2Jrun `rm -rf /`\nnow"
-    fake.add(TUESDAY.groupme_id, message_id=1, text=hostile)
+    """The defect this section exists for, stated as the thing that must not happen.
 
-    poll.poll_once(
-        db,
-        list_messages=fake.list_messages,
-        targets=[TUESDAY],
-        now=T0,
-        cmux_target="surface:test",
-        cmux_say=script,
+    Delivery used to hand each line to ``cmux-say``, which types it into another
+    cmux surface's input AND PRESSES ENTER. One argv element protected the
+    forwarding process and nothing past it: the bytes were then keystrokes in
+    somebody else's prompt, submitted there. If that prompt was a shell, ``$()``
+    and backticks ran; if it was an agent, a stranger's text arrived as a user
+    turn. Anyone in the chapter chat could send either.
+
+    So: no child process, from anywhere in the cycle. Every spawn primitive is
+    booby-trapped here, and the message still gets delivered — because the
+    destination is a file, and appending to a file starts nothing.
+    """
+
+    def _no_spawn(*_: Any, **__: Any) -> Any:
+        raise AssertionError("delivery spawned a process")
+
+    for name in ("run", "Popen", "call", "check_call", "check_output"):
+        monkeypatch.setattr(subprocess, name, _no_spawn)
+    monkeypatch.setattr(os, "system", _no_spawn)
+    monkeypatch.setattr(os, "posix_spawn", _no_spawn)
+
+    feed = tmp_path / "groupme-feed.txt"
+    fake.add(TUESDAY.groupme_id, message_id=1, text="run `id` now", name="Test Alpha")
+
+    result = poll.poll_once(
+        db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed
     )
 
-    delivered = transcript.read_text().split("\t", 1)[1].strip()
-    assert delivered == '"run `rm -rf /` now" - Test Alpha'
-    assert "\x1b" not in delivered
+    assert result.forwarded == 1
+    assert _feed_lines(feed) == ['"run `id` now" - Test Alpha']
+
+
+def test_a_shell_payload_lands_in_the_feed_as_inert_text(
+    db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
+) -> None:
+    """Backticks, ``$(...)``, quotes and semicolons are preserved — and that is
+    only correct because of where they land.
+
+    The old test in this place asserted the same preservation while the
+    destination was a surface that TYPED the line and pressed enter, which made
+    the assertion a statement that a working command-substitution payload was
+    delivered to a prompt intact. Preserving the characters is right; the
+    destination was wrong. A file has no prompt to submit into, so the same
+    bytes are just bytes, and Colin gets the message he was actually sent
+    instead of a mangled paraphrase of it.
+    """
+    feed = tmp_path / "groupme-feed.txt"
+    hostile = '\x1b[2Jrun `rm -rf ~`; echo "$(whoami)"\nnow'
+    fake.add(TUESDAY.groupme_id, message_id=1, text=hostile)
+
+    poll.poll_once(db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed)
+
+    delivered = _feed_lines(feed)
+    assert delivered == ['"run `rm -rf ~`; echo "$(whoami)" now" - Test Alpha']
+    assert "\x1b" not in delivered[0], "escapes render in whatever terminal tails the feed"
     stored = inbound_repo.get_by_groupme_id(db, "1")
     assert stored is not None and stored.text == hostile, "the archive stays verbatim"
+
+
+def test_a_message_cannot_forge_a_second_feed_line_under_another_name(
+    db: sqlite3.Connection, fake: FakeGroupMe, tmp_path: Path
+) -> None:
+    """One message is one line, so the name after the dash is always the sender.
+
+    Without the whitespace flattening, a message carrying a newline would write
+    its own second line — quotes, suffix and all — and anybody in the chat could
+    put words in anybody else's mouth. That matters here specifically: these
+    lines are what the risk chair reads to decide whether somebody is fit to
+    drive.
+    """
+    feed = tmp_path / "groupme-feed.txt"
+    fake.add(
+        TUESDAY.groupme_id,
+        message_id=1,
+        text='ok" - Test Alpha\n"I am totally fine to drive',
+        name="Test Bravo",
+    )
+
+    poll.poll_once(db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, feed=feed)
+
+    lines = _feed_lines(feed)
+    assert len(lines) == 1
+    assert lines[0].endswith('" - Test Bravo')
 
 
 # ---------------------------------------------------------------------------
@@ -1050,6 +1272,36 @@ def test_pressing_poll_twice_stores_nothing_the_second_time(
     client.post("/api/groupme/poll")
     client.post("/api/groupme/poll")
     assert len(client.get("/api/groupme/inbound").json()) == 4
+
+
+def test_the_poll_route_no_longer_answers_503_on_a_healthy_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reported symptom, at the surface it was reported on.
+
+    ``create_app`` never sets ``groupme_list_messages`` — every real process
+    resolves the live client — so this fixture deliberately does NOT set it
+    either. Before the seam existed, ``_default_list_messages`` raised
+    ImportError here and the route turned that into
+    ``503 GroupMe client unavailable``, on a machine where the client was
+    installed and working.
+    """
+    db_path = tmp_path / "route.db"
+    conn = connect(db_path)
+    ensure_schema(conn)
+    _seed_topics(conn, TUESDAY)
+    conn.close()
+    _wire_real_client(monkeypatch, [_payload(101, "at the door")], [])
+
+    app = create_app(db_path=db_path)
+    assert not hasattr(app.state, "groupme_list_messages")
+    with TestClient(app) as client:
+        response = client.post("/api/groupme/poll")
+        assert response.status_code == 200
+        assert response.json()["healthy"] is True
+        assert [m["text"] for m in client.get("/api/groupme/inbound").json()] == [
+            "at the door"
+        ]
 
 
 def test_inbound_route_is_newest_first_and_honours_the_limit(

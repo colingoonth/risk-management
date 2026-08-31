@@ -12,7 +12,7 @@ bad cycle is one bad cycle: the process exits, and the next one starts from
 stored state 120 seconds later.
 
 EXIT CODES. 0 whenever the cycle ran, INCLUDING when individual topics failed,
-when cmux was not running, and when another cycle held the lease — those are
+when the feed file was unwritable, and when another cycle held the lease — those are
 recorded in the database and reported on stdout, and they are not conditions
 launchd can do anything about. 1 only when the cycle could not run at all (the
 database would not open, or the GroupMe client is not installed), which is the
@@ -42,7 +42,7 @@ from risk.services import groupme_forward, groupme_poll
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="risk-forwarder",
-        description="Poll the chapter's GroupMe risk topics and push new messages into cmux.",
+        description="Poll the chapter's GroupMe risk topics and append new messages to a feed file.",
     )
     parser.add_argument(
         "--db-path",
@@ -51,32 +51,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="database to use (default: RISK_DB_PATH, else the app's standard location)",
     )
     parser.add_argument(
-        "--surface",
-        default=None,
-        help=f"cmux surface to type into (default: ${groupme_forward.SURFACE_ENV})",
-    )
-    parser.add_argument(
-        "--cmux-say",
+        "--feed",
         type=Path,
         default=None,
-        help=f"path to the cmux-say binary (default: ${groupme_forward.CMUX_SAY_ENV}, "
-        f"else ~/.local/bin/cmux-say)",
+        help=f"file to append forwarded messages to (default: ${groupme_forward.FEED_ENV})",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=groupme_forward.DEFAULT_FORWARD_LIMIT,
-        help="most messages to push into cmux in one cycle (default: %(default)s)",
+        help="most messages to append to the feed in one cycle (default: %(default)s)",
     )
     parser.add_argument(
         "--no-forward",
         action="store_true",
-        help="read GroupMe and store, but do not push anything to cmux",
+        help="read GroupMe and store, but do not append anything to the feed",
     )
     parser.add_argument(
         "--forward-only",
         action="store_true",
-        help="do not read GroupMe; just drain the queue (use when cmux comes back up)",
+        help="do not read GroupMe; just drain the queue (use when the feed is writable again)",
     )
     parser.add_argument("--json", action="store_true", help="emit the summary as one JSON line")
     parser.add_argument(
@@ -104,7 +98,7 @@ def _summary(result: groupme_poll.PollCycleResult) -> str:
     if backoff:
         parts.append(f"backoff={','.join(backoff)}")
     if result.forward_error:
-        parts.append(f"cmux={result.forward_error}")
+        parts.append(f"feed={result.forward_error}")
     if result.lease_lost:
         parts.append("lease=lost")
     return " ".join(parts)
@@ -136,14 +130,14 @@ def _payload(result: groupme_poll.PollCycleResult) -> dict[str, object]:
 def _drain_only(
     conn: sqlite3.Connection, args: argparse.Namespace, now: datetime
 ) -> groupme_poll.PollCycleResult:
-    """``--forward-only``: skip GroupMe entirely and push what is already stored.
+    """``--forward-only``: skip GroupMe entirely and append what is already stored.
 
     Still stamps the heartbeat. The process ran and did its job; a health
     endpoint reporting it as dead because this particular cycle chose not to
     call out to the network would be wrong.
     """
     outcome = groupme_forward.forward_pending(
-        conn, target=args.surface, cmux_say=args.cmux_say, limit=args.limit, now=now
+        conn, feed=args.feed, limit=args.limit, now=now
     )
     groupme_poll.write_heartbeat(conn, now=now)
     return groupme_poll.PollCycleResult(
@@ -178,8 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                 conn,
                 now=now,
                 forward=not args.no_forward,
-                cmux_target=args.surface,
-                cmux_say=args.cmux_say,
+                feed=args.feed,
                 forward_limit=args.limit,
             )
     except ImportError:

@@ -1,12 +1,16 @@
-"""The forwarded line, and what happens to hostile text on its way to a terminal.
+"""The forwarded line, and what happens to hostile text on its way to the feed.
 
-Everything here is pure: no database, no subprocess. The format is a thing Colin
-specified exactly, and the sanitising is the boundary where a stranger's words
-stop being data and start being typed into a terminal that is usually running an
-agent — so both are worth pinning down on their own.
+Everything here is pure: no database, no subprocess — and "no subprocess" is now
+a property of the module under test rather than of these tests. The format is a
+thing Colin specified exactly. The sanitising is what keeps a stranger's words
+from being read as something other than a quoted message: escapes render in
+whatever terminal is tailing the feed, and a newline would let a sender write a
+whole extra line and sign it with somebody else's name.
 """
 
 from __future__ import annotations
+
+import subprocess
 
 import pytest
 
@@ -26,18 +30,35 @@ def test_an_image_only_message_renders_as_empty_quotes() -> None:
 
 
 def test_a_multi_line_message_becomes_one_line() -> None:
-    """cmux-say types the string and presses enter. A newline mid-string would
-    submit half a message and leave the rest in somebody's prompt."""
+    """The feed is line-oriented: one line is one message. A newline that
+    survived would split one message into two feed lines."""
     line = fwd.format_line("first\nsecond\n\nthird", "Test Alpha")
     assert line == '"first second third" - Test Alpha'
     assert "\n" not in line
 
 
+def test_a_newline_cannot_forge_a_second_line_in_somebody_elses_name() -> None:
+    """The sharp version of the test above, and the reason it is not cosmetic.
+
+    A feed reader attributes each line to the name after the dash. If a message
+    could carry a newline it would carry the whole next line too — quotes,
+    suffix and all — and anybody in the chapter chat could put words in anybody
+    else's mouth. Flattening whitespace is what makes one message one line.
+    """
+    forged = 'ok" - Test Alpha\n"I am fine to drive'
+    line = fwd.format_line(forged, "Test Bravo")
+    assert "\n" not in line
+    assert line.count("\n") == 0
+    assert line.endswith('" - Test Bravo'), "the only attribution is the real sender"
+
+
 def test_ansi_escape_sequences_are_removed_whole() -> None:
     """Not just the ESC byte — the whole sequence.
 
-    Stripping the lone \\x1b would leave ``[2J`` on screen as visible junk while
-    still failing to stop anything, so the sequences go as units.
+    The feed itself is inert, but a terminal tailing it is not: it renders what
+    it is handed. Stripping the lone \\x1b would leave ``[2J`` on screen as
+    visible junk while still failing to stop anything, so the sequences go as
+    units.
     """
     hostile = "\x1b[2J\x1b[31mred\x1b[0m and \x1b]0;retitled\x07done"
     assert fwd.format_line(hostile, "Test Alpha") == '"red and done" - Test Alpha'
@@ -51,7 +72,7 @@ def test_bidi_and_zero_width_characters_are_removed() -> None:
     )
 
 
-def test_control_characters_cannot_reach_the_terminal() -> None:
+def test_control_characters_cannot_reach_a_reader() -> None:
     assert fwd.format_line("bell\x07back\x08null\x00", "Test Alpha") == (
         '"bellbacknull" - Test Alpha'
     )
@@ -83,15 +104,29 @@ def test_a_nameless_sender_still_produces_a_line() -> None:
 
 
 @pytest.mark.parametrize(
-    ("code", "text"),
-    [
-        ("cmux_not_configured", "cmux_not_configured"),
-        ("cmux_binary_missing", "cmux_binary_missing"),
-        ("lease_lost", "lease_lost"),
-    ],
+    "code",
+    ["feed_not_configured", "feed_unwritable", "lease_lost"],
 )
-def test_forward_error_codes_are_a_closed_set(code: str, text: str) -> None:
-    assert text in fwd.ERROR_CODES
+def test_forward_error_codes_are_a_closed_set(code: str) -> None:
+    assert code in fwd.ERROR_CODES
+
+
+def test_the_delivery_half_holds_nothing_that_can_start_a_process() -> None:
+    """The structural half of the fix: there is no child process to hand text to.
+
+    Delivery used to shell out to ``cmux-say``, which TYPES a line into another
+    surface's input and presses enter — so every message in the chapter's chat
+    became keystrokes in somebody's prompt, and a prompt that was a shell
+    evaluated the backticks on submit. No amount of sanitising fixes that; only
+    having nothing on the other end does. A file append needs no child process,
+    so this module should not have one in scope at all.
+    """
+    from_subprocess = {
+        name
+        for name, value in vars(fwd).items()
+        if value is subprocess or getattr(value, "__module__", None) == "subprocess"
+    }
+    assert from_subprocess == set()
 
 
 # --- error classification -------------------------------------------------

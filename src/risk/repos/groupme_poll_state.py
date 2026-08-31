@@ -8,7 +8,7 @@ walks forward from with ``after_id``. It advances only on the page that was
 written, in the same transaction as those rows — so a process killed halfway
 through an eight-hour catch-up resumes at the last message it durably has,
 never past it. Nothing here can set it back to NULL: a poller that has lost its
-place and starts over from nothing either replays a night into the terminal or
+place and starts over from nothing either replays a night into the feed or
 skips it, and both are worse than staying put.
 
 **``last_polled_at`` / ``last_ok_at`` / ``consecutive_failures`` are health.**

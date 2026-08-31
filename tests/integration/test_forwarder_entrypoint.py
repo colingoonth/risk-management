@@ -12,7 +12,6 @@ import json
 import plistlib
 import re
 import sqlite3
-import stat
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -37,8 +36,8 @@ PLIST_TEMPLATE = (
 
 
 @pytest.fixture(autouse=True)
-def _no_ambient_cmux(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (fwd.SURFACE_ENV, fwd.CMUX_SAY_ENV, poll.HEARTBEAT_ENV, "RISK_DB_PATH"):
+def _no_ambient_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (fwd.FEED_ENV, poll.HEARTBEAT_ENV, "RISK_DB_PATH"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -59,12 +58,12 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeGroupMe:
     return client
 
 
-def _recorder(tmp_path: Path) -> tuple[Path, Path]:
-    transcript = tmp_path / "sent.txt"
-    script = tmp_path / "cmux-say"
-    script.write_text(f'#!/bin/sh\nprintf "%s\\n" "$2" >> "{transcript}"\n')
-    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script, transcript
+def _feed(tmp_path: Path) -> Path:
+    return tmp_path / "groupme-feed.txt"
+
+
+def _lines(feed: Path) -> list[str]:
+    return feed.read_text().splitlines() if feed.exists() else []
 
 
 def _open(db_path: Path) -> sqlite3.Connection:
@@ -76,22 +75,13 @@ def _open(db_path: Path) -> sqlite3.Connection:
 def test_one_invocation_polls_forwards_and_exits_zero(
     db_path: Path, fake: FakeGroupMe, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    script, transcript = _recorder(tmp_path)
+    feed = _feed(tmp_path)
     fake.add(TUESDAY.groupme_id, message_id=1, text="door needs a hand", name="Test Alpha")
 
-    code = forwarder.main(
-        [
-            "--db-path",
-            str(db_path),
-            "--surface",
-            "surface:test",
-            "--cmux-say",
-            str(script),
-        ]
-    )
+    code = forwarder.main(["--db-path", str(db_path), "--feed", str(feed)])
 
     assert code == 0
-    assert transcript.read_text().strip() == '"door needs a hand" - Test Alpha'
+    assert _lines(feed) == ['"door needs a hand" - Test Alpha']
     assert "stored=1 dup=0 forwarded=1" in capsys.readouterr().out
 
 
@@ -100,14 +90,11 @@ def test_the_log_line_carries_no_message_text_sender_or_group_id(
 ) -> None:
     """This line goes into a file beside a public repo. Timestamps, slugs,
     codes and counts — nothing else."""
-    script, _ = _recorder(tmp_path)
     fake.add(
         TUESDAY.groupme_id, message_id=1, text="a very identifying sentence", name="Test Alpha"
     )
 
-    forwarder.main(
-        ["--db-path", str(db_path), "--surface", "surface:test", "--cmux-say", str(script)]
-    )
+    forwarder.main(["--db-path", str(db_path), "--feed", str(_feed(tmp_path))])
 
     line = capsys.readouterr().out
     assert "identifying" not in line
@@ -121,39 +108,31 @@ def test_a_second_run_with_nothing_new_forwards_nothing(
 ) -> None:
     """launchd fires this every 120 seconds forever. The quiet case is the
     common case and it must be a no-op."""
-    script, transcript = _recorder(tmp_path)
-    args = ["--db-path", str(db_path), "--surface", "surface:test", "--cmux-say", str(script)]
+    feed = _feed(tmp_path)
+    args = ["--db-path", str(db_path), "--feed", str(feed)]
     fake.add(TUESDAY.groupme_id, message_id=1, text="once")
     forwarder.main(args)
     capsys.readouterr()
 
     assert forwarder.main(args) == 0
     assert "stored=0 dup=0 forwarded=0" in capsys.readouterr().out
-    assert transcript.read_text().strip().count("\n") == 0
+    assert _lines(feed) == ['"once" - Test Alpha']
 
 
-def test_no_forward_stores_without_touching_cmux(
+def test_no_forward_stores_without_touching_the_feed(
     db_path: Path, fake: FakeGroupMe, tmp_path: Path
 ) -> None:
-    script, transcript = _recorder(tmp_path)
+    feed = _feed(tmp_path)
     fake.add_run(TUESDAY.groupme_id, first=1, count=3, at=poll._utcnow())
 
     assert (
         forwarder.main(
-            [
-                "--db-path",
-                str(db_path),
-                "--surface",
-                "surface:test",
-                "--cmux-say",
-                str(script),
-                "--no-forward",
-            ]
+            ["--db-path", str(db_path), "--feed", str(feed), "--no-forward"]
         )
         == 0
     )
 
-    assert not transcript.exists()
+    assert not feed.exists()
     conn = _open(db_path)
     assert inbound_repo.count_unforwarded(conn) == 3
     conn.close()
@@ -162,14 +141,14 @@ def test_no_forward_stores_without_touching_cmux(
 def test_forward_only_drains_the_queue_without_calling_groupme(
     db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The flag for "cmux is back up, send me what I missed" — and it must work
-    even when the GroupMe client is not installed at all."""
+    """The flag for "the feed is writable again, send me what I missed" — and it
+    must work even when the GroupMe client is not installed at all."""
 
     def _no_client() -> poll.ListMessages:
         raise ImportError("risk.services.groupme")
 
     monkeypatch.setattr(poll, "_default_list_messages", _no_client)
-    script, transcript = _recorder(tmp_path)
+    feed = _feed(tmp_path)
     conn = _open(db_path)
     with transaction(conn):
         inbound_repo.insert_if_new(
@@ -184,19 +163,11 @@ def test_forward_only_drains_the_queue_without_calling_groupme(
     conn.close()
 
     code = forwarder.main(
-        [
-            "--db-path",
-            str(db_path),
-            "--surface",
-            "surface:test",
-            "--cmux-say",
-            str(script),
-            "--forward-only",
-        ]
+        ["--db-path", str(db_path), "--feed", str(feed), "--forward-only"]
     )
 
     assert code == 0
-    assert transcript.read_text().strip() == '"left over" - Test Bravo'
+    assert _lines(feed) == ['"left over" - Test Bravo']
 
 
 def test_a_missing_client_exits_one_with_a_code_and_no_traceback(
@@ -222,7 +193,7 @@ def test_a_missing_client_exits_one_with_a_code_and_no_traceback(
     conn.close()
 
 
-def test_a_dead_cmux_still_exits_zero(
+def test_an_unwritable_feed_still_exits_zero(
     db_path: Path, fake: FakeGroupMe, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Not a condition launchd can do anything about, and the messages are
@@ -230,18 +201,11 @@ def test_a_dead_cmux_still_exits_zero(
     fake.add(TUESDAY.groupme_id, message_id=1)
 
     code = forwarder.main(
-        [
-            "--db-path",
-            str(db_path),
-            "--surface",
-            "surface:test",
-            "--cmux-say",
-            str(tmp_path / "not-here"),
-        ]
+        ["--db-path", str(db_path), "--feed", str(tmp_path / "gone" / "feed.txt")]
     )
 
     assert code == 0
-    assert "cmux=cmux_binary_missing" in capsys.readouterr().out
+    assert "feed=feed_unwritable" in capsys.readouterr().out
 
 
 def test_json_mode_is_one_parsable_line(
@@ -296,7 +260,7 @@ def test_the_plist_is_a_template_and_nothing_installs_it() -> None:
     assert not list(PLIST_TEMPLATE.parent.glob("*.plist"))
     body = PLIST_TEMPLATE.read_text()
     assert "__RISK_FORWARDER_BIN__" in body
-    assert "__CMUX_SURFACE_ID__" in body
+    assert "__FEED_PATH__" in body
     assert "__HOME__" in body
 
 
@@ -315,12 +279,23 @@ def test_the_plist_is_a_trigger_and_not_a_daemon() -> None:
     assert parsed["ProgramArguments"] == ["__RISK_FORWARDER_BIN__"]
 
 
-def test_the_plist_puts_the_cmux_binary_and_the_keychain_tool_on_path() -> None:
-    """launchd hands a job /usr/bin:/bin:/usr/sbin:/sbin. cmux-say is in
-    ~/.local/bin and it would simply never be found."""
+def test_the_plist_puts_the_keychain_tool_on_path() -> None:
+    """``/usr/bin/security`` is the only binary the forwarder runs, and it runs
+    it by absolute path. Delivery is a file append inside this process — there
+    is no helper on PATH to find, and nothing to type into."""
     env = plistlib.loads(PLIST_TEMPLATE.read_bytes())["EnvironmentVariables"]
-    assert ".local/bin" in env["PATH"]
     assert "/usr/bin" in env["PATH"]
+
+
+def test_the_plist_sends_messages_to_a_file_and_not_to_a_surface() -> None:
+    """The lines come from a group chat anybody in the chapter can post to. A
+    destination that types them somewhere and presses enter is a remote prompt
+    for a hundred people; a file is a file."""
+    body = PLIST_TEMPLATE.read_text()
+    env = plistlib.loads(PLIST_TEMPLATE.read_bytes())["EnvironmentVariables"]
+    assert env["RISK_FORWARD_FEED"] == "__FEED_PATH__"
+    assert "RISK_CMUX_SURFACE" not in env
+    assert "cmux-say" not in body
 
 
 def test_the_plist_carries_no_secret_and_no_real_identifier() -> None:
@@ -329,5 +304,5 @@ def test_the_plist_carries_no_secret_and_no_real_identifier() -> None:
     body = PLIST_TEMPLATE.read_text()
     env = plistlib.loads(PLIST_TEMPLATE.read_bytes())["EnvironmentVariables"]
     assert not any("TOKEN" in key.upper() for key in env)
-    assert env["RISK_CMUX_SURFACE"] == "__CMUX_SURFACE_ID__"
+    assert env["RISK_FORWARD_FEED"] == "__FEED_PATH__"
     assert not re.search(r"\b\d{5,}\b", body), "a long numeric id looks like a GroupMe id"
