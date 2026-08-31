@@ -202,6 +202,7 @@ def test_membership_digest_changes_when_a_membership_id_is_reissued() -> None:
             ),
             unrecognised=(),
             blocked=(),
+            hard_excluded=(),
             unlinked_workers=(),
         )
 
@@ -216,7 +217,14 @@ def test_membership_digest_changes_when_a_membership_id_is_reissued() -> None:
 
 
 def test_membership_digest_changes_when_somebody_is_added() -> None:
-    empty = MembershipPlan(add=(), remove=(), unrecognised=(), blocked=(), unlinked_workers=())
+    empty = MembershipPlan(
+        add=(),
+        remove=(),
+        unrecognised=(),
+        blocked=(),
+        hard_excluded=(),
+        unlinked_workers=(),
+    )
     grown = MembershipPlan(
         add=(
             MembershipAdd(
@@ -226,6 +234,7 @@ def test_membership_digest_changes_when_somebody_is_added() -> None:
         remove=(),
         unrecognised=(),
         blocked=(),
+        hard_excluded=(),
         unlinked_workers=(),
     )
     assert membership_digest(empty) != membership_digest(grown)
