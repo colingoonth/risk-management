@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -158,3 +159,39 @@ def test_xdg_data_home_still_wins_when_set(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setenv("XDG_DATA_HOME", "/tmp/xdg-test")
     assert _default_db_path() == Path("/tmp/xdg-test") / "risk" / "risk.db"
+
+
+def test_connect_repairs_existing_database_and_directory_permissions(tmp_path: Path) -> None:
+    """Every open repairs drift, rather than protecting only a newly created DB."""
+    private_dir = tmp_path / "fictional-chapter"
+    private_dir.mkdir(mode=0o755)
+    db_path = private_dir / "roster.db"
+    raw = sqlite3.connect(db_path)
+    raw.execute("CREATE TABLE invented_members (name TEXT)")
+    raw.close()
+    private_dir.chmod(0o755)
+    db_path.chmod(0o644)
+
+    conn = connect(db_path)
+    try:
+        assert stat.S_IMODE(private_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+
+        # Prove the next open audits again after permissions drift a second time.
+        conn.execute("INSERT INTO invented_members (name) VALUES ('Fictional Person')")
+        wal_path = db_path.with_name(db_path.name + "-wal")
+        shm_path = db_path.with_name(db_path.name + "-shm")
+        assert wal_path.exists()
+        assert shm_path.exists()
+        private_dir.chmod(0o777)
+        db_path.chmod(0o666)
+        wal_path.chmod(0o644)
+        shm_path.chmod(0o644)
+        reopened = connect(db_path)
+        reopened.close()
+        assert stat.S_IMODE(private_dir.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(wal_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(shm_path.stat().st_mode) == 0o600
+    finally:
+        conn.close()

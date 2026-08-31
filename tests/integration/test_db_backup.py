@@ -84,3 +84,19 @@ def test_backup_rejects_directory_dest(tmp_path: Path) -> None:
     assert res.returncode != 0
     envelope = json.loads(res.stdout)
     assert envelope["error"]["code"] == "backup.dest_is_dir"
+
+
+def test_backup_rejects_uncreated_destination_inside_git_worktree(tmp_path: Path) -> None:
+    src = tmp_path / "src.db"
+    worktree = tmp_path / "public-repo"
+    worktree.mkdir()
+    subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+    dst = worktree / "private" / "fictional-backup.db"
+    _seed(src)
+
+    res = _run_cli(src, "db", "backup", str(dst))
+
+    assert res.returncode != 0
+    envelope = json.loads(res.stdout)
+    assert envelope["error"]["code"] == "backup.dest_in_git_worktree"
+    assert not dst.parent.exists()

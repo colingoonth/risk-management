@@ -163,3 +163,22 @@ Two scripts were therefore **not** moved here:
   partner-organisation names). Same fix: read the events CSV by path instead.
 
 Both still live alongside the data. Neither is required to load a semester.
+
+---
+
+## Commit privacy guard
+
+Install the repository's local hooks explicitly (the project never changes Git
+configuration on its own):
+
+```sh
+git config core.hooksPath scripts
+```
+
+The `pre-commit` hook scans the exact blobs and added lines staged in Git. It
+rejects SQLite magic bytes, token-shaped or GroupMe-ID-shaped values, and names
+loaded at run time from the local database selected by `RISK_DB_PATH` (or the
+normal app database). The companion `commit-msg` hook applies the same textual
+checks to the commit message because Git does not make that message available
+during `pre-commit`. The roster is queried read-only and is never copied into
+the repository or a generated file.

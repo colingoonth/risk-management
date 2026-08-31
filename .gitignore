@@ -17,7 +17,32 @@ data/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.bak
 ~/.risk/
+
+# private data dumps and generated exports
+*.csv
+*.json
+*.jsonl
+*.ndjson
+*.xlsx
+*.pdf
+*.log
+logs/
+
+# screenshots outside the curated docs assets already tracked in git
+screenshots/
+Screenshot*
+Screen Shot*
+screenshot*
+screen-shot*
+*.screenshot.png
 
 .DS_Store
 .idea/
