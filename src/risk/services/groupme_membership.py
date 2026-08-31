@@ -138,21 +138,32 @@ def last_shift_end_by_member(
     conn: sqlite3.Connection,
     *,
     semester_id: int,
-    on_or_after: str,
-    on_or_before: str,
+    on_or_after: str | None,
+    on_or_before: str | None,
 ) -> dict[int, datetime]:
-    """For each assigned member in the window, when their LAST shift finishes.
+    """For each assigned member, when their LAST shift finishes.
 
     The max, not the min and not the event date: a man on setup Wednesday and
     cleanup Sunday is involved until Monday noon, and any earlier answer removes
     him mid-commitment.
+
+    Bounds are OPTIONAL, and passing none is not laziness. Adds are a question
+    about one window — who is needed for the week being announced. Removal is a
+    question about the whole term: a man whose only unfinished shift sits on an
+    event BEFORE the window is still owed to it. Bounding removal by the
+    announcement range is what let a Sunday-morning cleanup crew be ejected at
+    dawn on the Sunday they were due to work, because the window had already
+    rolled forward past their Saturday event.
     """
     dates_by_event: dict[int, str] = {}
     for event in events_repo.list_for_semester(conn, semester_id):
         if event.status == "cancelled":
             continue
-        if on_or_after <= event.date <= on_or_before:
-            dates_by_event[event.id] = event.date
+        if on_or_after is not None and event.date < on_or_after:
+            continue
+        if on_or_before is not None and event.date > on_or_before:
+            continue
+        dates_by_event[event.id] = event.date
 
     ends: dict[int, datetime] = {}
     for shift in shifts_repo.list_filtered(conn, semester_id=semester_id):
@@ -188,6 +199,11 @@ def build_plan(
     moment = now or datetime.now()
     ends = last_shift_end_by_member(
         conn, semester_id=semester_id, on_or_after=on_or_after, on_or_before=on_or_before
+    )
+    # Removal asks a different question from adding, so it gets a different map:
+    # every shift in the term, not just this window's. See the docstring above.
+    ends_anywhere = last_shift_end_by_member(
+        conn, semester_id=semester_id, on_or_after=None, on_or_before=None
     )
 
     blocks = identity_svc.blocked_identities(conn, present=present)
@@ -277,9 +293,9 @@ def build_plan(
                 )
             )
             continue
-        end = ends.get(identity.member_id)
+        end = ends_anywhere.get(identity.member_id)
         if end is None:
-            reason = "no shift in this window"
+            reason = "no unfinished shift"
         elif end <= moment:
             reason = f"all shifts finished {end.isoformat(sep=' ', timespec='minutes')}"
         else:

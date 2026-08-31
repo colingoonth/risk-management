@@ -156,6 +156,46 @@ def test_the_latest_of_several_shifts_governs(db) -> None:
     assert [r.display_name for r in done.remove] == ["Test Alpha"]
 
 
+def test_the_cleanup_crew_survives_the_window_rolling_past_their_event(db) -> None:
+    """The Sunday-morning trap: the week rolls forward while they are still owed.
+
+    Cleanup is worked the MORNING AFTER. On the Sunday the chair opens the page,
+    the announcement window has already advanced past Saturday's event, so the
+    Saturday event is outside it. If removal is scoped to that window, the crew
+    reads as having no shift and is ejected at dawn on the day they are due —
+    from the chat that tells them when to show up, for the least popular job.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-sweeper", "Test Sweeper")
+    link(db, member_id, "user-sweep", "Test Sweeper")
+    event_id = seed_event(db, sem_id, "Test Party", FRIDAY)
+    assign(db, event_id, member_id, "cleanup")
+
+    # The window now starts the day AFTER his event; his cleanup window is still
+    # open until noon. Evaluated at 06:00, six hours before he works.
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-05",
+        on_or_before="2026-09-11",
+        present=[account("user-sweep", "Test Sweeper")],
+        now=datetime(2026, 9, 5, 6, 0),
+    )
+    assert [r.display_name for r in plan.remove] == []
+
+    # And once he has genuinely finished, at 12:30, he goes.
+    after = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after="2026-09-05",
+        on_or_before="2026-09-11",
+        present=[account("user-sweep", "Test Sweeper")],
+        now=datetime(2026, 9, 5, 12, 30),
+    )
+    assert [r.display_name for r in after.remove] == ["Test Sweeper"]
+
+
 def test_somebody_with_no_shift_in_the_window_is_proposed_for_removal(db) -> None:
     sem_id = seed_semester(db)
     seed_groups(db)
@@ -169,7 +209,7 @@ def test_somebody_with_no_shift_in_the_window_is_proposed_for_removal(db) -> Non
         present=[account("user-1", "Test Alpha")],
         now=datetime(2026, 9, 4, 12, 0),
     )
-    assert plan.remove[0].reason == "no shift in this window"
+    assert plan.remove[0].reason == "no unfinished shift"
     assert plan.remove[0].membership_id == "mem-user-1"
 
 
@@ -226,7 +266,7 @@ def test_hard_excluded_roles_are_skipped_but_soft_and_finished_workers_are_remov
 
     assert [r.display_name for r in plan.remove] == ["Test Soft", "Test Worker"]
     assert [r.reason for r in plan.remove] == [
-        "no shift in this window",
+        "no unfinished shift",
         "all shifts finished 2026-09-04 23:59",
     ]
     assert [e.display_name for e in plan.hard_excluded] == [
