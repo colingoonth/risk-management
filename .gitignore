@@ -31,3 +31,6 @@ web/shot*.cjs
 packaging/icon/icon.iconset/
 packaging/icon/icon-*.png
 packaging/icon/icon.svg.png
+
+# orchestration scratch (never published)
+.fleet/
