@@ -1,10 +1,11 @@
 -- A member's class year for QUOTA purposes, when the chair has decided it
 -- differs from the one on the roster.
 --
--- Mark Mauriello graduates in 2029, which makes him a sophomore, which under
--- SOPHOMORE_QUOTA_RATIO is the heaviest tier in the chapter. The chair wants
--- him held to the junior quota instead. That is a legitimate call for a chair
--- to make and there was no way to record it.
+-- A member may graduate in a year that puts him in the heaviest quota tier
+-- while the chair has decided, for reasons the database does not hold, that he
+-- should carry a lighter one. That is a legitimate call for a chair to make and
+-- there was no way to record it. WHO it applies to lives in the database, never
+-- in this file: the repository is public and the roster is real people.
 --
 -- WHY AN EFFECTIVE YEAR rather than a "tier" column. Every question the quota
 -- model asks — which tier is he in, how many of each tier are in the pool, who
