@@ -13,6 +13,7 @@ from risk.cli.config import app as config_app
 from risk.cli.db import app as db_app
 from risk.cli.event import app as event_app
 from risk.cli.export import app as export_app
+from risk.cli.groupme import app as groupme_app
 from risk.cli.ingest import app as ingest_app
 from risk.cli.member import app as member_app
 from risk.cli.note import app as note_app
@@ -56,6 +57,7 @@ app.add_typer(unavailability_app, name="unavailability")
 app.add_typer(swap_app, name="swap")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(export_app, name="export")
+app.add_typer(groupme_app, name="groupme")
 
 
 @app.callback(invoke_without_command=True)

@@ -361,7 +361,7 @@ class ShiftAssignOut(_Out):
 # --- GroupMe forwarder (poll health + inbound traffic) ---
 
 
-class GroupmeGroupHealthOut(_Out):
+class GroupMeGroupHealthOut(_Out):
     """One topic's line in the health payload.
 
     ``stale`` is computed, not stored — it is ``last_ok_at`` measured against
@@ -378,13 +378,13 @@ class GroupmeGroupHealthOut(_Out):
     stale: bool
 
 
-class GroupmeHealthOut(_Out):
-    groups: list[GroupmeGroupHealthOut]
+class GroupMeHealthOut(_Out):
+    groups: list[GroupMeGroupHealthOut]
     heartbeat_age_seconds: int | None
     healthy: bool
 
 
-class GroupmeInboundOut(_Out):
+class GroupMeInboundOut(_Out):
     """A message as the chair reads it.
 
     A deliberate subset of the row: ``groupme_message_id``, ``sender_user_id``
@@ -399,3 +399,158 @@ class GroupmeInboundOut(_Out):
     created_at: str
     triage: str | None
     triage_note: str | None
+
+
+# --- GroupMe ---
+
+
+class GroupMeIdentityRowOut(_Out):
+    member_id: int
+    display_name: str
+    nickname: str | None
+    confidence: str
+
+
+class GroupMeUnlinkedOut(_Out):
+    member_id: int
+    display_name: str
+    reason: str | None = None
+
+
+class GroupMeDriftOut(_Out):
+    groupme_user_id: str
+    nickname: str
+
+
+class GroupMeBlockedOut(_Out):
+    groupme_user_id: str
+    member_id: int
+    display_name: str
+    reason: str
+    detail: str
+
+
+class GroupMeIdentitiesOut(_Out):
+    linked: int
+    unlinked: list[GroupMeUnlinkedOut]
+    drift: list[GroupMeDriftOut]
+    rows: list[GroupMeIdentityRowOut] = []
+    blocked: list[GroupMeBlockedOut] = []
+
+
+class GroupMeMembershipAddOut(_Out):
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+
+
+class GroupMeMembershipRemoveOut(_Out):
+    member_id: int
+    display_name: str
+    membership_id: str
+    reason: str
+
+
+class GroupMeUnrecognisedOut(_Out):
+    groupme_user_id: str
+    nickname: str
+
+
+class GroupMeMembershipPlanOut(_Out):
+    """The plan PLUS the digest that has to come back to apply it.
+
+    ``preview_id`` and ``digest`` are not decoration: ``POST membership/apply``
+    recomputes the plan and refuses unless the digest still matches, so an
+    approval cannot outlive the thing it approved."""
+
+    preview_id: str
+    digest: str
+    add: list[GroupMeMembershipAddOut]
+    remove: list[GroupMeMembershipRemoveOut]
+    unrecognised: list[GroupMeUnrecognisedOut] = []
+    blocked: list[GroupMeBlockedOut] = []
+    unlinked_workers: list[GroupMeUnlinkedOut] = []
+
+
+class GroupMeMentionOut(_Out):
+    user_id: str
+    display_name: str
+    offset: int
+    length: int
+
+
+class GroupMeAnnouncePostOut(_Out):
+    group_slug: str
+    label: str
+    event_date: str
+    event_name: str
+    text: str
+    mentions: list[GroupMeMentionOut]
+    unlinked: list[GroupMeUnlinkedOut] = []
+    char_count: int = 0
+    too_long: bool = False
+
+
+class GroupMeUnroutableOut(_Out):
+    event_date: str
+    event_name: str
+    weekday: int
+    reason: str
+
+
+class GroupMeAnnouncePreviewOut(_Out):
+    preview_id: str
+    digest: str
+    posts: list[GroupMeAnnouncePostOut]
+    unroutable: list[GroupMeUnroutableOut] = []
+    oversize: list[GroupMeAnnouncePostOut] = []
+    identity_check: str = "database-only"
+
+
+class GroupMePostedOut(_Out):
+    group_slug: str
+    label: str
+    event_date: str
+    event_name: str
+    message_id: str | None
+    mention_count: int
+    outcome: str
+    detail: str | None = None
+
+
+class GroupMeAnnounceResultOut(_Out):
+    posted: list[GroupMePostedOut]
+
+
+class GroupMeMembershipApplyOut(_Out):
+    added: list[str]
+    removed: list[str]
+    results_id: str | None
+
+
+class GroupMeOkOut(_Out):
+    ok: bool
+
+
+class GroupMeConfirmIn(BaseModel):
+    """The window, plus the preview the caller is actually approving.
+
+    ``confirm`` defaults FALSE and every outbound route requires it true — but
+    on its own it is a constant, and a constant is satisfied by a hardcoded UI
+    and by a chair who read the preview yesterday. ``preview_id`` and ``digest``
+    are what make this an approval OF SOMETHING: the server rebuilds the plan and
+    refuses if a shift, a nickname, an event date or a topic mapping moved in
+    between."""
+
+    on_or_after: str
+    on_or_before: str
+    confirm: bool = False
+    preview_id: str
+    digest: str
+    semester: str | None = None
+
+
+class GroupMeReplyIn(BaseModel):
+    group_slug: str
+    text: str
+    confirm: bool = False

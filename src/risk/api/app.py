@@ -15,6 +15,7 @@ from risk.api.routers import (
     dashboard,
     event_types,
     events,
+    groupme,
     groupme_ops,
     houses,
     ingest,
@@ -96,6 +97,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
         ingest,
         dashboard,
         notes,
+        groupme,
         groupme_ops,
     ):
         app.include_router(module.router, prefix="/api")

@@ -1,0 +1,303 @@
+"""Who should be in the Risk group right now, and who is done.
+
+Membership lives on the PARENT group. Topics have none of their own — an add
+aimed at a topic id 404s — so every add and remove in here targets the parent
+and the day topics are read-only surfaces on top of it.
+
+REMOVAL TIMING IS THE WHOLE POINT. "Remove people when their shifts are done"
+does not mean "after the party". Cleanup is worked the NEXT MORNING and setup is
+worked in the days BEFORE, so the honest end of somebody's involvement is the
+end of his last SHIFT WINDOW, taken from ``shift_type_windows`` — event date plus
+``offset_days_end``, at ``window_end_time``. For cleanup that is noon the
+following day.
+
+Using the event date instead kicks the cleanup crew out of the group at midnight,
+hours before they are due to show up, and the first they hear of it is not being
+able to read the chat that tells them when. That failure is silent, it happens to
+the people doing the least popular job, and it is one subtraction away — hence
+this module rather than a date comparison at each call site.
+
+NOBODY WHOSE IDENTITY IS IN DOUBT IS EVER PROPOSED FOR REMOVAL. A link that has
+drifted (the account renamed itself), collides with another link's nickname, or
+carries no nickname at all is blocked — see ``services.groupme_identity``. A
+GroupMe user id is stable and the human behind it is asserted by a name that is
+not, so "we are no longer sure who this is" and "remove this person from the
+group" must never be the same code path. Those links are reported and skipped.
+
+NOBODY UNRECOGNISED IS EVER PROPOSED FOR REMOVAL. A GroupMe account in the group
+that maps to no roster member is the chair, an exec, an alumnus helping out, or
+someone whose identity mapping is still waiting on a human. Removing on a
+mismatch would make an unmapped brother disappear from the group, which is
+exactly the outcome the identity service refuses to risk.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+from datetime import date as _date
+from datetime import datetime, time, timedelta
+
+from risk.repos import events as events_repo
+from risk.repos import groupme_identities as identities_repo
+from risk.repos import shift_type_windows as windows_repo
+from risk.repos import shifts as shifts_repo
+from risk.services import groupme_identity as identity_svc
+from risk.services.groupme import GroupMeMember
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipAdd:
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    nickname: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipRemoval:
+    member_id: int
+    display_name: str
+    membership_id: str
+    groupme_user_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnrecognisedPresence:
+    """In the group, mapped to nobody. Reported, never removed."""
+
+    groupme_user_id: str
+    membership_id: str
+    nickname: str
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedIdentity:
+    """A linked member skipped because we are not certain who he is."""
+
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    reason: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipPlan:
+    add: tuple[MembershipAdd, ...]
+    remove: tuple[MembershipRemoval, ...]
+    unrecognised: tuple[UnrecognisedPresence, ...]
+    blocked: tuple[BlockedIdentity, ...]
+    unlinked_workers: tuple[tuple[int, str], ...]
+    """``(member_id, display_name)`` for people working the window who have no
+    GroupMe link — they cannot be added, and the chair has to be told rather than
+    left to notice."""
+
+
+def shift_window_end(
+    conn: sqlite3.Connection, *, shift_type_slug: str, event_date: str
+) -> datetime:
+    """When this shift is genuinely finished.
+
+    Raises ``LookupError`` when the shift type has no window row, matching
+    ``services.availability``: guessing "it ended at midnight" here is the exact
+    mistake this module exists to prevent.
+    """
+    window = windows_repo.get_by_slug(conn, shift_type_slug)
+    if window is None:
+        raise LookupError(
+            f"shift type {shift_type_slug!r} has no row in shift_type_windows; "
+            "cannot tell when it finishes"
+        )
+    day = _date.fromisoformat(event_date) + timedelta(days=window.offset_days_end)
+    return datetime.combine(day, time.fromisoformat(window.window_end_time))
+
+
+def last_shift_end_by_member(
+    conn: sqlite3.Connection,
+    *,
+    semester_id: int,
+    on_or_after: str,
+    on_or_before: str,
+) -> dict[int, datetime]:
+    """For each assigned member in the window, when their LAST shift finishes.
+
+    The max, not the min and not the event date: a man on setup Wednesday and
+    cleanup Sunday is involved until Monday noon, and any earlier answer removes
+    him mid-commitment.
+    """
+    dates_by_event: dict[int, str] = {}
+    for event in events_repo.list_for_semester(conn, semester_id):
+        if event.status == "cancelled":
+            continue
+        if on_or_after <= event.date <= on_or_before:
+            dates_by_event[event.id] = event.date
+
+    ends: dict[int, datetime] = {}
+    for shift in shifts_repo.list_filtered(conn, semester_id=semester_id):
+        if shift.assigned_member_id is None:
+            continue
+        event_date = dates_by_event.get(shift.event_id)
+        if event_date is None:
+            continue
+        end = shift_window_end(
+            conn, shift_type_slug=shift.shift_type_slug, event_date=event_date
+        )
+        current = ends.get(shift.assigned_member_id)
+        if current is None or end > current:
+            ends[shift.assigned_member_id] = end
+    return ends
+
+
+def build_plan(
+    conn: sqlite3.Connection,
+    *,
+    semester_id: int,
+    on_or_after: str,
+    on_or_before: str,
+    present: list[GroupMeMember],
+    now: datetime | None = None,
+) -> MembershipPlan:
+    """Reconcile the parent group's membership against the window's schedule.
+
+    ``present`` is the live parent-group member list; ``now`` is injectable so
+    the removal boundary is testable to the minute instead of only at whatever
+    time the suite happens to run.
+    """
+    moment = now or datetime.now()
+    ends = last_shift_end_by_member(
+        conn, semester_id=semester_id, on_or_after=on_or_after, on_or_before=on_or_before
+    )
+
+    blocks = identity_svc.blocked_identities(conn, present=present)
+    # "Not in the parent group" is the whole REASON for an add, so it cannot also
+    # disqualify one. The other three reasons all mean "we do not know which
+    # brother this account is", and those disqualify every write.
+    unsafe = {
+        user_id: block
+        for user_id, block in blocks.items()
+        if block.reason != identity_svc.BLOCK_NOT_IN_GROUP
+    }
+
+    identities = identities_repo.list_linked(conn)
+    by_member = {i.member_id: i for i in identities}
+    by_user_id = {i.groupme_user_id: i for i in identities}
+
+    # Two accounts can report the same user_id only if GroupMe repeats itself;
+    # keep the first membership row so a removal targets something real.
+    present_by_user: dict[str, GroupMeMember] = {}
+    for account in present:
+        present_by_user.setdefault(account.user_id, account)
+
+    adds: list[MembershipAdd] = []
+    blocked: list[BlockedIdentity] = []
+    unlinked_workers: list[tuple[int, str]] = []
+    display_names = _display_names(conn, semester_id)
+
+    for member_id, end in ends.items():
+        if end <= moment:
+            # Already finished everything in the window — adding him now would
+            # only be followed by removing him.
+            continue
+        identity = by_member.get(member_id)
+        if identity is None:
+            unlinked_workers.append((member_id, display_names.get(member_id, "")))
+            continue
+        block = unsafe.get(identity.groupme_user_id)
+        if block is not None:
+            blocked.append(_as_blocked(block))
+            continue
+        if identity.groupme_user_id in present_by_user:
+            continue
+        adds.append(
+            MembershipAdd(
+                member_id=member_id,
+                display_name=identity.display_name,
+                groupme_user_id=identity.groupme_user_id,
+                nickname=identity.nickname,
+            )
+        )
+
+    removes: list[MembershipRemoval] = []
+    unrecognised: list[UnrecognisedPresence] = []
+    seen_blocked = {b.groupme_user_id for b in blocked}
+    for user_id, account in present_by_user.items():
+        identity = by_user_id.get(user_id)
+        if identity is None:
+            unrecognised.append(
+                UnrecognisedPresence(
+                    groupme_user_id=user_id,
+                    membership_id=account.membership_id,
+                    nickname=account.nickname,
+                )
+            )
+            continue
+        block = blocks.get(user_id)
+        if block is not None:
+            # Removal is the irreversible half of this plan and it acts on a
+            # named human. Not knowing which human is a hard stop.
+            if user_id not in seen_blocked:
+                blocked.append(_as_blocked(block))
+                seen_blocked.add(user_id)
+            continue
+        end = ends.get(identity.member_id)
+        if end is None:
+            reason = "no shift in this window"
+        elif end <= moment:
+            reason = f"all shifts finished {end.isoformat(sep=' ', timespec='minutes')}"
+        else:
+            continue
+        removes.append(
+            MembershipRemoval(
+                member_id=identity.member_id,
+                display_name=identity.display_name,
+                membership_id=account.membership_id,
+                groupme_user_id=user_id,
+                reason=reason,
+            )
+        )
+
+    return MembershipPlan(
+        add=tuple(sorted(adds, key=lambda a: (a.display_name, a.member_id))),
+        remove=tuple(sorted(removes, key=lambda r: (r.display_name, r.member_id))),
+        unrecognised=tuple(sorted(unrecognised, key=lambda u: u.nickname)),
+        blocked=tuple(sorted(blocked, key=lambda b: (b.display_name, b.groupme_user_id))),
+        unlinked_workers=tuple(sorted(unlinked_workers, key=lambda p: p[1])),
+    )
+
+
+def _as_blocked(block: identity_svc.Block) -> BlockedIdentity:
+    return BlockedIdentity(
+        member_id=block.member_id,
+        display_name=block.display_name,
+        groupme_user_id=block.groupme_user_id,
+        reason=block.reason,
+        detail=block.detail,
+    )
+
+
+def _display_names(conn: sqlite3.Connection, semester_id: int) -> dict[int, str]:
+    """Display names for everyone holding a shift this semester."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT m.id, m.display_name
+        FROM shifts s
+        JOIN events e ON e.id = s.event_id
+        JOIN members m ON m.id = s.assigned_member_id
+        WHERE e.semester_id = ?
+        """,
+        (semester_id,),
+    ).fetchall()
+    return {int(r["id"]): str(r["display_name"]) for r in rows}
+
+
+def summarise(plan: MembershipPlan) -> dict[str, int]:
+    """Counts, for a confirmation prompt that has to fit on one line."""
+    return {
+        "add": len(plan.add),
+        "remove": len(plan.remove),
+        "unrecognised": len(plan.unrecognised),
+        "blocked": len(plan.blocked),
+        "unlinked_workers": len(plan.unlinked_workers),
+    }

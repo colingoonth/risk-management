@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from risk.api.deps import get_conn
 from risk.api.errors import service_errors
-from risk.api.schemas import GroupmeHealthOut, GroupmeInboundOut
+from risk.api.schemas import GroupMeHealthOut, GroupMeInboundOut
 from risk.repos import groupme_inbound as inbound_repo
 from risk.services import groupme_poll
 
@@ -36,8 +36,8 @@ def _list_messages_override(request: Request) -> groupme_poll.ListMessages | Non
     return getattr(request.app.state, "groupme_list_messages", None)
 
 
-@router.get("/health", response_model=GroupmeHealthOut)
-def groupme_health(conn: sqlite3.Connection = Depends(get_conn)) -> GroupmeHealthOut:
+@router.get("/health", response_model=GroupMeHealthOut)
+def groupme_health(conn: sqlite3.Connection = Depends(get_conn)) -> GroupMeHealthOut:
     """Is the forwarder alive, and is every topic being read?
 
     Cheap and side-effect free — it reads the poll-state rows and the heartbeat
@@ -45,16 +45,16 @@ def groupme_health(conn: sqlite3.Connection = Depends(get_conn)) -> GroupmeHealt
     """
     with service_errors():
         report = groupme_poll.health(conn)
-    return GroupmeHealthOut.model_validate(report)
+    return GroupMeHealthOut.model_validate(report)
 
 
-@router.get("/inbound", response_model=list[GroupmeInboundOut])
+@router.get("/inbound", response_model=list[GroupMeInboundOut])
 def groupme_inbound(
     limit: int = Query(default=50, ge=1, le=500),
     triage: str | None = Query(default=None),
     group_slug: str | None = Query(default=None),
     conn: sqlite3.Connection = Depends(get_conn),
-) -> list[GroupmeInboundOut]:
+) -> list[GroupMeInboundOut]:
     """Recent traffic, newest first.
 
     ``triage`` is validated in the repo against the stored vocabulary, so an
@@ -63,14 +63,14 @@ def groupme_inbound(
     """
     with service_errors():
         rows = inbound_repo.list_recent(conn, limit=limit, triage=triage, group_slug=group_slug)
-    return [GroupmeInboundOut.model_validate(r) for r in rows]
+    return [GroupMeInboundOut.model_validate(r) for r in rows]
 
 
-@router.post("/poll", response_model=GroupmeHealthOut)
+@router.post("/poll", response_model=GroupMeHealthOut)
 def groupme_poll_now(
     request: Request,
     conn: sqlite3.Connection = Depends(get_conn),
-) -> GroupmeHealthOut:
+) -> GroupMeHealthOut:
     """Force one poll cycle and answer with the health payload.
 
     This is the "I just woke the laptop and do not want to wait 120 seconds"
@@ -94,4 +94,4 @@ def groupme_poll_now(
                 status_code=503, detail=f"GroupMe client unavailable: {exc}"
             ) from exc
         report = groupme_poll.health(conn)
-    return GroupmeHealthOut.model_validate(report)
+    return GroupMeHealthOut.model_validate(report)

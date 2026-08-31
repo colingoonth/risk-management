@@ -45,8 +45,8 @@ pytestmark = pytest.mark.integration
 
 # Invented topics. The chapter's real GroupMe ids live only in the database on
 # Colin's machine and are never written down in this repo.
-TUESDAY = poll.PollTarget(group_slug="risk-tuesday", groupme_id="10000001", label="Tuesday")
-FRIDAY = poll.PollTarget(group_slug="risk-friday", groupme_id="10000002", label="Friday")
+TUESDAY = poll.PollTarget(group_slug="risk-tuesday", groupme_id="gm-topic-tue", label="Tuesday")
+FRIDAY = poll.PollTarget(group_slug="risk-friday", groupme_id="gm-topic-fri", label="Friday")
 
 T0 = datetime(2026, 9, 4, 1, 0, tzinfo=UTC)
 """1am. The last poll before the laptop lid closed."""
@@ -88,7 +88,7 @@ class FakeGroupMe:
         message_id: int,
         text: str = "message",
         name: str = "Test Alpha",
-        user_id: str = "20000001",
+        user_id: str = "gm-user-alpha",
         created_at: datetime | None = None,
     ) -> None:
         self.streams.setdefault(group_id, []).append(
@@ -192,7 +192,7 @@ def _seed_topics(conn: sqlite3.Connection, *targets: poll.PollTarget) -> None:
     with transaction(conn):
         conn.execute(
             "INSERT OR IGNORE INTO groupme_groups (slug, groupme_id, parent_slug, weekday, label)"
-            " VALUES ('risk-parent', '19999999', NULL, NULL, 'Risk')"
+            " VALUES ('risk-parent', 'gm-parent', NULL, NULL, 'Risk')"
         )
         for weekday, target in enumerate(targets, start=2):
             conn.execute(
@@ -362,8 +362,8 @@ def test_a_client_that_replays_the_same_page_cannot_duplicate_a_row(
     asked to skip. Nothing duplicates, and the loop still terminates.
     """
     page = [
-        {"id": "7", "user_id": "20000001", "name": "Test Alpha", "text": "hi", "created_at": 0},
-        {"id": "8", "user_id": "20000001", "name": "Test Alpha", "text": "ho", "created_at": 0},
+        {"id": "7", "user_id": "gm-user-alpha", "name": "Test Alpha", "text": "hi", "created_at": 0},
+        {"id": "8", "user_id": "gm-user-alpha", "name": "Test Alpha", "text": "ho", "created_at": 0},
     ]
     calls = 0
 
@@ -424,7 +424,7 @@ def test_a_rejected_fetch_leaves_the_cursor_exactly_where_it_was(
     """
     fake.add_run(TUESDAY.groupme_id, first=1, count=5, at=T0)
     poll.poll_group(db, TUESDAY, list_messages=fake.list_messages, now=T0)
-    fake.raise_for[TUESDAY.groupme_id] = _HttpError(404, "https://api.example/groups/10000001")
+    fake.raise_for[TUESDAY.groupme_id] = _HttpError(404, "https://api.example/groups/gm-topic-tue")
 
     result = poll.poll_group(db, TUESDAY, list_messages=fake.list_messages, now=WOKE)
 
@@ -440,7 +440,7 @@ def test_the_stored_error_is_a_code_with_no_url_or_group_id_in_it(
     """``last_error`` is rendered by a health endpoint and printed into a log
     file beside a public repo. An exception string carries the URL it was
     calling, and that URL contains a real group id."""
-    leaky = _HttpError(401, "401 for https://api.groupme.test/v3/groups/10000001/messages")
+    leaky = _HttpError(401, "401 for https://api.groupme.test/v3/groups/gm-topic-tue/messages")
     fake.raise_for[TUESDAY.groupme_id] = leaky
 
     poll.poll_group(db, TUESDAY, list_messages=fake.list_messages, now=T0)
@@ -461,7 +461,7 @@ def test_the_repo_refuses_anything_that_is_not_a_code(db: sqlite3.Connection) ->
             db,
             group_slug=TUESDAY.group_slug,
             polled_at="2026-09-04T01:00:00+00:00",
-            error_code="HTTPError: 401 for https://api.groupme.test/v3/groups/10000001",
+            error_code="HTTPError: 401 for https://api.groupme.test/v3/groups/gm-topic-tue",
         )
 
 
@@ -931,7 +931,7 @@ def test_health_reports_nothing_but_codes(
     db: sqlite3.Connection, fake: FakeGroupMe
 ) -> None:
     fake.raise_for[TUESDAY.groupme_id] = _HttpError(
-        403, "forbidden: https://api.groupme.test/v3/groups/10000001/messages"
+        403, "forbidden: https://api.groupme.test/v3/groups/gm-topic-tue/messages"
     )
     poll.poll_once(db, list_messages=fake.list_messages, targets=[TUESDAY], now=T0, forward=False)
     report = poll.health(db, now=T0)
@@ -1105,12 +1105,12 @@ def test_health_route_never_returns_anything_but_a_code(
 ) -> None:
     client, fake = api
     fake.raise_for[TUESDAY.groupme_id] = _HttpError(
-        401, "unauthorized for https://api.groupme.test/v3/groups/10000001/messages"
+        401, "unauthorized for https://api.groupme.test/v3/groups/gm-topic-tue/messages"
     )
     client.post("/api/groupme/poll")
 
     body = client.get("/api/groupme/health").json()
     by_slug = {g["slug"]: g for g in body["groups"]}
     assert by_slug[TUESDAY.group_slug]["last_error"] == "auth_rejected"
-    assert "10000001" not in repr(body), "a group id reached an HTTP response"
+    assert "gm-topic-tue" not in repr(body), "a group id reached an HTTP response"
     assert "http" not in repr(body).lower()
