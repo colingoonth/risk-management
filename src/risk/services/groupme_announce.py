@@ -1,4 +1,4 @@
-"""Build the post that goes in a day topic, and work out which topic that is.
+"""Build each party's posts and work out which chats receive them.
 
 The message the chapter reads is three lines of nothing much::
 
@@ -28,12 +28,12 @@ Two consequences worth stating:
 * The mention always begins a line, so the offset is the line's own start. That
   is not an accident of the format; it is why the format is one person per line.
 
-ROUTING is by the EVENT's weekday, for every shift type. Setup is worked in the
-days before and cleanup the morning after, and both still belong to that party's
-crew, so all six types announce into one post in one topic. An event whose
-weekday has no topic is reported unroutable and posted nowhere: falling back to
-the parent group would put a Monday dage in front of every brother in the Risk
-group, which is the noise the topics exist to remove.
+ROUTING and LABELLING are both anchored to the PARTY's date. Assignments whose
+``shift_type_windows.occupies_event_night`` flag is true go to that party
+weekday's topic. Assignments whose flag is false go to the standalone
+setup/cleanup group, even though setup may be worked two days before the party
+and cleanup the next morning. An unavailable destination makes only that crew
+unroutable; it is never silently dropped or redirected to another chat.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from risk.repos import events as events_repo
 from risk.repos import groupme_groups as groups_repo
 from risk.repos import groupme_identities as identities_repo
 from risk.repos import groupme_outbound as outbound_repo
+from risk.repos import shift_type_windows as windows_repo
 from risk.repos import shifts as shifts_repo
 from risk.services import groupme_identity as identity_svc
 from risk.services.groupme import GroupMeMember
@@ -376,6 +377,59 @@ def assignments_for_event(
     return out
 
 
+def _split_by_event_night(
+    conn: sqlite3.Connection, assignments: list[Assignment]
+) -> tuple[list[Assignment], list[Assignment]]:
+    """Partition using the stored routing flag, never shift-type names."""
+    event_night: list[Assignment] = []
+    setup_cleanup: list[Assignment] = []
+    for assignment in assignments:
+        window = windows_repo.get_by_slug(conn, assignment.shift_type_slug)
+        if window is None:
+            raise LookupError(
+                f"shift type {assignment.shift_type_slug!r} has no row in "
+                "shift_type_windows; cannot route its announcement"
+            )
+        destination = event_night if window.occupies_event_night else setup_cleanup
+        destination.append(assignment)
+    return event_night, setup_cleanup
+
+
+def _post_for_assignments(
+    *,
+    event_id: int,
+    event_date: str,
+    event_name: str,
+    group: groups_repo.GroupMeGroup,
+    assignments: list[Assignment],
+) -> AnnouncePost:
+    """Render one non-empty destination's post using the party's own date."""
+    rendered = render_post(
+        event_name=event_name,
+        event_date=event_date,
+        assignments=assignments,
+    )
+    version = outbound_repo.content_version(
+        rendered.text,
+        tuple((mention.user_id, mention.offset, mention.length) for mention in rendered.mentions),
+    )
+    char_count = len(rendered.text)
+    return AnnouncePost(
+        group_slug=group.slug,
+        label=group.label,
+        groupme_id=group.groupme_id,
+        event_id=event_id,
+        event_date=event_date,
+        event_name=event_name,
+        text=rendered.text,
+        mentions=rendered.mentions,
+        unlinked=rendered.unlinked,
+        content_version=version,
+        char_count=char_count,
+        too_long=char_count > MAX_MESSAGE_CHARS,
+    )
+
+
 def build_plan(
     conn: sqlite3.Connection,
     *,
@@ -385,7 +439,7 @@ def build_plan(
     parent_slug: str = groups_repo.PARENT_SLUG,
     present: Sequence[GroupMeMember] | None = None,
 ) -> AnnouncePlan:
-    """One post per event in the window, routed by the event's own weekday.
+    """Up to two posts per event, with every route keyed by the party date.
 
     ``present`` is the live parent-group member list. Supply it and the plan can
     additionally block renamed accounts and people who have left the group;
@@ -393,8 +447,10 @@ def build_plan(
     check it did not make. The preview endpoint deliberately works either way —
     a GroupMe outage must not stop the chair reading his own schedule.
 
-    Events with nobody assigned are skipped entirely: an empty post reads to the
-    chapter as "nobody is working", which is worse than no post.
+    Event-night assignments route to the party weekday's topic. Non-event-night
+    assignments route to the standalone setup/cleanup group. Either empty half
+    is skipped entirely: an empty post reads as "nobody is working", which is
+    worse than no post.
     """
     blocks = identity_svc.blocked_identities(conn, present=present)
     posts: list[AnnouncePost] = []
@@ -410,48 +466,72 @@ def build_plan(
         if not assignments:
             continue
 
+        event_night, setup_cleanup = _split_by_event_night(conn, assignments)
         weekday = _date.fromisoformat(event.date).isoweekday()
-        topic = groups_repo.get_topic_for_weekday(conn, weekday=weekday, parent_slug=parent_slug)
-        if topic is None:
-            unroutable.append(
-                UnroutableEvent(
-                    event_id=event.id,
-                    event_date=event.date,
-                    event_name=event.display_name,
-                    weekday=weekday,
-                    reason=(
-                        f"no topic registered for {_DAY_ABBR[weekday - 1]} under "
-                        f"{parent_slug!r} — seed one or announce this event by hand"
-                    ),
-                )
-            )
-            continue
+        destinations: list[tuple[groups_repo.GroupMeGroup, list[Assignment]]] = []
 
-        rendered = render_post(
-            event_name=event.display_name,
-            event_date=event.date,
-            assignments=assignments,
-        )
-        version = outbound_repo.content_version(
-            rendered.text,
-            tuple((m.user_id, m.offset, m.length) for m in rendered.mentions),
-        )
-        char_count = len(rendered.text)
-        post = AnnouncePost(
-            group_slug=topic.slug,
-            label=topic.label,
-            groupme_id=topic.groupme_id,
-            event_id=event.id,
-            event_date=event.date,
-            event_name=event.display_name,
-            text=rendered.text,
-            mentions=rendered.mentions,
-            unlinked=rendered.unlinked,
-            content_version=version,
-            char_count=char_count,
-            too_long=char_count > MAX_MESSAGE_CHARS,
-        )
-        (oversize if post.too_long else posts).append(post)
+        if event_night:
+            topic = groups_repo.get_topic_for_weekday(
+                conn, weekday=weekday, parent_slug=parent_slug
+            )
+            if topic is None:
+                unroutable.append(
+                    UnroutableEvent(
+                        event_id=event.id,
+                        event_date=event.date,
+                        event_name=event.display_name,
+                        weekday=weekday,
+                        reason=(
+                            f"no topic registered for {_DAY_ABBR[weekday - 1]} under "
+                            f"{parent_slug!r} — seed one or announce this event by hand"
+                        ),
+                    )
+                )
+            else:
+                destinations.append((topic, event_night))
+
+        if setup_cleanup:
+            setup_group = groups_repo.get_by_slug(conn, groups_repo.SETUP_GROUP_SLUG)
+            if setup_group is None:
+                reason = (
+                    "no standalone setup/cleanup group registered as "
+                    f"{groups_repo.SETUP_GROUP_SLUG!r} — seed that slug with no parent "
+                    "and no weekday"
+                )
+                unroutable.append(
+                    UnroutableEvent(
+                        event_id=event.id,
+                        event_date=event.date,
+                        event_name=event.display_name,
+                        weekday=weekday,
+                        reason=reason,
+                    )
+                )
+            elif setup_group.parent_slug is not None or setup_group.weekday is not None:
+                unroutable.append(
+                    UnroutableEvent(
+                        event_id=event.id,
+                        event_date=event.date,
+                        event_name=event.display_name,
+                        weekday=weekday,
+                        reason=(
+                            f"{groups_repo.SETUP_GROUP_SLUG!r} is not standalone — seed that "
+                            "slug with no parent and no weekday"
+                        ),
+                    )
+                )
+            else:
+                destinations.append((setup_group, setup_cleanup))
+
+        for group, routed_assignments in destinations:
+            post = _post_for_assignments(
+                event_id=event.id,
+                event_date=event.date,
+                event_name=event.display_name,
+                group=group,
+                assignments=routed_assignments,
+            )
+            (oversize if post.too_long else posts).append(post)
 
     posts.sort(key=lambda p: (p.event_date, p.event_name))
     oversize.sort(key=lambda p: (p.event_date, p.event_name))

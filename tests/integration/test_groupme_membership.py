@@ -16,6 +16,7 @@ import pytest
 from risk.db.connection import transaction
 from risk.repos import groupme_identities as identities_repo
 from risk.repos import groupme_outbound as ledger_repo
+from risk.repos import groupme_permanent_members as permanent_repo
 from risk.repos import member_roles as member_roles_repo
 from risk.repos import roles as roles_repo
 from risk.services import groupme_announce as announce_svc
@@ -37,6 +38,7 @@ from tests.integration._groupme_helpers import (
     seed_groups,
     seed_member,
     seed_semester,
+    seed_setup_group,
 )
 
 pytestmark = pytest.mark.integration
@@ -277,6 +279,68 @@ def test_hard_excluded_roles_are_skipped_but_soft_and_finished_workers_are_remov
         "Risk Chair is hard-excluded from assignment",
         "Exec is hard-excluded from assignment",
     ]
+
+
+def test_permanent_member_is_kept_and_reported_only_for_the_named_group(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    with transaction(db):
+        permanent_repo.add(
+            db, group_slug="setup-cleanup", member_id=member_id
+        )
+
+    setup_plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=[account("user-1", "Test Alpha")],
+        group_slug="setup-cleanup",
+        now=datetime(2026, 9, 4, 12, 0),
+    )
+
+    assert setup_plan.remove == ()
+    assert [member.display_name for member in setup_plan.permanent] == ["Test Alpha"]
+    assert setup_plan.permanent[0].reason == "permanent member"
+    assert "setup-cleanup" in setup_plan.permanent[0].detail
+    assert setup_plan.hard_excluded == ()
+
+    risk_plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=[account("user-1", "Test Alpha")],
+        now=datetime(2026, 9, 4, 12, 0),
+    )
+    assert [member.display_name for member in risk_plan.remove] == ["Test Alpha"]
+    assert risk_plan.permanent == ()
+
+
+def test_absent_permanent_member_is_added_without_needing_a_shift(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    with transaction(db):
+        permanent_repo.add(db, group_slug="setup-cleanup", member_id=member_id)
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=[],
+        group_slug="setup-cleanup",
+        now=datetime(2026, 9, 4, 12, 0),
+    )
+
+    assert [member.display_name for member in plan.add] == ["Test Alpha"]
+    assert plan.remove == ()
 
 
 def test_an_unrecognised_account_is_reported_and_never_removed(db) -> None:

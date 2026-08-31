@@ -16,6 +16,7 @@ from risk.db.schema import ensure_schema
 from risk.repos import events as events_repo
 from risk.repos import groupme_groups as groups_repo
 from risk.repos import groupme_identities as identities_repo
+from risk.repos import groupme_permanent_members as permanent_repo
 from risk.services import groupme_announce as announce_svc
 from tests.integration._groupme_helpers import (
     STAMP,
@@ -25,6 +26,7 @@ from tests.integration._groupme_helpers import (
     seed_groups,
     seed_member,
     seed_semester,
+    seed_setup_group,
 )
 
 pytestmark = pytest.mark.integration
@@ -43,13 +45,21 @@ def test_the_migration_replays_safely_with_data_in_the_tables(tmp_path: Path) ->
     seed_semester(conn)
     member_id = seed_member(conn, "test-alpha", "Test Alpha")
     seed_groups(conn)
+    seed_setup_group(conn)
     link(conn, member_id, "user-1", "Test Alpha")
+    with transaction(conn):
+        permanent_repo.add(
+            conn, group_slug=groups_repo.SETUP_GROUP_SLUG, member_id=member_id
+        )
     conn.close()
 
     reopened = connect(path)
     ensure_schema(reopened)
     assert identities_repo.get_for_member(reopened, member_id) is not None
     assert len(groups_repo.list_topics(reopened)) == 2
+    assert permanent_repo.member_ids_for_group(
+        reopened, groups_repo.SETUP_GROUP_SLUG
+    ) == frozenset({member_id})
     reopened.close()
 
 
@@ -188,26 +198,103 @@ def test_an_event_on_a_day_with_no_topic_is_unroutable_not_redirected(db) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_setup_and_cleanup_announce_into_the_event_days_topic(db) -> None:
-    """One post per EVENT — the crew that works the morning after is that
-    party's crew, not Saturday's."""
+def test_party_night_and_setup_crews_split_into_two_posts_by_the_party_day(db) -> None:
+    """Friday's cleanup stays labelled Friday even though it is worked Saturday."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    charlie = seed_member(db, "test-charlie", "Test Charlie")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    link(db, charlie, "user-3", "Test Charlie")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")  # Friday
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "setup")
+    assign(db, event_id, charlie, "cleanup")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-01", on_or_before="2026-09-14"
+    )
+    assert [post.group_slug for post in plan.posts] == ["risk-friday", "setup-cleanup"]
+    night, crew = plan.posts
+    assert night.text == "Sample Mixer — Fri 4 Sep\n@Test Alpha on door"
+    assert crew.text == (
+        "Sample Mixer — Fri 4 Sep\n"
+        "@Test Bravo on setup\n"
+        "@Test Charlie on cleanup"
+    )
+    assert plan.unroutable == ()
+
+
+def test_no_non_party_night_crew_means_no_setup_group_post(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, member_id, "door")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+
+    assert [post.group_slug for post in plan.posts] == ["risk-friday"]
+
+
+def test_an_unregistered_setup_group_reports_only_that_crew_unroutable(db) -> None:
     sem_id = seed_semester(db)
     seed_groups(db)
     alpha = seed_member(db, "test-alpha", "Test Alpha")
     bravo = seed_member(db, "test-bravo", "Test Bravo")
     link(db, alpha, "user-1", "Test Alpha")
     link(db, bravo, "user-2", "Test Bravo")
-    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")  # Friday
-    assign(db, event_id, alpha, "setup")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
     assign(db, event_id, bravo, "cleanup")
 
     plan = announce_svc.build_plan(
-        db, semester_id=sem_id, on_or_after="2026-09-01", on_or_before="2026-09-14"
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
     )
-    assert len(plan.posts) == 1
-    assert plan.posts[0].group_slug == "risk-friday"
-    assert "@Test Alpha on setup" in plan.posts[0].text
-    assert "@Test Bravo on cleanup" in plan.posts[0].text
+
+    assert [post.group_slug for post in plan.posts] == ["risk-friday"]
+    assert len(plan.unroutable) == 1
+    assert "setup-cleanup" in plan.unroutable[0].reason
+    assert "seed" in plan.unroutable[0].reason
+
+
+def test_routing_uses_the_window_flag_not_shift_type_names(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "setup")
+    with transaction(db):
+        db.execute(
+            """
+            UPDATE shift_type_windows
+            SET occupies_event_night = CASE
+              WHEN shift_type_id = (SELECT id FROM shift_types WHERE slug = 'door') THEN 0
+              WHEN shift_type_id = (SELECT id FROM shift_types WHERE slug = 'setup') THEN 1
+              ELSE occupies_event_night
+            END
+            """
+        )
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+
+    by_slug = {post.group_slug: post.text for post in plan.posts}
+    assert "@Test Bravo on setup" in by_slug["risk-friday"]
+    assert "@Test Alpha on door" in by_slug["setup-cleanup"]
 
 
 def test_an_event_with_nobody_assigned_produces_no_post(db) -> None:

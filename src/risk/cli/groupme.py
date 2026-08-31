@@ -74,7 +74,12 @@ def seed(
     ctx: typer.Context,
     slug: Annotated[
         str,
-        typer.Argument(help="risk-parent | risk-tuesday | risk-friday | risk-saturday | roster-source"),
+        typer.Argument(
+            help=(
+                "risk-parent | risk-tuesday | risk-friday | risk-saturday | "
+                "setup-cleanup | roster-source"
+            )
+        ),
     ],
     label: Annotated[str, typer.Option("--label", help="Human name for this chat.")],
     groupme_id: Annotated[
@@ -531,6 +536,7 @@ def membership(
         "unrecognised": [asdict(u) for u in plan.unrecognised],
         "blocked": [asdict(b) for b in plan.blocked],
         "hard_excluded": [asdict(e) for e in plan.hard_excluded],
+        "permanent": [asdict(member) for member in plan.permanent],
         "unlinked_workers": [
             {"member_id": mid, "display_name": name} for mid, name in plan.unlinked_workers
         ],

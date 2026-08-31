@@ -14,6 +14,13 @@ PARENT_SLUG: str = "risk-parent"
 """The Risk group the day topics hang off. Topics have no membership of their
 own — adds and removes are done here — so this slug is load-bearing."""
 
+SETUP_GROUP_SLUG: str = "setup-cleanup"
+"""The standalone setup/cleanup group.
+
+It is registered with ``parent_slug=None`` and ``weekday=None`` because crew
+posts are labelled and selected by the party date, not by a work-day topic.
+"""
+
 ROSTER_SOURCE_SLUG: str = "roster-source"
 """The chapter-wide Announcements group. Read-only, and only for identity
 mapping: it is the one place every brother's GroupMe account is visible."""

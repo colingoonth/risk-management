@@ -27,6 +27,7 @@ from tests.integration._groupme_helpers import (
     seed_groups,
     seed_member,
     seed_semester,
+    seed_setup_group,
 )
 
 pytestmark = pytest.mark.integration
@@ -44,6 +45,34 @@ def _database_path(db) -> Path:
     row = db.execute("PRAGMA database_list").fetchone()
     assert row is not None
     return Path(row["file"])
+
+
+def test_one_event_can_occupy_two_destination_keys_in_the_ledger(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "cleanup")
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after=FRIDAY, on_or_before=FRIDAY
+    )
+
+    results = outbound_svc.post_announcements(
+        db, StubClient(), plan.posts, confirm=True
+    )
+    rows = ledger_repo.list_for_event(db, event_id)
+
+    assert [result.outcome for result in results] == ["sent", "sent"]
+    assert {row.destination_slug for row in rows} == {
+        "risk-friday",
+        "setup-cleanup",
+    }
+    assert len(rows) == 2
 
 
 def test_every_post_is_verified_before_any_row_is_reserved_or_message_is_posted(db) -> None:

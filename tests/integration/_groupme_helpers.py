@@ -156,3 +156,14 @@ def seed_groups(conn: sqlite3.Connection, *, days: dict[int, str] | None = None)
                 parent_slug="risk-parent",
                 weekday=weekday,
             )
+
+
+def seed_setup_group(conn: sqlite3.Connection) -> None:
+    """Register the standalone setup/cleanup group with a placeholder id."""
+    with transaction(conn):
+        groups_repo.upsert(
+            conn,
+            slug=groups_repo.SETUP_GROUP_SLUG,
+            groupme_id="setup-cleanup-placeholder",
+            label="Setup and cleanup",
+        )

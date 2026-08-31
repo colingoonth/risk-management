@@ -35,6 +35,12 @@ member holding a role marked both default-excluded and not soft-excluded cannot
 normally have a shift in the window, so that absence says nothing about whether
 he belongs in the parent group. Those members are reported separately with the
 role that protected them; soft exclusions do not receive this protection.
+
+NOBODY DECLARED PERMANENT FOR THIS NAMED GROUP IS EVER PROPOSED FOR REMOVAL.
+Permanence is not a role and does not affect assignment eligibility: it only
+says that absence from the selected group's shift window is not evidence that
+the member should leave that chat. Permanent members are reported as their own
+visible skip category.
 """
 
 from __future__ import annotations
@@ -45,7 +51,9 @@ from datetime import date as _date
 from datetime import datetime, time, timedelta
 
 from risk.repos import events as events_repo
+from risk.repos import groupme_groups as groups_repo
 from risk.repos import groupme_identities as identities_repo
+from risk.repos import groupme_permanent_members as permanent_repo
 from risk.repos import member_roles as member_roles_repo
 from risk.repos import roles as roles_repo
 from risk.repos import shift_type_windows as windows_repo
@@ -103,6 +111,17 @@ class HardExcludedMember:
 
 
 @dataclass(frozen=True, slots=True)
+class PermanentMember:
+    """A linked member kept because this named group always includes him."""
+
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    reason: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class MembershipPlan:
     add: tuple[MembershipAdd, ...]
     remove: tuple[MembershipRemoval, ...]
@@ -110,9 +129,10 @@ class MembershipPlan:
     blocked: tuple[BlockedIdentity, ...]
     hard_excluded: tuple[HardExcludedMember, ...]
     unlinked_workers: tuple[tuple[int, str], ...]
-    """``(member_id, display_name)`` for people working the window who have no
+    """``(member_id, display_name)`` for people needed in the group who have no
     GroupMe link — they cannot be added, and the chair has to be told rather than
     left to notice."""
+    permanent: tuple[PermanentMember, ...] = ()
 
 
 def shift_window_end(
@@ -188,13 +208,16 @@ def build_plan(
     on_or_after: str,
     on_or_before: str,
     present: list[GroupMeMember],
+    group_slug: str = groups_repo.PARENT_SLUG,
     now: datetime | None = None,
 ) -> MembershipPlan:
-    """Reconcile the parent group's membership against the window's schedule.
+    """Reconcile one named group's membership against the window's schedule.
 
-    ``present`` is the live parent-group member list; ``now`` is injectable so
+    ``present`` is the live named-group member list; ``now`` is injectable so
     the removal boundary is testable to the minute instead of only at whatever
-    time the suite happens to run.
+    time the suite happens to run. A permanent declaration is scoped by
+    ``group_slug``; it neither protects the member in another group nor removes
+    him from the assignment pool.
     """
     moment = now or datetime.now()
     ends = last_shift_end_by_member(
@@ -220,6 +243,8 @@ def build_plan(
     by_member = {i.member_id: i for i in identities}
     by_user_id = {i.groupme_user_id: i for i in identities}
     hard_roles_by_member = _hard_excluded_roles_by_member(conn, semester_id)
+    permanent_rows = permanent_repo.list_for_group(conn, group_slug)
+    permanent_member_ids = frozenset(row.member_id for row in permanent_rows)
 
     # Two accounts can report the same user_id only if GroupMe repeats itself;
     # keep the first membership row so a removal targets something real.
@@ -231,9 +256,12 @@ def build_plan(
     blocked: list[BlockedIdentity] = []
     unlinked_workers: list[tuple[int, str]] = []
     display_names = _display_names(conn, semester_id)
+    display_names.update({row.member_id: row.display_name for row in permanent_rows})
 
-    for member_id, end in ends.items():
-        if end <= moment:
+    needed_member_ids = set(ends) | set(permanent_member_ids)
+    for member_id in needed_member_ids:
+        end = ends.get(member_id)
+        if member_id not in permanent_member_ids and end is not None and end <= moment:
             # Already finished everything in the window — adding him now would
             # only be followed by removing him.
             continue
@@ -259,6 +287,7 @@ def build_plan(
     removes: list[MembershipRemoval] = []
     unrecognised: list[UnrecognisedPresence] = []
     hard_excluded: list[HardExcludedMember] = []
+    permanent: list[PermanentMember] = []
     seen_blocked = {b.groupme_user_id for b in blocked}
     for user_id, account in present_by_user.items():
         identity = by_user_id.get(user_id)
@@ -278,6 +307,17 @@ def build_plan(
             if user_id not in seen_blocked:
                 blocked.append(_as_blocked(block))
                 seen_blocked.add(user_id)
+            continue
+        if identity.member_id in permanent_member_ids:
+            permanent.append(
+                PermanentMember(
+                    member_id=identity.member_id,
+                    display_name=identity.display_name,
+                    groupme_user_id=user_id,
+                    reason="permanent member",
+                    detail=f"permanent in group {group_slug!r}",
+                )
+            )
             continue
         hard_roles = hard_roles_by_member.get(identity.member_id)
         if hard_roles:
@@ -319,6 +359,7 @@ def build_plan(
             sorted(hard_excluded, key=lambda e: (e.display_name, e.groupme_user_id))
         ),
         unlinked_workers=tuple(sorted(unlinked_workers, key=lambda p: p[1])),
+        permanent=tuple(sorted(permanent, key=lambda p: (p.display_name, p.groupme_user_id))),
     )
 
 
@@ -376,4 +417,5 @@ def summarise(plan: MembershipPlan) -> dict[str, int]:
         "blocked": len(plan.blocked),
         "hard_excluded": len(plan.hard_excluded),
         "unlinked_workers": len(plan.unlinked_workers),
+        "permanent": len(plan.permanent),
     }

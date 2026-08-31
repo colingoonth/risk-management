@@ -36,6 +36,7 @@ from risk.api.schemas import (
     GroupMeMembershipRemoveOut,
     GroupMeMentionOut,
     GroupMeOkOut,
+    GroupMePermanentOut,
     GroupMePostedOut,
     GroupMeReplyIn,
     GroupMeUnlinkedOut,
@@ -232,6 +233,16 @@ def _plan_dto(plan: membership_svc.MembershipPlan) -> GroupMeMembershipPlanOut:
                 detail=e.detail,
             )
             for e in plan.hard_excluded
+        ],
+        permanent=[
+            GroupMePermanentOut(
+                groupme_user_id=member.groupme_user_id,
+                member_id=member.member_id,
+                display_name=member.display_name,
+                reason=member.reason,
+                detail=member.detail,
+            )
+            for member in plan.permanent
         ],
         unlinked_workers=[
             GroupMeUnlinkedOut(member_id=mid, display_name=name)

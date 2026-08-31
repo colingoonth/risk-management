@@ -438,6 +438,14 @@ class GroupMeHardExcludedOut(_Out):
     detail: str
 
 
+class GroupMePermanentOut(_Out):
+    member_id: int
+    display_name: str
+    groupme_user_id: str
+    reason: str
+    detail: str
+
+
 class GroupMeIdentitiesOut(_Out):
     linked: int
     unlinked: list[GroupMeUnlinkedOut]
@@ -478,6 +486,7 @@ class GroupMeMembershipPlanOut(_Out):
     unrecognised: list[GroupMeUnrecognisedOut] = []
     blocked: list[GroupMeBlockedOut] = []
     hard_excluded: list[GroupMeHardExcludedOut] = []
+    permanent: list[GroupMePermanentOut] = []
     unlinked_workers: list[GroupMeUnlinkedOut] = []
 
 
