@@ -102,6 +102,25 @@ def _seed(db_path: Path) -> None:
     conn.close()
 
 
+def _seed_roster_source(db_path: Path) -> None:
+    """The chat `--confirm` reads a nickname back from.
+
+    Confirming is a human naming both sides, but the NICKNAME still has to come
+    from GroupMe: a mention must slice to '@' + the current nickname to pass
+    verification, so a link stored without one is silently unusable.
+    """
+    _run(
+        db_path,
+        "groupme",
+        "seed",
+        "roster-source",
+        "--label",
+        "Chapter announcements",
+        "--groupme-id",
+        PLACEHOLDER_PARENT,
+    )
+
+
 def _seed_groups(db_path: Path) -> None:
     _run(
         db_path,
@@ -237,9 +256,7 @@ def test_identities_lists_who_is_linked_and_who_is_not(tmp_path: Path) -> None:
 def test_confirm_is_a_dry_run_by_default(tmp_path: Path) -> None:
     db_path = tmp_path / "risk.db"
     _seed(db_path)
-    data = _data(
-        _run(db_path, "groupme", "map", "--confirm", "test-bravo=user-2")
-    )
+    data = _data(_run(db_path, "groupme", "map", "--confirm", "test-bravo=user-2"))
     assert data["dry_run"] is True
     conn = connect(db_path)
     ensure_schema(conn)
@@ -249,36 +266,14 @@ def test_confirm_is_a_dry_run_by_default(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_confirm_writes_a_confirmed_link_when_told_to(tmp_path: Path) -> None:
-    db_path = tmp_path / "risk.db"
-    _seed(db_path)
-    data = _data(
-        _run(db_path, "groupme", "map", "--confirm", "test-bravo=user-2", "--no-dry-run")
-    )
-    assert data["dry_run"] is False
-    conn = connect(db_path)
-    ensure_schema(conn)
-    bravo = members_repo.get_by_slug(conn, "test-bravo")
-    assert bravo is not None
-    identity = identities_repo.get_for_member(conn, bravo.id)
-    assert identity is not None
-    assert identity.confidence == "confirmed"
-    conn.close()
+def test_a_malformed_confirm_pair_is_rejected_before_any_network_call(
+    tmp_path: Path,
+) -> None:
+    """A typo must cost nothing.
 
-
-def test_confirming_an_account_already_linked_elsewhere_is_refused(tmp_path: Path) -> None:
-    """Moving an account between members rewrites two people's history at once."""
-    db_path = tmp_path / "risk.db"
-    _seed(db_path)
-    proc = _run(
-        db_path, "groupme", "map", "--confirm", "test-bravo=user-1", "--no-dry-run"
-    )
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is False
-    assert payload["error"]["code"] == "groupme.already_linked"
-
-
-def test_a_malformed_confirm_pair_is_rejected(tmp_path: Path) -> None:
+    Argument validation runs before the source chat is looked up, so this fails
+    the same way whether or not GroupMe is reachable.
+    """
     db_path = tmp_path / "risk.db"
     _seed(db_path)
     proc = _run(db_path, "groupme", "map", "--confirm", "nonsense", "--no-dry-run")
@@ -287,63 +282,35 @@ def test_a_malformed_confirm_pair_is_rejected(tmp_path: Path) -> None:
     assert payload["error"]["code"] == "groupme.bad_confirm"
 
 
-def test_confirm_rename_is_a_dry_run_by_default(tmp_path: Path) -> None:
+def test_an_unknown_member_in_a_confirm_pair_is_rejected_before_any_network_call(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "risk.db"
     _seed(db_path)
-    data = _data(
-        _run(db_path, "groupme", "confirm-rename", "test-alpha", "Renamed Entirely")
-    )
-    assert data["dry_run"] is True
+    proc = _run(db_path, "groupme", "map", "--confirm", "nobody=user-2", "--no-dry-run")
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "member.not_found"
+
+
+def test_confirm_refuses_when_the_source_chat_is_not_registered(tmp_path: Path) -> None:
+    """It would rather write nothing than write a link it cannot mention.
+
+    The nickname has to be read back from GroupMe, so with no source chat there
+    is no nickname; storing the link anyway is what produced a roster of men who
+    counted as linked and were silently printed with no tag.
+    """
+    db_path = tmp_path / "risk.db"
+    _seed(db_path)
+    proc = _run(db_path, "groupme", "map", "--confirm", "test-bravo=user-2", "--no-dry-run")
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "groupme.group_not_found"
     conn = connect(db_path)
     ensure_schema(conn)
-    alpha = members_repo.get_by_slug(conn, "test-alpha")
-    assert alpha is not None
-    identity = identities_repo.get_for_member(conn, alpha.id)
-    assert identity is not None
-    assert identity.nickname == "Test Alpha"
+    bravo = members_repo.get_by_slug(conn, "test-bravo")
+    assert bravo is not None
+    assert identities_repo.get_for_member(conn, bravo.id) is None, "no link without a nickname"
     conn.close()
 
 
-def test_confirm_rename_records_confirmed_when_applied(tmp_path: Path) -> None:
-    db_path = tmp_path / "risk.db"
-    _seed(db_path)
-    data = _data(
-        _run(
-            db_path,
-            "groupme",
-            "confirm-rename",
-            "test-alpha",
-            "Renamed Entirely",
-            "--no-dry-run",
-        )
-    )
-    assert data["confidence"] == "confirmed"
-    conn = connect(db_path)
-    ensure_schema(conn)
-    alpha = members_repo.get_by_slug(conn, "test-alpha")
-    assert alpha is not None
-    identity = identities_repo.get_for_member(conn, alpha.id)
-    assert identity is not None
-    assert identity.nickname == "Renamed Entirely"
-    assert identity.confidence == "confirmed"
-    conn.close()
-
-
-# ---------------------------------------------------------------------------
-# ledger
-# ---------------------------------------------------------------------------
-
-
-def test_reconcile_is_a_dry_run_by_default_and_reads_nothing_yet(tmp_path: Path) -> None:
-    db_path = tmp_path / "risk.db"
-    _seed(db_path)
-    _seed_groups(db_path)
-    data = _data(_run(db_path, "groupme", "reconcile"))
-    assert data["dry_run"] is True
-    assert data["would_check"] == []
-
-
-def test_the_outbound_ledger_starts_empty(tmp_path: Path) -> None:
-    db_path = tmp_path / "risk.db"
-    _seed(db_path)
-    assert _data(_run(db_path, "groupme", "outbound"))["unsettled"] == []

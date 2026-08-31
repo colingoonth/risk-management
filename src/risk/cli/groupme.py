@@ -199,7 +199,7 @@ def map_identities(
     conn = open_conn(ctx)
 
     if confirm_pair:
-        _apply_confirmations(conn, mode, confirm_pair, dry_run=dry_run)
+        _apply_confirmations(conn, mode, confirm_pair, dry_run=dry_run, source=source)
         return
 
     group = groups_repo.get_by_slug(conn, source)
@@ -242,10 +242,23 @@ def map_identities(
 
 
 def _apply_confirmations(
-    conn: sqlite3.Connection, mode: OutputMode, pairs: list[str], *, dry_run: bool
+    conn: sqlite3.Connection, mode: OutputMode, pairs: list[str], *, dry_run: bool, source: str
 ) -> None:
-    """``--confirm slug=user_id``: the human-decided path into the identity table."""
-    resolved: list[tuple[int, str, str]] = []
+    """``--confirm slug=user_id``: the human-decided path into the identity table.
+
+    The nickname is READ BACK FROM THE SOURCE CHAT rather than left null. A link
+    with no nickname satisfies the identity table but is unusable downstream: a
+    mention has to slice to ``@`` + the CURRENT nickname to pass verification, so
+    a null one is blocked as ``no-nickname`` and the man is silently printed
+    without a tag. That is a schedule that looks published and tags nobody.
+
+    Confirming an id that is not in the source chat is refused rather than
+    stored, because the only evidence that the id is the person the chair meant
+    is that it belongs to an account they can actually see.
+    """
+    # Argument validation FIRST, before any network call: a typo should cost
+    # nothing, and a malformed pair must not depend on a chat being reachable.
+    wanted: list[tuple[int, str, str]] = []
     for pair in pairs:
         member_key, _, user_id = pair.partition("=")
         if not user_id:
@@ -257,7 +270,38 @@ def _apply_confirmations(
         if member is None:
             emit_error("member.not_found", f"No member matching {member_key!r}.", mode=mode)
             return
-        resolved.append((member.id, member.display_name, user_id.strip()))
+        wanted.append((member.id, member.display_name, user_id.strip()))
+
+    # The nickname is only needed to WRITE, so a dry run stays offline — every
+    # read-only path here works with no token present, and that is worth keeping.
+    nick_by_id: dict[str, str] = {}
+    if not dry_run:
+        group = groups_repo.get_by_slug(conn, source)
+        if group is None:
+            emit_error(
+                "groupme.group_not_found",
+                f"No chat registered as {source!r}, so a nickname cannot be read back. "
+                "Seed it with `risk groupme seed`.",
+                mode=mode,
+            )
+            return
+        try:
+            nick_by_id = {a.user_id: a.nickname for a in _client().list_members(group.groupme_id)}
+        except GroupMeError as exc:
+            emit_error("groupme.api", str(exc), mode=mode)
+            return
+
+    resolved: list[tuple[int, str, str]] = []
+    for member_id, display_name, uid in wanted:
+        if not dry_run and uid not in nick_by_id:
+            emit_error(
+                "groupme.account_not_in_source",
+                f"No account with that id is in {source!r}, so there is nothing to "
+                f"confirm {display_name} against.",
+                mode=mode,
+            )
+            return
+        resolved.append((member_id, display_name, uid))
 
     if not dry_run:
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
@@ -268,7 +312,7 @@ def _apply_confirmations(
                         conn,
                         member_id=member_id,
                         groupme_user_id=user_id,
-                        nickname=None,
+                        nickname=nick_by_id[user_id],
                         linked_at=stamp,
                     )
         except sqlite3.IntegrityError:
