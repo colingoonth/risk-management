@@ -126,7 +126,11 @@ export function Ops() {
   const removals = membership.data?.remove ?? []
   const membershipBlocks = membership.data?.blocked ?? []
   const hardExcluded = membership.data?.hard_excluded ?? []
-  const membershipPending = identityDrift.length + additions.length + removals.length
+  // A blocked identity is a person we cannot safely act on, so it alarms.
+  // A hard-excluded one is permanent and benign — counting it as pending
+  // would leave this section alarming forever, which is the same as silence.
+  const membershipPending =
+    identityDrift.length + additions.length + removals.length + membershipBlocks.length
   const membershipAlarm = membershipPending > 0
   const staleGroups = health.data?.groups.filter(
     (group) => group.stale || group.consecutive_failures > 0,
@@ -371,7 +375,9 @@ export function Ops() {
               ? 'checking…'
               : membershipAlarm
                 ? `${membershipPending} pending`
-                : 'aligned'
+                : hardExcluded.length > 0
+                  ? `aligned · ${hardExcluded.length} protected`
+                  : 'aligned'
         }
         defaultOpen={false}
         alarm={membershipAlarm || membershipFailure !== null}

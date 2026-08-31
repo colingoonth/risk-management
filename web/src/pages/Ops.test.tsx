@@ -196,6 +196,11 @@ describe('Ops — membership protection', () => {
     stubApi(() => ok({ posted: [] }), PREVIEW, protectedMembership)
     render(<Ops />)
 
+    // Protected men are benign and must NOT force the section open — the count
+    // shows in the summary and the detail waits behind the disclosure.
+    expect(await screen.findByText(/aligned · 1 protected/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Membership drift/ }))
+
     expect(await screen.findByText('Test Chair')).toBeTruthy()
     expect(screen.getByText('removal skipped')).toBeTruthy()
     expect(
@@ -203,6 +208,28 @@ describe('Ops — membership protection', () => {
         'hard-excluded role: Risk Chair is hard-excluded from assignment',
       ),
     ).toBeTruthy()
+  })
+
+  it('alarms when an identity is blocked, even with nothing to add or remove', async () => {
+    const blockedMembership = {
+      ...MEMBERSHIP,
+      blocked: [
+        {
+          groupme_user_id: 'user-drifted',
+          member_id: 9,
+          display_name: 'Test Drifted',
+          reason: 'drifted',
+          detail: 'the account renamed itself',
+        },
+      ],
+    }
+    stubApi(() => ok({ posted: [] }), PREVIEW, blockedMembership)
+    render(<Ops />)
+
+    // We are no longer sure who this man is. That is not "aligned".
+    expect(await screen.findByText(/1 pending/)).toBeTruthy()
+    expect(screen.getByText('Test Drifted')).toBeTruthy()
+    expect(screen.getByText('removal blocked')).toBeTruthy()
   })
 })
 
