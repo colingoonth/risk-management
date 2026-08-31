@@ -15,6 +15,8 @@ import type {
   GroupMeHealth,
   GroupMeIdentities,
   GroupMeInboundMessage,
+  GroupMeApprovable,
+  GroupMeMembershipApplyResult,
   GroupMeMembershipPlan,
   GroupMeReplyResult,
   House,
@@ -45,6 +47,25 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI speaks two error dialects. A raised HTTPException carries a string
+// `detail`; a request-validation failure (422) carries a LIST of per-field
+// objects. The old client did `body.detail ?? detail` and handed an ARRAY to
+// `new Error()`, so a 422 surfaced on the page as "[object Object]" — which is
+// exactly the failure that should have read "the client sent the wrong shape".
+function describeDetail(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const lines = detail.map((item) => {
+      if (typeof item === 'string') return item
+      const entry = item as { loc?: unknown[]; msg?: string }
+      const field = Array.isArray(entry.loc) ? entry.loc.filter((p) => p !== 'body').join('.') : ''
+      return field ? `${field}: ${entry.msg ?? 'invalid'}` : (entry.msg ?? 'invalid')
+    })
+    return lines.join('; ') || null
+  }
+  return null
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: init?.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : undefined,
@@ -54,7 +75,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = res.statusText
     try {
       const body = await res.json()
-      detail = body.detail ?? detail
+      detail = describeDetail(body?.detail) ?? detail
     } catch {
       /* non-JSON error body */
     }
@@ -66,6 +87,36 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 const post = (path: string, body?: unknown) =>
   req<unknown>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+
+/** What every outbound GroupMe route requires: the window, the preview being
+ * approved, and the boolean. Built only by {@link approvalOf}. */
+export interface GroupMeApprovalBody {
+  on_or_after: string
+  on_or_before: string
+  preview_id: string
+  digest: string
+  confirm: true
+}
+
+/**
+ * Bind an approval to the preview the chair actually read.
+ *
+ * Takes the preview RESPONSE rather than loose strings so a caller cannot post
+ * a window with somebody else's digest, and so the type system refuses an
+ * approval built from a preview that was never fetched.
+ */
+export function approvalOf(
+  preview: GroupMeApprovable,
+  window: { on_or_after: string; on_or_before: string },
+): GroupMeApprovalBody {
+  return {
+    on_or_after: window.on_or_after,
+    on_or_before: window.on_or_before,
+    preview_id: preview.preview_id,
+    digest: preview.digest,
+    confirm: true,
+  }
+}
 
 export const api = {
   meta: () => req<{ version: string; current_semester: Semester | null }>('/meta'),
@@ -237,7 +288,12 @@ export const api = {
     const q = new URLSearchParams({ on_or_after, on_or_before })
     return req<GroupMeAnnouncementPreview>(`/groupme/announce-preview?${q.toString()}`)
   },
-  groupmeAnnounce: (body: { on_or_after: string; on_or_before: string; confirm: true }) =>
+  // Both outbound routes take the APPROVAL, not just a boolean: the window, the
+  // `preview_id` and `digest` that came back with the preview the chair read,
+  // and `confirm`. The server rebuilds the plan and compares — so `approvalOf()`
+  // is the only way these bodies should ever be built, and dropping either
+  // field is a 422, not a send.
+  groupmeAnnounce: (body: GroupMeApprovalBody) =>
     req<GroupMeAnnounceResult>('/groupme/announce', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -245,14 +301,10 @@ export const api = {
   groupmeReply: (body: { group_slug: string; text: string }) =>
     req<GroupMeReplyResult>('/groupme/reply', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, confirm: true }),
     }),
-  groupmeMembershipApply: (body: {
-    on_or_after: string
-    on_or_before: string
-    confirm: true
-  }) =>
-    req<unknown>('/groupme/membership/apply', {
+  groupmeMembershipApply: (body: GroupMeApprovalBody) =>
+    req<GroupMeMembershipApplyResult>('/groupme/membership/apply', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
