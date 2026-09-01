@@ -167,6 +167,7 @@ def last_shift_end_by_member(
     semester_id: int,
     on_or_after: str | None,
     on_or_before: str | None,
+    occupies_event_night: bool | None = None,
 ) -> dict[int, datetime]:
     """For each assigned member, when their LAST shift finishes.
 
@@ -196,6 +197,10 @@ def last_shift_end_by_member(
         event_date = dates_by_event.get(shift.event_id)
         if event_date is None:
             continue
+        if occupies_event_night is not None:
+            window = windows_repo.get_by_slug(conn, shift.shift_type_slug)
+            if window is None or bool(window.occupies_event_night) != occupies_event_night:
+                continue
         end = shift_window_end(
             conn, shift_type_slug=shift.shift_type_slug, event_date=event_date
         )
@@ -224,6 +229,13 @@ def build_plan(
     him from the assignment pool.
     """
     moment = now or datetime.now()
+    # WHICH SHIFTS PUT A MAN IN *THIS* GROUP. The standalone setup/cleanup chat
+    # exists for the crews who do not work the party night, and it is the same
+    # `occupies_event_night` flag the announcement routing splits on — so a man
+    # belongs in it for his setup and cleanup, and in the parent for everything.
+    # Without this the two plans are the same plan, and the setup chat fills
+    # with the door, rides and DJ men who will never work a shift in it.
+    night: bool | None = False if group_slug == groups_repo.SETUP_GROUP_SLUG else None
     # Party dates are capped at the forward horizon, but not at its lower edge:
     # yesterday's cleanup can still be unfinished this morning. The strict
     # `end > moment` checks below make the shift-window boundary authoritative.
@@ -232,11 +244,16 @@ def build_plan(
         semester_id=semester_id,
         on_or_after=None,
         on_or_before=on_or_before,
+        occupies_event_night=night,
     )
     # Whole-term ends explain why somebody is removable; they do not protect a
     # distant worker from rolling turnover.
     ends_anywhere = last_shift_end_by_member(
-        conn, semester_id=semester_id, on_or_after=None, on_or_before=None
+        conn,
+        semester_id=semester_id,
+        on_or_after=None,
+        on_or_before=None,
+        occupies_event_night=night,
     )
 
     blocks = identity_svc.blocked_identities(conn, present=present)

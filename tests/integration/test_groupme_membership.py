@@ -293,6 +293,41 @@ def test_the_cleanup_crew_survives_the_window_rolling_past_their_event(db) -> No
     assert [r.display_name for r in after.remove] == ["Test Sweeper"]
 
 
+def test_the_setup_chat_wants_its_own_crews_not_the_whole_roster(db) -> None:
+    """The setup/cleanup chat is for the men who do NOT work the party night.
+
+    Both plans read the same schedule, so without a filter they are the same
+    plan and the setup chat fills with door, rides and DJ men who will never
+    work a shift in it. The split is the same `occupies_event_night` flag the
+    announcement routing uses, so a man is in a chat for the work he actually
+    does there.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    sweeper = seed_member(db, "test-sweeper", "Test Sweeper")
+    bouncer = seed_member(db, "test-bouncer", "Test Bouncer")
+    link(db, sweeper, "user-sweep", "Test Sweeper")
+    link(db, bouncer, "user-bounce", "Test Bouncer")
+    event_id = seed_event(db, sem_id, "Test Party", FRIDAY)
+    assign(db, event_id, sweeper, "cleanup")
+    assign(db, event_id, bouncer, "door")
+
+    kwargs = {
+        "semester_id": sem_id,
+        "on_or_after": FRIDAY,
+        "on_or_before": FRIDAY,
+        "present": [],
+        "now": datetime(2026, 9, 4, 12, 0),
+    }
+    parent = membership_svc.build_plan(db, group_slug="risk-parent", **kwargs)
+    setup = membership_svc.build_plan(db, group_slug="setup-cleanup", **kwargs)
+
+    # The parent chat wants everyone working; the setup chat wants the crew
+    # whose shift is not on the party night.
+    assert {a.display_name for a in parent.add} == {"Test Sweeper", "Test Bouncer"}
+    assert {a.display_name for a in setup.add} == {"Test Sweeper"}
+
+
 def test_somebody_with_no_shift_in_the_window_is_proposed_for_removal(db) -> None:
     sem_id = seed_semester(db)
     seed_groups(db)
