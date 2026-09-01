@@ -98,8 +98,16 @@ def test_every_assigned_slot_appears_exactly_once_in_the_grid(
         for value in row.cells.values()
         if value and value != export_svc.UNFILLED
     )
+    # DJ is deliberately not a column on the public sheet, so it is not in the
+    # grid either. The invariant the old tracker broke still holds — every
+    # assigned slot appears exactly once — it is just stated over the shifts the
+    # sheet actually shows.
     in_db = db.execute(
-        "SELECT COUNT(*) AS n FROM shifts WHERE assigned_member_id IS NOT NULL"
+        """
+        SELECT COUNT(*) AS n FROM shifts s
+          JOIN shift_types st ON st.id = s.shift_type_id
+        WHERE s.assigned_member_id IS NOT NULL AND st.slug != 'dj'
+        """
     ).fetchone()["n"]
     assert in_grid == in_db
 
@@ -118,9 +126,12 @@ def test_the_tally_reconciles_with_the_grid(exported: export_svc.SemesterExport)
         for value in row.cells.values()
         if value and value != export_svc.UNFILLED
     )
-    tally = sum(t.counted_total + t.dj_shifts + t.strike_shifts for t in exported.tally)
+    # `dj_shifts` is still tallied — a brother is still expected to turn up for
+    # it — but it is no longer a column in the grid, so it is not counted here.
+    tally = sum(t.counted_total + t.strike_shifts for t in exported.tally)
     assert grid == tally
-    assert len(exported.by_brother) == grid
+    dj_total = sum(t.dj_shifts for t in exported.tally)
+    assert len(exported.by_brother) == grid + dj_total
 
 
 def test_a_strike_make_up_is_marked_in_the_grid_and_excluded_from_the_total(
@@ -232,7 +243,7 @@ def test_column_widths_come_from_the_data(exported: export_svc.SemesterExport) -
     widths = dict(exported.shift_type_columns)
     assert widths["driver"] == 2, "a mixer takes two drivers in the seeded defaults"
     assert widths["setup"] == 4
-    assert widths["dj"] == 1
+    assert "dj" not in widths, "DJ is not risk work and is not a column on the sheet"
     # And in the order a reader expects, not the order the solver fills.
     assert [s for s, _ in exported.shift_type_columns][:3] == ["driver", "door", "setup"]
 

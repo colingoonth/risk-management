@@ -213,7 +213,12 @@ _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 # them. The old sheet ran RIDES, DOOR, BAR, SETUP, CLEANUP left to right and
 # people know where to look; the fill order puts gated types first for reasons
 # that are internal to the solver and mean nothing to a reader.
-_DISPLAY_ORDER = ("driver", "door", "bar", "setup", "cleanup", "dj")
+# DJ is deliberately absent. It is not risk work — it is already excluded from
+# the coverage count for that reason — and a DJ column on a sheet the whole
+# chapter reads invites the question of why a man is on the risk schedule for a
+# job the chair does not track. The assignment still exists and is still
+# announced; it just is not a column here.
+_DISPLAY_ORDER = ("driver", "door", "bar", "setup", "cleanup")
 _DISPLAY_LABEL = {
     "driver": "RIDES",
     "door": "DOOR",
@@ -441,8 +446,6 @@ def build(
                 cells[(slug, i)] = name or UNFILLED
                 if name:
                     filled += 1
-        for i in range(targets.get("dj", 0)):
-            cells[("dj", i)] = assigned.get((event.id, "dj", i)) or UNFILLED
 
         setup_w = windows.get("setup")
         cleanup_w = windows.get("cleanup")
