@@ -315,7 +315,10 @@ def test_the_setup_chat_wants_its_own_crews_not_the_whole_roster(db) -> None:
     kwargs = {
         "semester_id": sem_id,
         "on_or_after": FRIDAY,
-        "on_or_before": FRIDAY,
+        # Reaches Saturday because the horizon is now the SHIFT's start, and
+        # this cleanup is worked Saturday morning. A same-day window would be
+        # testing the horizon, not the split this test is about.
+        "on_or_before": "2026-09-05",
         "present": [],
         "now": datetime(2026, 9, 4, 12, 0),
     }
@@ -981,3 +984,64 @@ def test_a_run_with_nothing_to_add_does_not_read_the_group_back(db) -> None:
 
     assert result.not_added == ()
     assert client.list_members_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# The horizon is the shift's own start, not the party date
+# ---------------------------------------------------------------------------
+
+
+def test_a_crew_arrives_the_week_before_he_works_not_the_week_before_the_party(
+    db,
+) -> None:
+    """Cleanup is worked the MORNING AFTER, so its crew arrives a day later.
+
+    The chair's rule is that the chat holds a man for the week before his
+    shift. Keying that off the party date puts the cleanup crew in a day early
+    every single week — and puts setup, worked up to two days AHEAD of the
+    party, in two days late.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)  # party Friday
+    assign(db, event_id, member_id, "cleanup")  # worked Saturday morning
+
+    def plan_with_horizon(horizon: str):
+        return membership_svc.build_plan(
+            db,
+            semester_id=sem_id,
+            on_or_after=FRIDAY,
+            on_or_before=horizon,
+            present=[],
+            now=datetime(2026, 8, 29, 12, 0),
+        )
+
+    # A horizon reaching the PARTY does not reach the shift.
+    assert plan_with_horizon(FRIDAY).add == ()
+    # One day further does, and that day is when he is due to work.
+    assert [a.display_name for a in plan_with_horizon("2026-09-05").add] == ["Test Alpha"]
+
+
+def test_setup_arrives_earlier_than_its_party_because_it_is_worked_earlier(db) -> None:
+    """The same rule in the other direction — setup runs before the party."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)
+    assign(db, event_id, member_id, "setup")
+
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        # Stops two days short of the party, but the setup window has already
+        # opened by then, so he belongs in the chat.
+        on_or_before="2026-09-02",
+        present=[],
+        now=datetime(2026, 8, 29, 12, 0),
+    )
+
+    assert [a.display_name for a in plan.add] == ["Test Alpha"]

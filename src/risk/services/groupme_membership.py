@@ -161,12 +161,31 @@ def shift_window_end(
     return datetime.combine(day, time.fromisoformat(window.window_end_time))
 
 
+def shift_window_start(
+    conn: sqlite3.Connection, *, shift_type_slug: str, event_date: str
+) -> datetime:
+    """When this shift is first worked. The mirror of :func:`shift_window_end`.
+
+    Raises ``LookupError`` on a shift type with no window row, for the same
+    reason: a guess here silently moves somebody in or out of a group.
+    """
+    window = windows_repo.get_by_slug(conn, shift_type_slug)
+    if window is None:
+        raise LookupError(
+            f"shift type {shift_type_slug!r} has no row in shift_type_windows; "
+            "cannot tell when it starts"
+        )
+    day = _date.fromisoformat(event_date) + timedelta(days=window.offset_days_start)
+    return datetime.combine(day, time.fromisoformat(window.window_start_time))
+
+
 def last_shift_end_by_member(
     conn: sqlite3.Connection,
     *,
     semester_id: int,
     on_or_after: str | None,
     on_or_before: str | None,
+    starts_on_or_before: str | None = None,
     occupies_event_night: bool | None = None,
 ) -> dict[int, datetime]:
     """For each assigned member, when their LAST shift finishes.
@@ -175,10 +194,18 @@ def last_shift_end_by_member(
     cleanup Sunday is involved until Monday noon, and any earlier answer removes
     him mid-commitment.
 
-    Bounds are optional PARTY-date bounds. Membership deliberately omits the
-    lower bound so a next-morning cleanup remains visible after its party has
-    rolled behind today, while applying the upper bound so distant assignments
-    do not keep the whole term's roster in the group.
+    ``on_or_after`` / ``on_or_before`` are PARTY-date bounds. Membership
+    deliberately omits the lower one so a next-morning cleanup remains visible
+    after its party has rolled behind today.
+
+    ``starts_on_or_before`` bounds the shift's OWN working window instead, and
+    the two are not interchangeable. It answers "should he be in the chat yet",
+    where a man arrives the week before he WORKS: Tuesday's cleanup is worked
+    Wednesday morning, so its crew belongs from the Wednesday before, and setup
+    is worked up to two days AHEAD of its party. Use it only on the add side.
+    On the removal side it would eject the Saturday-morning cleanup crew at
+    23:00 on Friday, which is the bug this module exists to prevent, one step
+    removed.
     """
     dates_by_event: dict[int, str] = {}
     for event in events_repo.list_for_semester(conn, semester_id):
@@ -200,6 +227,12 @@ def last_shift_end_by_member(
         if occupies_event_night is not None:
             window = windows_repo.get_by_slug(conn, shift.shift_type_slug)
             if window is None or bool(window.occupies_event_night) != occupies_event_night:
+                continue
+        if starts_on_or_before is not None:
+            start = shift_window_start(
+                conn, shift_type_slug=shift.shift_type_slug, event_date=event_date
+            )
+            if start.date() > _date.fromisoformat(starts_on_or_before):
                 continue
         end = shift_window_end(
             conn, shift_type_slug=shift.shift_type_slug, event_date=event_date
@@ -236,14 +269,29 @@ def build_plan(
     # Without this the two plans are the same plan, and the setup chat fills
     # with the door, rides and DJ men who will never work a shift in it.
     night: bool | None = False if group_slug == groups_repo.SETUP_GROUP_SLUG else None
-    # Party dates are capped at the forward horizon, but not at its lower edge:
-    # yesterday's cleanup can still be unfinished this morning. The strict
-    # `end > moment` checks below make the shift-window boundary authoritative.
+    # WHO THE GROUP MUST HOLD. Bounded by the party date and not by the shift's
+    # own start, because this is the side that REMOVES people: yesterday's
+    # cleanup is still unfinished this morning, and a start-bounded horizon
+    # ejects the Saturday-morning crew at 23:00 on Friday.
     horizon_ends = last_shift_end_by_member(
         conn,
         semester_id=semester_id,
         on_or_after=None,
         on_or_before=on_or_before,
+        occupies_event_night=night,
+    )
+    # WHO THE GROUP MUST GAIN, which is a different question with a different
+    # boundary: a man is in the chat for the week before he WORKS, not the week
+    # before the party. Setup runs up to two days ahead of its party and
+    # cleanup the morning after, so the party date is wrong by up to two days
+    # in both directions — for exactly the two shift types that are hardest to
+    # staff and whose crews most need the warning.
+    add_ends = last_shift_end_by_member(
+        conn,
+        semester_id=semester_id,
+        on_or_after=None,
+        on_or_before=None,
+        starts_on_or_before=on_or_before,
         occupies_event_night=night,
     )
     # Whole-term ends explain why somebody is removable; they do not protect a
@@ -285,9 +333,9 @@ def build_plan(
     display_names = _display_names(conn, semester_id)
     display_names.update({row.member_id: row.display_name for row in permanent_rows})
 
-    needed_member_ids = set(horizon_ends) | set(permanent_member_ids)
+    needed_member_ids = set(add_ends) | set(permanent_member_ids)
     for member_id in needed_member_ids:
-        end = horizon_ends.get(member_id)
+        end = add_ends.get(member_id)
         if member_id not in permanent_member_ids and end is not None and end <= moment:
             # Already finished everything in the window — adding him now would
             # only be followed by removing him.
