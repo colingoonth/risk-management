@@ -736,11 +736,24 @@ def membership(
         emit_success(payload, mode=mode)
         return
     try:
-        outbound_svc.apply_membership(conn, client, plan, confirm=True, parent_slug=group_slug)
+        result = outbound_svc.apply_membership(
+            conn, client, plan, confirm=True, parent_slug=group_slug
+        )
     except GroupMeError as exc:
         emit_error("groupme.api", str(exc), mode=mode)
         return
     payload["applied"] = True
+    payload["not_added"] = [
+        {
+            "display_name": a.display_name,
+            "groupme_user_id": a.groupme_user_id,
+            "detail": (
+                f"GroupMe took the request and did not add him to {group_slug!r}. "
+                "Only the chair can add him, by hand."
+            ),
+        }
+        for a in result.not_added
+    ]
     emit_success(payload, mode=mode)
 
 

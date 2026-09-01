@@ -42,7 +42,7 @@ from risk.services.groupme import (
     Mention,
 )
 from risk.services.groupme_announce import AnnouncePost, verify_mentions
-from risk.services.groupme_membership import MembershipPlan
+from risk.services.groupme_membership import MembershipAdd, MembershipPlan
 
 
 class OutboundBlockedError(RuntimeError):
@@ -72,6 +72,14 @@ class MembershipResult:
     returns a results_id, so "queued" is the strongest true word available."""
     removed: tuple[str, ...]
     results_id: str | None
+    not_added: tuple[MembershipAdd, ...] = ()
+    """Queued, then not in the group when it was read back.
+
+    GroupMe rejects an add for a man who has left this group before, or who
+    restricts who may add him, and reports it NOWHERE the chair can see: the
+    request 202s either way. Without this he reads as added, gets mentioned all
+    week, and is notified by none of it — the exact failure the mention
+    machinery cannot detect, because the message renders identically."""
 
 
 def _now() -> str:
@@ -308,10 +316,18 @@ def apply_membership(
     for removal in plan.remove:
         client.remove_member(parent.groupme_id, removal.membership_id)
 
+    # The read-back `add_members` says is the only proof. Skipped when nothing
+    # was queued, so an all-removals run still costs one call, not two.
+    present_after = (
+        {member.user_id for member in client.list_members(parent.groupme_id)}
+        if plan.add
+        else set()
+    )
     return MembershipResult(
         added=tuple(a.display_name for a in plan.add),
         removed=tuple(r.display_name for r in plan.remove),
         results_id=results_id,
+        not_added=tuple(a for a in plan.add if a.groupme_user_id not in present_after),
     )
 
 

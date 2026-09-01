@@ -902,3 +902,82 @@ def test_an_oversize_post_cannot_be_sent_even_if_it_reaches_the_sender(db) -> No
     )
     with pytest.raises(ValueError, match="1000"):
         outbound_svc.post_announcements(db, StubClient(), plan.oversize, confirm=True)
+
+
+# ---------------------------------------------------------------------------
+# Applying — the add that GroupMe takes and does not perform
+# ---------------------------------------------------------------------------
+
+
+def _two_man_add_plan(db, sem_id: int):
+    """Two men working Friday, neither in the group yet."""
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    event_id = seed_event(db, sem_id, "Sample Mixer", FRIDAY)
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "bar")
+    return membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=[],
+        now=datetime(2026, 9, 1, 12, 0),
+    )
+
+
+def test_an_add_the_api_accepts_and_does_not_perform_is_reported(db) -> None:
+    """The request 202s either way, so nothing in the response says he is out.
+
+    He then reads as a member of the group all week: the announcement mentions
+    him, the text renders identically to everybody else's, and the only
+    difference is a push notification that arrives on nobody's phone.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    plan = _two_man_add_plan(db, sem_id)
+    client = StubClient()
+    client.refuses_add = {"user-2"}
+
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+
+    assert sorted(result.added) == ["Test Alpha", "Test Bravo"]
+    assert [a.display_name for a in result.not_added] == ["Test Bravo"]
+
+
+def test_adds_that_all_land_report_nobody_missing(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    plan = _two_man_add_plan(db, sem_id)
+    client = StubClient()
+
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+
+    assert result.not_added == ()
+
+
+def test_a_run_with_nothing_to_add_does_not_read_the_group_back(db) -> None:
+    """The read-back exists to check the adds. With none queued it is a call
+    that tells nobody anything, on a command the chair runs every week."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    seed_event(db, sem_id, "Sample Mixer", FRIDAY)  # no shifts: nobody is needed
+    plan = membership_svc.build_plan(
+        db,
+        semester_id=sem_id,
+        on_or_after=FRIDAY,
+        on_or_before=FRIDAY,
+        present=[account("user-1", "Test Alpha")],
+        now=datetime(2026, 9, 1, 12, 0),
+    )
+    assert plan.add == ()
+    client = StubClient()
+
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+
+    assert result.not_added == ()
+    assert client.list_members_calls == 0

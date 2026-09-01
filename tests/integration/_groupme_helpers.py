@@ -44,8 +44,13 @@ class StubClient:
         self.removed: list[str] = []
         self.messages: list[InboundMessage] = []
         self.raise_on_post: Exception | None = None
+        self.refuses_add: set[str] = set()
+        """User ids GroupMe accepts and then silently does not add — a man who
+        has left this group before, or who restricts who may add him."""
+        self.list_members_calls = 0
 
     def list_members(self, parent_id: str) -> list[GroupMeMember]:
+        self.list_members_calls += 1
         return list(self.members)
 
     def post_message(self, group_id, text, *, mentions=(), source_guid=None):
@@ -63,6 +68,13 @@ class StubClient:
 
     def add_members(self, parent_id, members):
         self.added.extend(members)
+        # The add is asynchronous: the request is accepted either way, and the
+        # group read back afterwards is the only place the difference shows.
+        self.members.extend(
+            GroupMeMember(user_id=uid, membership_id=f"mem-{uid}", nickname=nick)
+            for uid, nick in members
+            if uid not in self.refuses_add
+        )
         return "results-1"
 
     def remove_member(self, parent_id, membership_id):
