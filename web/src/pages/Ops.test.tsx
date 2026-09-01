@@ -16,7 +16,7 @@ const DIGEST = 'a'.repeat(64)
 // Invented chapter, invented people, invented ids. Nothing here is real and
 // nothing here may become real: this repo is public.
 const ANNOUNCE_TEXT =
-  "Here's who works next week's Friday function\n@Test Alpha: door\n@Test Bravo: rides"
+  "friday, sep 4\n@Test Alpha: door\n@Test Bravo: rides"
 
 const PREVIEW = {
   preview_id: PREVIEW_ID,
@@ -29,8 +29,8 @@ const PREVIEW = {
       event_name: 'Test Mixer',
       text: ANNOUNCE_TEXT,
       mentions: [
-        { user_id: 'user-alpha', display_name: 'Test Alpha', offset: 45, length: 11 },
-        { user_id: 'user-bravo', display_name: 'Test Bravo', offset: 63, length: 11 },
+        { user_id: 'user-alpha', display_name: 'Test Alpha', offset: 14, length: 11 },
+        { user_id: 'user-bravo', display_name: 'Test Bravo', offset: 32, length: 11 },
       ],
       unlinked: [],
       char_count: ANNOUNCE_TEXT.length,

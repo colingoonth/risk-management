@@ -126,7 +126,7 @@ def test_the_preview_renders_the_exact_message_and_its_loci(client: TestClient) 
     post = body["posts"][0]
     assert post["group_slug"] == "risk-friday"
     assert post["text"] == (
-        "Here's who works next week's Friday function\n"
+        "friday, sep 4\n"
         "@Test Alpha: door\n"
         "Test Bravo: bar"
     )

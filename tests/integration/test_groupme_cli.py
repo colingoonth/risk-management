@@ -211,7 +211,7 @@ def test_announce_is_a_dry_run_by_default(tmp_path: Path) -> None:
     assert data["dry_run"] is True
     assert data["posted"] == []
     assert data["posts"][0]["text"] == (
-        "Here's who works next week's Friday function\n@Test Alpha: door"
+        "friday, sep 4\n@Test Alpha: door"
     )
     assert data["identity_check"] == "database-only"
 

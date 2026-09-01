@@ -28,7 +28,7 @@ from risk.services.groupme_membership import MembershipAdd, MembershipPlan, Memb
 
 
 def _post(
-    text: str = "Here's who works next week's Tuesday function\n@Test Alpha: door", **kw
+    text: str = "tuesday, sep 1\n@Test Alpha: door", **kw
 ) -> AnnouncePost:
     defaults: dict = {
         "group_slug": "risk-tuesday",
@@ -75,7 +75,7 @@ def test_a_changed_message_body_is_rejected() -> None:
     before = announce_digest(_plan(_post()))
     preview = issue(before, post_count=1)
     after = announce_digest(
-        _plan(_post(text="Here's who works next week's Tuesday function\n@Test Bravo: door"))
+        _plan(_post(text="tuesday, sep 1\n@Test Bravo: door"))
     )
     with pytest.raises(PreviewDriftedError, match="changed"):
         verify(

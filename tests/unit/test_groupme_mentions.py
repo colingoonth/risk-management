@@ -71,28 +71,28 @@ def test_the_message_matches_the_specified_format_exactly() -> None:
         ],
     )
     assert rendered.text == (
-        "Here's who works next week's Tuesday function\n"
+        "tuesday, sep 1\n"
         "@Test Alpha: door\n"
         "@Test Bravo: rides\n"
         "@Test Charlie: bar"
     )
     assert [(mention.offset, mention.length) for mention in rendered.mentions] == [
-        (46, 11),
-        (64, 11),
-        (83, 13),
+        (15, 11),
+        (33, 11),
+        (52, 13),
     ]
     _assert_loci_describe_the_text(rendered)
 
 
-def test_function_lead_in_uses_the_party_weekday_and_is_locale_independent() -> None:
+def test_function_lead_in_is_the_party_date_lowercase_and_locale_independent() -> None:
     assert format_function_lead_in("2026-09-01") == (
-        "Here's who works next week's Tuesday function"
+        "tuesday, sep 1"
     )
     assert format_function_lead_in("2026-12-25") == (
-        "Here's who works next week's Friday function"
+        "friday, dec 25"
     )
     assert format_function_lead_in("2026-01-05") == (
-        "Here's who works next week's Monday function"
+        "monday, jan 5"
     )
 
 
@@ -221,7 +221,7 @@ def test_the_event_name_does_not_replace_the_chairs_function_lead_in() -> None:
     )
     _assert_loci_describe_the_text(rendered)
     assert "@Sample Mixer" not in rendered.text
-    assert rendered.text.startswith("Here's who works next week's Tuesday function")
+    assert rendered.text.startswith("tuesday, sep 1")
 
 
 def test_a_newline_inside_the_event_name_cannot_corrupt_the_loci() -> None:
@@ -244,7 +244,7 @@ def test_no_mentions_at_all_is_a_valid_message() -> None:
     )
     assert rendered.mentions == ()
     assert rendered.text == (
-        "Here's who works next week's Tuesday function\nTest Alpha: door"
+        "tuesday, sep 1\nTest Alpha: door"
     )
     assert [u.member_id for u in rendered.unlinked] == [1]
     verify_mentions(rendered.text, rendered.mentions)
@@ -286,16 +286,16 @@ def test_one_line_per_person_when_somebody_holds_two_posts() -> None:
 
 
 def test_verify_rejects_a_locus_that_covers_the_wrong_name() -> None:
-    text = "Here's who works next week's Tuesday function\n@Test Alpha: door"
-    bad = (PreviewMention(user_id="a", display_name="Test Bravo", offset=46, length=11,
+    text = "tuesday, sep 1\n@Test Alpha: door"
+    bad = (PreviewMention(user_id="a", display_name="Test Bravo", offset=15, length=11,
                           nickname="Test Bravo"),)
     with pytest.raises(MentionMismatchError, match="covers"):
         verify_mentions(text, bad)
 
 
 def test_verify_rejects_an_off_by_one_offset() -> None:
-    text = "Here's who works next week's Tuesday function\n@Test Alpha: door"
-    off_by_one = (PreviewMention(user_id="a", display_name="Test Alpha", offset=47, length=11,
+    text = "tuesday, sep 1\n@Test Alpha: door"
+    off_by_one = (PreviewMention(user_id="a", display_name="Test Alpha", offset=16, length=11,
                                  nickname="Test Alpha"),)
     with pytest.raises(MentionMismatchError):
         verify_mentions(text, off_by_one)

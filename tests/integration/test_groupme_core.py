@@ -220,10 +220,10 @@ def test_party_night_and_setup_crews_split_into_two_posts_by_the_party_day(db) -
     assert [post.group_slug for post in plan.posts] == ["risk-friday", "setup-cleanup"]
     night, crew = plan.posts
     assert night.text == (
-        "Here's who works next week's Friday function\n@Test Alpha: door"
+        "friday, sep 4\n@Test Alpha: door"
     )
     assert crew.text == (
-        "Here's who works next week's Friday function\n"
+        "friday, sep 4\n"
         "@Test Bravo: setup\n"
         "@Test Charlie: cleanup"
     )

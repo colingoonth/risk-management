@@ -2,7 +2,7 @@
 
 The message the chapter reads is three lines of nothing much::
 
-    Here's who works next week's Tuesday function
+    tuesday, sep 1
     @Test Alpha: door
     @Test Bravo: rides
     @Test Charlie: bar
@@ -90,6 +90,23 @@ _DAY_NAMES: tuple[str, ...] = (
 )
 # Spelled out rather than taken from strftime: %A follows the process locale,
 # and the chair's lead-in must not change language on somebody else's machine.
+
+_MONTH_ABBREVS: tuple[str, ...] = (
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+)
+# Same reason as _DAY_NAMES, and %-d is not portable either — the day number is
+# taken from the date object so it never carries a leading zero.
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,9 +198,21 @@ class AnnouncePlan:
 
 
 def format_function_lead_in(event_date: str | _date) -> str:
-    """Name the upcoming function in the chair's own phrasing."""
+    """Stamp the post with the PARTY's date, lowercase: ``wednesday, sep 2``.
+
+    A date header, not a sentence. Setup, the party and cleanup are worked on
+    three different days but belong to ONE function, and every post for that
+    function carries this same header — so it has to name the party's date
+    rather than describe when the reader personally works. The old phrasing
+    ("next week's Tuesday function") also assumed the announce window always
+    ran a week ahead, which stopped being true once the cadence went rolling.
+
+    THE LENGTH OF THIS STRING IS LOAD-BEARING: it is line one, so every mention
+    locus in the post is offset by it. Change it and re-verify against real
+    nicknames, not fixtures.
+    """
     day = _date.fromisoformat(event_date) if isinstance(event_date, str) else event_date
-    return f"Here's who works next week's {_DAY_NAMES[day.weekday()]} function"
+    return f"{_DAY_NAMES[day.weekday()].lower()}, {_MONTH_ABBREVS[day.month - 1]} {day.day}"
 
 
 def _sort_key(assignment: Assignment) -> tuple[int, str, int]:
