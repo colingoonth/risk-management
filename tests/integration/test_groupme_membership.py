@@ -944,7 +944,7 @@ def test_an_add_the_api_accepts_and_does_not_perform_is_reported(db) -> None:
     client = StubClient()
     client.refuses_add = {"user-2"}
 
-    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True, sleep=lambda _: None)
 
     assert sorted(result.added) == ["Test Alpha", "Test Bravo"]
     assert [a.display_name for a in result.not_added] == ["Test Bravo"]
@@ -956,7 +956,7 @@ def test_adds_that_all_land_report_nobody_missing(db) -> None:
     plan = _two_man_add_plan(db, sem_id)
     client = StubClient()
 
-    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True, sleep=lambda _: None)
 
     assert result.not_added == ()
 
@@ -980,7 +980,7 @@ def test_a_run_with_nothing_to_add_does_not_read_the_group_back(db) -> None:
     assert plan.add == ()
     client = StubClient()
 
-    result = outbound_svc.apply_membership(db, client, plan, confirm=True)
+    result = outbound_svc.apply_membership(db, client, plan, confirm=True, sleep=lambda _: None)
 
     assert result.not_added == ()
     assert client.list_members_calls == 0
@@ -1045,3 +1045,45 @@ def test_setup_arrives_earlier_than_its_party_because_it_is_worked_earlier(db) -
     )
 
     assert [a.display_name for a in plan.add] == ["Test Alpha"]
+
+
+def test_a_slow_queue_is_waited_out_rather_than_called_a_refusal(db) -> None:
+    """The add is asynchronous; reading the group back at once proves nothing.
+
+    Measured against the real API: an instant read reported seven of seven adds
+    as failed, and twenty seconds later ten of those fourteen were in. Reporting
+    a refusal there is worse than reporting nothing, because it sends the chair
+    off to hand-add men who are already in the group.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    plan = _two_man_add_plan(db, sem_id)
+    client = StubClient()
+    client.add_settles_after = 2  # not visible until the third read
+    waits: list[float] = []
+
+    result = outbound_svc.apply_membership(
+        db, client, plan, confirm=True, sleep=waits.append
+    )
+
+    assert result.not_added == ()
+    assert client.list_members_calls == 3
+    assert waits, "it must actually wait between reads, not spin"
+
+
+def test_a_man_who_never_appears_is_reported_after_a_bounded_wait(db) -> None:
+    """The wait cannot be unbounded — this runs in front of the chair."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    plan = _two_man_add_plan(db, sem_id)
+    client = StubClient()
+    client.refuses_add = {"user-2"}
+    waits: list[float] = []
+
+    result = outbound_svc.apply_membership(
+        db, client, plan, confirm=True, settle_attempts=3, sleep=waits.append
+    )
+
+    assert [a.display_name for a in result.not_added] == ["Test Bravo"]
+    assert client.list_members_calls == 3
+    assert len(waits) == 2

@@ -28,7 +28,8 @@ omitted argument is a TypeError; a defaulted one is a thing somebody forgets.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -73,13 +74,17 @@ class MembershipResult:
     removed: tuple[str, ...]
     results_id: str | None
     not_added: tuple[MembershipAdd, ...] = ()
-    """Queued, then not in the group when it was read back.
+    """Queued, then still absent after the group settled.
 
     GroupMe rejects an add for a man who has left this group before, or who
     restricts who may add him, and reports it NOWHERE the chair can see: the
     request 202s either way. Without this he reads as added, gets mentioned all
     week, and is notified by none of it — the exact failure the mention
-    machinery cannot detect, because the message renders identically."""
+    machinery cannot detect, because the message renders identically.
+
+    Not proof of refusal, and must never be worded as one. A slow queue and a
+    rejection look the same from here; all this says is that he was not in the
+    group by the time we stopped waiting."""
 
 
 def _now() -> str:
@@ -289,6 +294,9 @@ def apply_membership(
     *,
     confirm: bool,
     parent_slug: str = groups_repo.PARENT_SLUG,
+    settle_attempts: int = 5,
+    settle_seconds: float = 3.0,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> MembershipResult:
     """Add and remove on the parent group.
 
@@ -300,6 +308,14 @@ def apply_membership(
     and removes are IDEMPOTENT against GroupMe — adding somebody already in the
     group is a no-op, removing somebody already gone is a no-op — so a repeat
     costs nothing. A repeated announcement notifies sixty people twice.
+
+    THE ADD IS ASYNCHRONOUS, so the read-back has to WAIT. Reading the group
+    immediately after queueing reports men as refused who are simply still in
+    the queue — measured: an instant read said seven of seven had failed, and
+    twenty seconds later ten of those fourteen were in. That answer is worse
+    than no answer, because it sends the chair off to hand-add people who are
+    already there. Polls until every queued man appears or the attempts run
+    out; ``sleep`` is injected so the suite never actually waits.
     """
     if not confirm:
         raise ValueError("refusing to change group membership without confirm=True")
@@ -316,13 +332,16 @@ def apply_membership(
     for removal in plan.remove:
         client.remove_member(parent.groupme_id, removal.membership_id)
 
-    # The read-back `add_members` says is the only proof. Skipped when nothing
-    # was queued, so an all-removals run still costs one call, not two.
-    present_after = (
-        {member.user_id for member in client.list_members(parent.groupme_id)}
-        if plan.add
-        else set()
-    )
+    # The read-back `add_members` says is the only proof. Skipped entirely when
+    # nothing was queued, so an all-removals run still costs one call, not two.
+    queued = {a.groupme_user_id for a in plan.add}
+    present_after: set[str] = set()
+    for attempt in range(settle_attempts if queued else 0):
+        if attempt:
+            sleep(settle_seconds)
+        present_after = {member.user_id for member in client.list_members(parent.groupme_id)}
+        if queued <= present_after:
+            break
     return MembershipResult(
         added=tuple(a.display_name for a in plan.add),
         removed=tuple(r.display_name for r in plan.remove),

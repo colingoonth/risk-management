@@ -48,9 +48,16 @@ class StubClient:
         """User ids GroupMe accepts and then silently does not add — a man who
         has left this group before, or who restricts who may add him."""
         self.list_members_calls = 0
+        self.add_settles_after = 0
+        """How many reads the queue takes to show a new member. 0 is instant;
+        anything higher models the real asynchronous add."""
+        self._pending: list[GroupMeMember] = []
 
     def list_members(self, parent_id: str) -> list[GroupMeMember]:
         self.list_members_calls += 1
+        if self._pending and self.list_members_calls > self.add_settles_after:
+            self.members.extend(self._pending)
+            self._pending = []
         return list(self.members)
 
     def post_message(self, group_id, text, *, mentions=(), source_guid=None):
@@ -70,11 +77,15 @@ class StubClient:
         self.added.extend(members)
         # The add is asynchronous: the request is accepted either way, and the
         # group read back afterwards is the only place the difference shows.
-        self.members.extend(
+        landing = [
             GroupMeMember(user_id=uid, membership_id=f"mem-{uid}", nickname=nick)
             for uid, nick in members
             if uid not in self.refuses_add
-        )
+        ]
+        if self.add_settles_after:
+            self._pending.extend(landing)
+        else:
+            self.members.extend(landing)
         return "results-1"
 
     def remove_member(self, parent_id, membership_id):

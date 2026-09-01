@@ -748,8 +748,10 @@ def membership(
             "display_name": a.display_name,
             "groupme_user_id": a.groupme_user_id,
             "detail": (
-                f"GroupMe took the request and did not add him to {group_slug!r}. "
-                "Only the chair can add him, by hand."
+                f"still not in {group_slug!r} after the adds settled. GroupMe "
+                "refuses anyone who has left before or who restricts who may "
+                "add him — but a slow queue looks identical, so re-run before "
+                "adding him by hand."
             ),
         }
         for a in result.not_added
