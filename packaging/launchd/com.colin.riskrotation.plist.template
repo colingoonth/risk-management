@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  TEMPLATE. Fill the __PLACEHOLDERS__ and copy to
+  ~/Library/LaunchAgents/com.colin.riskrotation.plist. A plist with real paths
+  is not committed to a PUBLIC repo on purpose.
+
+  WHAT THIS IS: a clock. Once a day it starts one headless Claude, hands it the
+  `risk-rotation` skill, and exits. Claude does the judging — which men enter
+  the chats, whether the week is safe to post — because that is the part that
+  kept needing a human when it was a fixed rule.
+
+  DELIBERATELY ABSENT:
+    KeepAlive  — a run either finishes or it does not. Restarting it in a loop
+                 would post the week repeatedly.
+    RunAtLoad  — this must NOT fire on login. Logging in three times before
+                 lunch would otherwise run three rotations.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.colin.riskrotation</string>
+
+  <!-- launchd runs no shell: absolute paths only, no ~ and no bare names. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__CLAUDE_BIN__</string>   <!-- /Users/<you>/.local/bin/claude -->
+    <string>-p</string>
+    <string>Run the daily GroupMe rotation using the risk-rotation skill. Reconcile both group chats for today through today+7, then read the announce for that same window and send it only if the skill's checks all pass. Report what changed in a few lines.</string>
+  </array>
+
+  <!-- The chair's own working directory. `uv run risk` resolves from here. -->
+  <key>WorkingDirectory</key>
+  <string>__REPO_DIR__</string>       <!-- /Users/<you>/code/risk-management -->
+
+  <!-- 12:07, not 12:00. Nothing depends on the exact minute, and the top of
+       the hour is where every scheduled job in the world already is. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>12</integer>
+    <key>Minute</key><integer>7</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/riskrotation.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/riskrotation.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

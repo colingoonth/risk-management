@@ -80,3 +80,33 @@ underneath it.
 
 The forwarder only ever READS from GroupMe. It cannot post, add anybody to a
 group, or remove them — that is a separate feature with its own confirmation.
+
+---
+
+## com.colin.riskrotation — the daily noon rotation
+
+A clock, not a daemon. Once a day it starts one headless Claude, points it at
+the `risk-rotation` skill, and exits. Claude decides who enters the chats and
+whether the week is safe to post; the plist only decides *when*.
+
+```sh
+sed -e "s|__CLAUDE_BIN__|$HOME/.local/bin/claude|" \
+    -e "s|__REPO_DIR__|$HOME/code/risk-management|" \
+    -e "s|__LOG_DIR__|$HOME/Library/Logs|" \
+    packaging/launchd/com.colin.riskrotation.plist.template \
+  > ~/Library/LaunchAgents/com.colin.riskrotation.plist
+
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.colin.riskrotation.plist
+launchctl kickstart -p gui/$(id -u)/com.colin.riskrotation   # run once now, to watch it
+```
+
+To stop it: `launchctl bootout gui/$(id -u)/com.colin.riskrotation`.
+
+**It does not RunAtLoad.** Logging in three times before lunch would otherwise
+run three rotations. It fires at 12:07 and only then — and if the Mac is asleep
+at 12:07, launchd runs it once at wake, not once per missed day.
+
+**What it can send.** The routine weekly announce, which Colin has authorised.
+Anything else — a rules change, a correction, a message to one man — still
+waits for him. That line is in the skill, not the plist, because it is a
+judgement rather than a schedule.
