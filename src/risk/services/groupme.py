@@ -498,6 +498,20 @@ class GroupMeClient:
             return None
         return Topic(topic_id=str(resp.get("id", topic_id)), name=str(resp.get("name", "")))
 
+    def delete_message(self, group_id: str, message_id: str) -> None:
+        """Remove one message the token's own account posted.
+
+        Lives on ``/conversations``, NOT ``/groups`` — the only write in this
+        client that does — and returns an empty body on success. A message
+        somebody else posted, or one already gone, comes back 404; callers that
+        are cleaning up a batch should treat that as done rather than fatal,
+        because the point of the sweep is the end state.
+        """
+        self._request(
+            "DELETE",
+            f"/conversations/{_seg(group_id)}/messages/{_seg(message_id)}",
+        )
+
     # -- membership (PARENT group only) -----------------------------------
 
     def list_members(self, parent_id: str) -> list[GroupMeMember]:

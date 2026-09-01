@@ -177,8 +177,16 @@ def test_every_weekday_routes_to_its_own_topic(db, weekday: int, event_date: str
     assert plan.unroutable == ()
 
 
-def test_an_event_on_a_day_with_no_topic_is_unroutable_not_redirected(db) -> None:
-    """A Monday dage must NOT fall back to the parent group."""
+def test_an_event_on_a_day_with_no_topic_falls_back_to_the_parent_group(db) -> None:
+    """A Monday dage posts to the Risk group rather than going untold.
+
+    This reverses the original rule, deliberately. Refusing looked like
+    protecting the chat from noise, but the real choice is not quiet-versus-
+    noisy: it is "everyone working hears, plus a dozen who are not" against
+    "the men working it are told NOTHING and find out at the door". The
+    fallback is not silent — the post names `risk-parent` as its destination
+    instead of a weekday topic, so the chair can see it happened.
+    """
     sem_id = seed_semester(db)
     seed_groups(db)
     member_id = seed_member(db, "test-alpha", "Test Alpha")
@@ -189,9 +197,24 @@ def test_an_event_on_a_day_with_no_topic_is_unroutable_not_redirected(db) -> Non
     plan = announce_svc.build_plan(
         db, semester_id=sem_id, on_or_after="2026-08-31", on_or_before="2026-08-31"
     )
+    assert [post.group_slug for post in plan.posts] == ["risk-parent"]
+    assert plan.unroutable == ()
+
+
+def test_an_event_with_no_parent_group_at_all_is_still_unroutable(db) -> None:
+    """The fallback is a real group, not a guess. With nothing registered there
+    is nowhere to post, and saying so is the only honest answer."""
+    sem_id = seed_semester(db)
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Dage", "2026-08-31")
+    assign(db, event_id, member_id, "door")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-08-31", on_or_before="2026-08-31"
+    )
     assert plan.posts == ()
     assert [u.event_name for u in plan.unroutable] == ["Sample Dage"]
-    assert "Mon" in plan.unroutable[0].reason
 
 
 # ---------------------------------------------------------------------------

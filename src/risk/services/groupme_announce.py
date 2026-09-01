@@ -575,7 +575,16 @@ def build_plan(
             topic = groups_repo.get_topic_for_weekday(
                 conn, weekday=weekday, parent_slug=parent_slug
             )
-            if topic is None:
+            # FALLS BACK TO THE PARENT, and the crew half has always done the
+            # same. Refusing outright was the old rule and it was wrong: a
+            # Monday dage has no topic, so the choice is not "quiet chat versus
+            # noisy chat", it is "everybody working hears about it, plus twelve
+            # who are not" versus "the seven working it are told NOTHING". The
+            # fallback is visible either way — the post names `risk-parent` as
+            # its destination instead of a weekday topic.
+            fallback = groups_repo.get_by_slug(conn, parent_slug)
+            destination = topic or fallback
+            if destination is None:
                 unroutable.append(
                     UnroutableEvent(
                         event_id=event.id,
@@ -584,12 +593,13 @@ def build_plan(
                         weekday=weekday,
                         reason=(
                             f"no topic registered for {_DAY_NAMES[weekday - 1]} under "
-                            f"{parent_slug!r} — seed one or announce this event by hand"
+                            f"{parent_slug!r}, and no {parent_slug!r} group either — "
+                            "seed one or announce this event by hand"
                         ),
                     )
                 )
             else:
-                destinations.append((topic, event_night))
+                destinations.append((destination, event_night))
 
         if setup_cleanup:
             setup_group = groups_repo.get_by_slug(conn, groups_repo.SETUP_GROUP_SLUG)
