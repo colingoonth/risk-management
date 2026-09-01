@@ -135,6 +135,26 @@ def test_post_message_sends_the_documented_body_shape() -> None:
     ]
 
 
+def test_a_direct_message_uses_the_dm_endpoint_and_never_a_group_path() -> None:
+    """A DM addressed by group id would post the man's shifts to the chapter."""
+    transport = FakeTransport(_ok({"direct_message": {"id": "dm-1"}}))
+    message_id = _client(transport).post_direct_message(
+        "8675309",
+        "september 1st: cleanup",
+        source_guid="guid-1",
+    )
+    assert message_id == "dm-1"
+    call = transport.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"].endswith("/direct_messages")
+    assert "/groups/" not in call["url"]
+    assert call["body"]["direct_message"] == {
+        "source_guid": "guid-1",
+        "recipient_id": "8675309",
+        "text": "september 1st: cleanup",
+    }
+
+
 def test_mentions_pair_user_ids_and_loci_positionally() -> None:
     transport = FakeTransport(_ok({"message": {"id": "m"}}))
     _client(transport).post_message(

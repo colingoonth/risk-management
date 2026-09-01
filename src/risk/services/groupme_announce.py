@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date as _date
 
@@ -169,6 +169,35 @@ class AnnouncePost:
 
 
 @dataclass(frozen=True, slots=True)
+class UnreachedMember:
+    """A man this week's posts named but could not notify.
+
+    Two ways it happens, and they need different words because they need
+    different fixes:
+
+    ``untagged``   the plan refused to ``@`` him — his link is blocked (renamed,
+        duplicated, or gone from the parent group) — so his name went out as
+        plain text. Fix the link, or add him back.
+    ``unreached``  he WAS ``@``-mentioned, but he is not a member of the group
+        that post went to, so GroupMe had nobody to notify. GroupMe returns 400
+        on ``members/add`` for a man who has left before or who restricts who may
+        add him; only the chair can add him, by hand.
+
+    Either way the message the chapter read did not reach him, so he has to be
+    told directly. That is not a nicety: an untagged man is the one most likely
+    to no-show, because everybody else got a push notification and he did not.
+    """
+
+    member_id: int
+    display_name: str
+    groupme_user_id: str | None
+    reason: str
+    shifts: tuple[tuple[str, str], ...]
+    """``(event date, the chapter's word for the post)``, sorted. The PARTY's
+    date, matching the group post — never the day the shift is worked."""
+
+
+@dataclass(frozen=True, slots=True)
 class UnroutableEvent:
     event_id: int
     event_date: str
@@ -213,6 +242,45 @@ def format_function_lead_in(event_date: str | _date) -> str:
     """
     day = _date.fromisoformat(event_date) if isinstance(event_date, str) else event_date
     return f"{_DAY_NAMES[day.weekday()].lower()}, {_MONTH_ABBREVS[day.month - 1]} {day.day}"
+
+
+_MONTH_NAMES: tuple[str, ...] = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+
+
+def _ordinal(day: int) -> str:
+    if 11 <= day % 100 <= 13:  # eleventh, twelfth, thirteenth
+        return f"{day}th"
+    return f"{day}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th') }"
+
+
+def format_direct_message(shifts: Sequence[tuple[str, str]]) -> str:
+    """The 1:1 message for a man the group post could not reach.
+
+    Spelled out — ``september 1st`` — where the group post's header is
+    abbreviated. The group post carries one date and the reader has the
+    surrounding conversation; this arrives cold, on its own, possibly weeks
+    from the shift, so it says the month in full.
+
+    No ``@``: see :meth:`GroupMeClient.post_direct_message`.
+    """
+    lines = ["your shifts"]
+    for iso, label in shifts:
+        day = _date.fromisoformat(iso)
+        lines.append(f"  - {_MONTH_NAMES[day.month - 1]} {_ordinal(day.day)}: {label}")
+    return "\n".join(lines)
 
 
 def _sort_key(assignment: Assignment) -> tuple[int, str, int]:
@@ -573,4 +641,72 @@ def build_plan(
         unroutable=tuple(unroutable),
         oversize=tuple(oversize),
         identity_check="full" if present is not None else "database-only",
+    )
+
+
+def unreached_members(
+    conn: sqlite3.Connection,
+    plan: AnnouncePlan,
+    *,
+    rosters: Mapping[str, Collection[str]],
+    present: Sequence[GroupMeMember] | None = None,
+) -> tuple[UnreachedMember, ...]:
+    """Who the posts in ``plan`` named but did not notify, and what to tell them.
+
+    Run AFTER an announce, against the same window, or the chair has no way of
+    knowing it happened: an untagged man reads identically to a tagged one in
+    the message body, and the only visible difference is a push notification
+    that did not arrive on somebody else's phone.
+
+    ``rosters`` maps a destination group slug to the user ids actually in that
+    chat. It has to be per-destination and it has to be live. The plan itself
+    only ever consults the PARENT group, because that is the one membership the
+    mention machinery can act on — but the setup/cleanup chat is a SEPARATE
+    group with its own membership, so a man can be perfectly mentionable in the
+    Risk group and invisible in the one the post went to.
+
+    ``present`` is the same parent-group list handed to :func:`build_plan`, so
+    the blocks are recomputed identically. Pass it, or a man whose link was
+    blocked at build time is silently treated here as reachable.
+    """
+    blocks = identity_svc.blocked_identities(conn, present=present)
+    uid_of = {link.member_id: link.groupme_user_id for link in identities_repo.list_linked(conn)}
+
+    found: dict[int, tuple[str, str, list[tuple[str, str]]]] = {}
+
+    for post in plan.posts:
+        roster = rosters.get(post.group_slug, ())
+        assignments = assignments_for_event(conn, post.event_id, blocked=blocks)
+        event_night, setup_cleanup = _split_by_event_night(conn, assignments)
+        routed = (
+            setup_cleanup if post.group_slug == groups_repo.SETUP_GROUP_SLUG else event_night
+        )
+        for assignment in routed:
+            if assignment.groupme_user_id is None:
+                reason = assignment.unlinked_reason
+            elif assignment.groupme_user_id not in roster:
+                reason = f"not a member of {post.group_slug!r}, so the mention notified nobody"
+            else:
+                continue
+            name, _, shifts = found.setdefault(
+                assignment.member_id, (assignment.display_name, reason, [])
+            )
+            shifts.append((post.event_date, SHIFT_LABELS.get(
+                assignment.shift_type_slug, assignment.shift_type_slug
+            )))
+
+    return tuple(
+        sorted(
+            (
+                UnreachedMember(
+                    member_id=member_id,
+                    display_name=name,
+                    groupme_user_id=uid_of.get(member_id),
+                    reason=reason,
+                    shifts=tuple(sorted(set(shifts))),
+                )
+                for member_id, (name, reason, shifts) in found.items()
+            ),
+            key=lambda m: m.display_name,
+        )
     )
