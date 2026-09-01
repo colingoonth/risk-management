@@ -537,15 +537,23 @@ def unreached(
     try:
         present = client.list_members(parent.groupme_id)
         rosters: dict[str, set[str]] = {}
+        by_owner: dict[str, set[str]] = {groups_repo.PARENT_SLUG: {m.user_id for m in present}}
         for group in groups_repo.list_all(conn):
             # Only real groups have their own membership. A topic's members are
-            # its parent's, and asking GroupMe for a topic's roster 404s.
+            # its PARENT'S, and asking GroupMe for a topic's roster 404s. WHICH
+            # parent matters: crew topics hang off setup-cleanup, and its
+            # membership is a different set of people from the Risk group's —
+            # resolving every topic to risk-parent would mark the crews reached
+            # by a chat they may not be in.
+            owner = group
             if group.parent_slug is not None:
-                rosters[group.slug] = {m.user_id for m in present}
-            else:
-                rosters[group.slug] = {
-                    m.user_id for m in client.list_members(group.groupme_id)
-                }
+                parent_group = groups_repo.get_by_slug(conn, group.parent_slug)
+                if parent_group is None:
+                    continue
+                owner = parent_group
+            if owner.slug not in by_owner:
+                by_owner[owner.slug] = {m.user_id for m in client.list_members(owner.groupme_id)}
+            rosters[group.slug] = by_owner[owner.slug]
     except GroupMeError as exc:
         emit_error("groupme.api", str(exc), mode=mode)
         return
@@ -647,8 +655,25 @@ def membership(
     semester: Annotated[
         str | None, typer.Option("--semester", help="Defaults to the current semester.")
     ] = None,
+    group_slug: Annotated[
+        str,
+        typer.Option(
+            "--group",
+            help=(
+                "Which group to reconcile: 'risk-parent' (default) or "
+                "'setup-cleanup'. They hold DIFFERENT people and neither run "
+                "covers the other."
+            ),
+        ),
+    ] = groups_repo.PARENT_SLUG,
 ) -> None:
-    """Who to add to the Risk group, and who has finished every shift in the window."""
+    """Who to add to a group, and who has finished every shift in the window.
+
+    ONE GROUP PER RUN, and the default is the Risk group. The setup/cleanup
+    chat is a separate group holding the men who work the crews rather than the
+    party, so reconciling one leaves the other untouched — run it twice, once
+    per `--group`, or half the chapter's chat memberships silently drift.
+    """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
     if not dry_run and not confirm:
@@ -659,17 +684,28 @@ def membership(
         )
         return
     semester_id = _resolve_semester(conn, mode, semester)
-    parent = groups_repo.get_by_slug(conn, groups_repo.PARENT_SLUG)
-    if parent is None:
+    target = groups_repo.get_by_slug(conn, group_slug)
+    if target is None:
         emit_error(
             "groupme.group_not_found",
-            f"No chat registered as {groups_repo.PARENT_SLUG!r}. Seed it first.",
+            f"No chat registered as {group_slug!r}. Seed it first.",
+            mode=mode,
+        )
+        return
+    if target.parent_slug is not None:
+        # Topics have no membership of their own, so "reconcile the Tuesday
+        # topic" cannot mean anything. Refuse rather than quietly rewriting the
+        # parent's roster under a name the chair did not type.
+        emit_error(
+            "groupme.group_is_a_topic",
+            f"{group_slug!r} is a topic of {target.parent_slug!r} and has no membership "
+            f"of its own. Reconcile {target.parent_slug!r} instead.",
             mode=mode,
         )
         return
     client = _client()
     try:
-        present = client.list_members(parent.groupme_id)
+        present = client.list_members(target.groupme_id)
     except GroupMeError as exc:
         emit_error("groupme.api", str(exc), mode=mode)
         return
@@ -680,9 +716,11 @@ def membership(
         on_or_after=on_or_after,
         on_or_before=on_or_before,
         present=present,
+        group_slug=group_slug,
     )
     payload = {
         "dry_run": dry_run,
+        "group_slug": group_slug,
         "add": [asdict(a) for a in plan.add],
         "remove": [asdict(r) for r in plan.remove],
         "unrecognised": [asdict(u) for u in plan.unrecognised],
@@ -698,7 +736,7 @@ def membership(
         emit_success(payload, mode=mode)
         return
     try:
-        outbound_svc.apply_membership(conn, client, plan, confirm=True)
+        outbound_svc.apply_membership(conn, client, plan, confirm=True, parent_slug=group_slug)
     except GroupMeError as exc:
         emit_error("groupme.api", str(exc), mode=mode)
         return

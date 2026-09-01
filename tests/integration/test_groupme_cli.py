@@ -315,3 +315,60 @@ def test_confirm_refuses_when_the_source_chat_is_not_registered(tmp_path: Path) 
     assert identities_repo.get_for_member(conn, bravo.id) is None, "no link without a nickname"
     conn.close()
 
+
+
+# ---------------------------------------------------------------------------
+# membership --group
+# ---------------------------------------------------------------------------
+
+
+def test_membership_refuses_a_topic_because_topics_have_no_membership(
+    tmp_path: Path,
+) -> None:
+    """Reconciling `risk-friday` would rewrite the PARENT group's roster under a
+    name the chair did not type. Refuse before any network call."""
+    db_path = tmp_path / "risk.db"
+    _seed(db_path)
+    _seed_groups(db_path)
+
+    proc = _run(
+        db_path,
+        "groupme",
+        "membership",
+        "--from",
+        FRIDAY,
+        "--to",
+        FRIDAY,
+        "--group",
+        "risk-friday",
+    )
+
+    payload = json.loads(proc.stdout)
+    assert not payload["ok"]
+    assert payload["error"]["code"] == "groupme.group_is_a_topic"
+    assert "risk-parent" in payload["error"]["message"]
+
+
+def test_membership_names_the_group_it_could_not_find(tmp_path: Path) -> None:
+    """`setup-cleanup` unseeded must not silently fall back to the Risk group —
+    that would add the crews to the wrong chat and remove them from neither."""
+    db_path = tmp_path / "risk.db"
+    _seed(db_path)
+    _seed_groups(db_path)
+
+    proc = _run(
+        db_path,
+        "groupme",
+        "membership",
+        "--from",
+        FRIDAY,
+        "--to",
+        FRIDAY,
+        "--group",
+        "setup-cleanup",
+    )
+
+    payload = json.loads(proc.stdout)
+    assert not payload["ok"]
+    assert payload["error"]["code"] == "groupme.group_not_found"
+    assert "setup-cleanup" in payload["error"]["message"]

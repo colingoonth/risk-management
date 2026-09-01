@@ -30,9 +30,10 @@ Two consequences worth stating:
 
 ROUTING and LABELLING are both anchored to the PARTY's date. Assignments whose
 ``shift_type_windows.occupies_event_night`` flag is true go to that party
-weekday's topic. Assignments whose flag is false go to the standalone
-setup/cleanup group, even though setup may be worked two days before the party
-and cleanup the next morning. An unavailable destination makes only that crew
+weekday's topic. Assignments whose flag is false go to the setup/cleanup
+chat — its topic for that party weekday if one is registered, otherwise the
+group itself — even though setup may be worked two days before the party and
+cleanup the next morning. An unavailable destination makes only that crew
 unroutable; it is never silently dropped or redirected to another chat.
 """
 
@@ -621,7 +622,15 @@ def build_plan(
                     )
                 )
             else:
-                destinations.append((setup_group, setup_cleanup))
+                # The crew half gets the SAME weekday-topic treatment as the
+                # party half, but a missing topic is NOT unroutable here. The
+                # standalone group is a correct destination — it was the only
+                # one for the whole first term — so a chapter that never seeds
+                # crew topics keeps working exactly as it did.
+                crew_topic = groups_repo.get_topic_for_weekday(
+                    conn, weekday=weekday, parent_slug=groups_repo.SETUP_GROUP_SLUG
+                )
+                destinations.append((crew_topic or setup_group, setup_cleanup))
 
         for group, routed_assignments in destinations:
             post = _post_for_assignments(
@@ -671,6 +680,14 @@ def unreached_members(
     """
     blocks = identity_svc.blocked_identities(conn, present=present)
     uid_of = {link.member_id: link.groupme_user_id for link in identities_repo.list_linked(conn)}
+    # Which destinations carry crews. Slug equality against SETUP_GROUP_SLUG was
+    # enough while the crews had exactly one chat; the moment they route to a
+    # weekday topic it silently checks every crew post against the PARTY's
+    # assignment list, and reports the wrong men as unreached.
+    crew_slugs = {groups_repo.SETUP_GROUP_SLUG} | {
+        topic.slug
+        for topic in groups_repo.list_topics(conn, parent_slug=groups_repo.SETUP_GROUP_SLUG)
+    }
 
     found: dict[int, tuple[str, str, list[tuple[str, str]]]] = {}
 
@@ -678,9 +695,7 @@ def unreached_members(
         roster = rosters.get(post.group_slug, ())
         assignments = assignments_for_event(conn, post.event_id, blocked=blocks)
         event_night, setup_cleanup = _split_by_event_night(conn, assignments)
-        routed = (
-            setup_cleanup if post.group_slug == groups_repo.SETUP_GROUP_SLUG else event_night
-        )
+        routed = setup_cleanup if post.group_slug in crew_slugs else event_night
         for assignment in routed:
             if assignment.groupme_user_id is None:
                 reason = assignment.unlinked_reason

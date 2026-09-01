@@ -15,10 +15,13 @@ PARENT_SLUG: str = "risk-parent"
 own — adds and removes are done here — so this slug is load-bearing."""
 
 SETUP_GROUP_SLUG: str = "setup-cleanup"
-"""The standalone setup/cleanup group.
+"""The setup/cleanup group. Registered with ``parent_slug=None`` and
+``weekday=None`` — it is a real group with its own membership, never a topic.
 
-It is registered with ``parent_slug=None`` and ``weekday=None`` because crew
-posts are labelled and selected by the party date, not by a work-day topic.
+Crew posts are still labelled and selected by the PARTY date. Weekday topics
+under this slug are optional: register them and each party's crews post into
+that weekday's topic, leave them out and every crew posts into the group
+itself. Both are correct; the topics only reduce noise.
 """
 
 ROSTER_SOURCE_SLUG: str = "roster-source"

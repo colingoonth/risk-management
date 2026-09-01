@@ -27,6 +27,7 @@ from tests.integration._groupme_helpers import (
     seed_member,
     seed_semester,
     seed_setup_group,
+    seed_setup_topics,
 )
 
 pytestmark = pytest.mark.integration
@@ -230,6 +231,54 @@ def test_party_night_and_setup_crews_split_into_two_posts_by_the_party_day(db) -
     assert plan.unroutable == ()
 
 
+def test_the_crew_post_goes_to_the_setup_groups_weekday_topic_when_one_exists(db) -> None:
+    """Same weekday-topic treatment the party half already had.
+
+    Before this, crews for every party of the week landed in one shared chat,
+    so a Tuesday setup man was notified about Saturday's crew and read four
+    posts a week to find his own.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    seed_setup_topics(db)  # Friday only
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")  # Friday
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "setup")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+
+    assert [post.group_slug for post in plan.posts] == ["risk-friday", "setup-friday"]
+    assert plan.unroutable == ()
+
+
+def test_a_weekday_with_no_setup_topic_still_posts_to_the_setup_group(db) -> None:
+    """The topics are OPTIONAL. A missing one is a quieter destination, not a
+    dropped crew — unlike the party half, where the parent chat is the wrong
+    audience and silence is correct."""
+    sem_id = seed_semester(db)
+    seed_groups(db, days={2: "risk-tuesday", 5: "risk-friday"})
+    seed_setup_group(db)
+    seed_setup_topics(db, days={5: "setup-friday"})  # no Tuesday topic
+    member_id = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, member_id, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-01")  # Tuesday
+    assign(db, event_id, member_id, "setup")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-01", on_or_before="2026-09-01"
+    )
+
+    assert [post.group_slug for post in plan.posts] == ["setup-cleanup"]
+    assert plan.unroutable == ()
+
+
 def test_no_non_party_night_crew_means_no_setup_group_post(db) -> None:
     sem_id = seed_semester(db)
     seed_groups(db)
@@ -360,3 +409,157 @@ def test_an_unlinked_member_is_named_without_an_at_and_reported(db) -> None:
     assert "Test Bravo: bar" in post.text
     assert "@Test Bravo" not in post.text
     assert [u.display_name for u in post.unlinked] == ["Test Bravo"]
+
+
+# ---------------------------------------------------------------------------
+# Unreached — who the posts named but did not notify
+# ---------------------------------------------------------------------------
+
+
+def _rosters(**by_slug: set[str]) -> dict[str, set[str]]:
+    return dict(by_slug)
+
+
+def test_a_man_in_the_destination_group_is_not_reported_as_unreached(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, alpha, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+    people = announce_svc.unreached_members(
+        db, plan, rosters=_rosters(**{"risk-friday": {"user-1"}})
+    )
+
+    assert people == ()
+
+
+def test_a_mention_of_someone_outside_the_destination_group_notifies_nobody(db) -> None:
+    """The message still READS correctly, which is exactly the danger: the
+    chapter sees him tagged and assumes he was told."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, alpha, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+    people = announce_svc.unreached_members(db, plan, rosters=_rosters(**{"risk-friday": set()}))
+
+    assert [(p.display_name, p.groupme_user_id) for p in people] == [("Test Alpha", "user-1")]
+    assert "not a member of 'risk-friday'" in people[0].reason
+    assert people[0].shifts == (("2026-09-04", "door"),)
+
+
+def test_a_man_with_no_groupme_link_at_all_is_reported_with_no_user_id(db) -> None:
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "bar")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+    people = announce_svc.unreached_members(
+        db, plan, rosters=_rosters(**{"risk-friday": {"user-1"}})
+    )
+
+    assert [(p.display_name, p.groupme_user_id) for p in people] == [("Test Bravo", None)]
+
+
+def test_a_topic_routed_crew_post_is_checked_against_the_crew_not_the_party(db) -> None:
+    """The half a post belongs to is its destination's PARENT, not its slug.
+
+    Comparing the slug to ``setup-cleanup`` was right while crews had one chat.
+    The moment they route to a weekday topic that test is False for every crew
+    post, and each one gets checked against the party-night list instead — so
+    the door man is reported unreached from a chat he was never posted in, and
+    the setup man's real absence goes unreported. Both halves wrong at once.
+    """
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    seed_setup_topics(db)  # Friday
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    bravo = seed_member(db, "test-bravo", "Test Bravo")
+    link(db, alpha, "user-1", "Test Alpha")
+    link(db, bravo, "user-2", "Test Bravo")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+    assign(db, event_id, bravo, "setup")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+    assert [post.group_slug for post in plan.posts] == ["risk-friday", "setup-friday"]
+
+    # Alpha is in the Risk topic he was posted to. Bravo is missing from the
+    # setup topic he was posted to. Only Bravo is unreached.
+    people = announce_svc.unreached_members(
+        db,
+        plan,
+        rosters=_rosters(**{"risk-friday": {"user-1"}, "setup-friday": set()}),
+    )
+
+    assert [p.display_name for p in people] == ["Test Bravo"]
+    assert people[0].shifts == (("2026-09-04", "setup"),)
+
+
+def test_one_mans_several_missed_shifts_become_one_message(db) -> None:
+    """Four separate texts for four shifts is how a man stops reading them."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, alpha, "user-1", "Test Alpha")
+    first = seed_event(db, sem_id, "Sample Mixer", "2026-09-01")  # Tuesday
+    second = seed_event(db, sem_id, "Other Mixer", "2026-09-04")  # Friday
+    assign(db, first, alpha, "door")
+    assign(db, second, alpha, "bar")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-01", on_or_before="2026-09-04"
+    )
+    people = announce_svc.unreached_members(
+        db, plan, rosters=_rosters(**{"risk-tuesday": set(), "risk-friday": set()})
+    )
+
+    assert len(people) == 1
+    assert people[0].shifts == (("2026-09-01", "door"), ("2026-09-04", "bar"))
+    assert announce_svc.format_direct_message(people[0].shifts) == (
+        "your shifts\n  - september 1st: door\n  - september 4th: bar"
+    )
+
+
+def test_a_destination_with_no_roster_supplied_reports_everyone_it_named(db) -> None:
+    """A missing roster must not read as "everybody is in that group". The
+    caller failed to look, and silence there is the failure this command
+    exists to end."""
+    sem_id = seed_semester(db)
+    seed_groups(db)
+    seed_setup_group(db)
+    alpha = seed_member(db, "test-alpha", "Test Alpha")
+    link(db, alpha, "user-1", "Test Alpha")
+    event_id = seed_event(db, sem_id, "Sample Mixer", "2026-09-04")
+    assign(db, event_id, alpha, "door")
+
+    plan = announce_svc.build_plan(
+        db, semester_id=sem_id, on_or_after="2026-09-04", on_or_before="2026-09-04"
+    )
+    people = announce_svc.unreached_members(db, plan, rosters={})
+
+    assert [p.display_name for p in people] == ["Test Alpha"]

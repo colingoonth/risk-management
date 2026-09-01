@@ -167,3 +167,24 @@ def seed_setup_group(conn: sqlite3.Connection) -> None:
             groupme_id="setup-cleanup-placeholder",
             label="Setup and cleanup",
         )
+
+
+def seed_setup_topics(
+    conn: sqlite3.Connection, *, days: dict[int, str] | None = None
+) -> None:
+    """Register weekday topics UNDER the setup/cleanup group.
+
+    Optional in production — crews post into the group itself when no topic is
+    registered — so tests that seed them are testing the routed case, not the
+    normal one.
+    """
+    with transaction(conn):
+        for weekday, slug in (days or {5: "setup-friday"}).items():
+            groups_repo.upsert(
+                conn,
+                slug=slug,
+                groupme_id=f"setup-topic-placeholder-{weekday}",
+                label=f"Setup {slug}",
+                parent_slug=groups_repo.SETUP_GROUP_SLUG,
+                weekday=weekday,
+            )
