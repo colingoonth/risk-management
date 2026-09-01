@@ -26,7 +26,7 @@
   <array>
     <string>__CLAUDE_BIN__</string>   <!-- /Users/<you>/.local/bin/claude -->
     <string>-p</string>
-    <string>Run the daily rotation using the risk-rotation skill, all five steps. Reconcile both group chats for today through today+7, read the announce for that same window and send it only if the skill's checks pass, read both inboxes, then OVERWRITE the ROTATION-REPORT block in ~/.claude/skills/risk/SKILL.md with the report. Touch nothing outside those markers.</string>
+    <string>Run the daily rotation using the risk-rotation skill, all five steps. Reconcile both group chats for today through today+7, read the announce for that same window and send it only if the skill's checks pass, read both inboxes, then write the report to .fleet/rotation-report.md in the repo.</string>
   </array>
 
   <!-- The chair's own working directory. `uv run risk` resolves from here. -->
