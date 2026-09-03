@@ -37,7 +37,7 @@ from risk.services import groupme_confirm as confirm_svc
 from risk.services import groupme_identity as identity_svc
 from risk.services import groupme_membership as membership_svc
 from risk.services import groupme_outbound as outbound_svc
-from risk.services.groupme import GroupMeAuthError, GroupMeClient, GroupMeError
+from risk.services.groupme import GroupMeClient, GroupMeError
 
 # The only thing that summons an agent, and the only honest way to tell an
 # agent's own message from the chair's: the rail appends this to every send.
@@ -486,18 +486,11 @@ def unreached(
     ctx: typer.Context,
     on_or_after: Annotated[str, typer.Option("--from", help="First event date (YYYY-MM-DD).")],
     on_or_before: Annotated[str, typer.Option("--to", help="Last event date (YYYY-MM-DD).")],
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run/--no-dry-run", help="Default ON: show the DMs, send nothing."),
-    ] = True,
-    confirm: Annotated[
-        bool, typer.Option("--confirm", help="Required, with --no-dry-run, to actually send.")
-    ] = False,
     semester: Annotated[
         str | None, typer.Option("--semester", help="Defaults to the current semester.")
     ] = None,
 ) -> None:
-    """Who the announce could not notify, and DM each of them his shifts.
+    """Who the announce could not notify, his shifts, and how to reach him.
 
     Run it with the SAME window you just announced. An untagged man looks
     identical to a tagged one in the message body — the only difference is a
@@ -506,22 +499,14 @@ def unreached(
 
     Example:
         risk groupme unreached --from 2026-09-01 --to 2026-09-07
-        risk groupme unreached --from 2026-09-01 --to 2026-09-07 --no-dry-run --confirm
 
-    NOT LEDGERED, unlike announce: the outbound ledger is keyed by event, and
-    one DM covers several. Re-running it after a send therefore sends the list
-    again. That is a duplicate message, not a duplicate shift, so the two
-    deliberate acts are the guard rather than a schema change.
+    SENDS NOTHING, so there is no dry run and nothing to confirm. It used to
+    offer to DM each man; GroupMe closed that endpoint to user tokens, and the
+    guards that made sending deliberate only made a report ask permission to
+    print. Run it after EVERY announce.
     """
     mode = mode_from_ctx(ctx)
     conn = open_conn(ctx)
-    if not dry_run and not confirm:
-        emit_error(
-            "groupme.unconfirmed",
-            "--no-dry-run also needs --confirm. Nothing was sent.",
-            mode=mode,
-        )
-        return
     semester_id = _resolve_semester(conn, mode, semester)
 
     parent = groups_repo.get_by_slug(conn, groups_repo.PARENT_SLUG)
@@ -567,9 +552,26 @@ def unreached(
     )
     people = announce_svc.unreached_members(conn, plan, rosters=rosters, present=present)
 
+    # Join links, not DMs. The two channels this command used to reach for are
+    # both closed: GroupMe returns 403 on /direct_messages for a user token
+    # (proven with a self-DM), and members/add silently drops these very men.
+    # A share link is the third way — HE joins, so there is no add to refuse.
+    # Emitted per real group, not per topic: topics carry no membership of their
+    # own, so joining one is not a thing that exists.
+    join_urls: dict[str, str] = {}
+    if people:
+        for group in groups_repo.list_all(conn):
+            if group.parent_slug is not None:
+                continue
+            try:
+                url = client.share_url(group.groupme_id)
+            except GroupMeError:
+                # A missing link must not cost the chair the per-man texts.
+                continue
+            if url:
+                join_urls[group.slug] = url
+
     payload = {
-        "dry_run": dry_run,
-        "sent": [],
         "people": [
             {
                 "display_name": person.display_name,
@@ -579,59 +581,12 @@ def unreached(
             }
             for person in people
         ],
+        "join_urls": join_urls,
+        "delivery": (
+            "Report only — this app cannot message these men. Send each text by "
+            "hand, and send the join link once so it stops recurring."
+        ),
     }
-    if dry_run:
-        emit_success(payload, mode=mode)
-        return
-
-    sent = []
-    for person in people:
-        text = announce_svc.format_direct_message(person.shifts)
-        if person.groupme_user_id is None:
-            sent.append(
-                {
-                    "display_name": person.display_name,
-                    "outcome": "no-link",
-                    "detail": "no GroupMe identity linked — tell him by hand",
-                }
-            )
-            continue
-        try:
-            message_id = client.post_direct_message(person.groupme_user_id, text)
-        except GroupMeAuthError:
-            # NOT a bad token — group posts in this same run used it. GroupMe
-            # closed DM sending to user tokens; see post_direct_message. Say so,
-            # because "rejected the access token" sends the reader off to the
-            # keychain for an hour over something no credential can fix.
-            sent.append(
-                {
-                    "display_name": person.display_name,
-                    "outcome": "forbidden",
-                    "detail": (
-                        "GroupMe refuses DM sending from a user token (403). "
-                        "Send the text above by hand."
-                    ),
-                }
-            )
-            continue
-        except GroupMeError as exc:
-            # Keep going: one refused DM must not strand the men after him.
-            sent.append(
-                {
-                    "display_name": person.display_name,
-                    "outcome": "failed",
-                    "detail": str(exc),
-                }
-            )
-            continue
-        sent.append(
-            {
-                "display_name": person.display_name,
-                "outcome": "sent",
-                "message_id": message_id,
-            }
-        )
-    payload["sent"] = sent
     emit_success(payload, mode=mode)
 
 

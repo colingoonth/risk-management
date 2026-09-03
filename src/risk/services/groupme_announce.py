@@ -275,7 +275,7 @@ def format_direct_message(shifts: Sequence[tuple[str, str]]) -> str:
     surrounding conversation; this arrives cold, on its own, possibly weeks
     from the shift, so it says the month in full.
 
-    No ``@``: see :meth:`GroupMeClient.post_direct_message`.
+    No ``@``: this text is for hand delivery, so a mention has nobody to notify.
     """
     lines = ["your shifts"]
     for iso, label in shifts:

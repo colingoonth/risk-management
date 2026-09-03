@@ -361,58 +361,34 @@ class GroupMeClient:
                 return _opt_str(posted.get("id"))
         return None
 
-    def post_direct_message(
-        self,
-        recipient_id: str,
-        text: str,
-        *,
-        source_guid: str | None = None,
-    ) -> str | None:
-        """Send a 1:1 DM to a GroupMe user id.
+    def share_url(self, group_id: str) -> str | None:
+        """The self-serve join link for a group, or None if sharing is off.
 
-        The escape hatch for a brother the group itself will not accept.
-        GroupMe returns HTTP 400 on ``members/add`` for anyone who has left the
-        group before or who has restricted who may add him, and there is no way
-        around that from this side — the chair has to add him by hand. Until he
-        does, a mention in the group reaches nobody, so the man's shifts are
-        sent to him directly instead of being silently dropped.
+        THE ONLY WORKING CHANNEL for a brother GroupMe will not let us add.
+        ``members/add`` accepts the request and silently drops anyone who has
+        left the group before or who restricts who may add him, so the chair
+        cannot put him back from this side. A join link routes around that
+        because HE performs the join — no add, nothing to refuse.
 
-        A different endpoint and a different envelope from
-        :meth:`post_message`: ``/direct_messages`` with a ``direct_message``
-        body keyed by ``recipient_id``, not ``/groups/{id}/messages``. Deliberately
-        NO mentions parameter — an @ in a 1:1 chat has nobody to notify that the
-        message has not already notified.
+        Direct messages cannot substitute. Measured 2026-08-31 against the live
+        account, not read in a doc:
 
-        GROUPME CURRENTLY REFUSES THIS FOR USER TOKENS. Measured 2026-08-31
-        against the live account, not read in a doc:
+            GET  /users/me                 200
+            GET  /chats                    200   (DM reads are fine)
+            POST /groups/{id}/messages     201   (group posts are fine)
+            POST /direct_messages          403   — to five different brothers
+                                                  AND to the token's own user id
 
-            GET  /users/me           200
-            GET  /chats              200   (DM reads are fine)
-            POST /groups/{id}/messages   201   (group posts are fine)
-            POST /direct_messages    403   — to five different brothers AND to
-                                            the token's own user id
+        A self-DM failing identically is what rules out "those recipients refuse"
+        and leaves "the endpoint is closed to user tokens". Do not re-probe it.
 
-        A self-DM failing the same way is what rules out "those recipients
-        refuse" and leaves "the endpoint is closed". The method is kept because
-        it matches the documented API and costs nothing if GroupMe reopens it;
-        callers must treat 403 as "deliver this by hand", not as a bad token.
+        The link is a credential: anyone holding it can join. Print it for the
+        chair, never commit it — this repository is public.
         """
-        resp = self._request(
-            "POST",
-            "/direct_messages",
-            body={
-                "direct_message": {
-                    "source_guid": source_guid or str(uuid.uuid4()),
-                    "recipient_id": recipient_id,
-                    "text": text,
-                }
-            },
-        )
-        if isinstance(resp, dict):
-            sent = resp.get("direct_message")
-            if isinstance(sent, dict):
-                return _opt_str(sent.get("id"))
-        return None
+        resp = self._request("GET", f"/groups/{_seg(group_id)}")
+        if not isinstance(resp, dict):
+            return None
+        return _opt_str(resp.get("share_url"))
 
     def list_messages(
         self, group_id: str, *, after_id: str | None = None, limit: int = MESSAGE_PAGE_LIMIT

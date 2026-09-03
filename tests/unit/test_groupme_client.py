@@ -135,25 +135,26 @@ def test_post_message_sends_the_documented_body_shape() -> None:
     ]
 
 
-def test_a_direct_message_uses_the_dm_endpoint_and_never_a_group_path() -> None:
-    """A DM addressed by group id would post the man's shifts to the chapter."""
-    transport = FakeTransport(_ok({"direct_message": {"id": "dm-1"}}))
-    message_id = _client(transport).post_direct_message(
-        "8675309",
-        "september 1st: cleanup",
-        source_guid="guid-1",
-    )
-    assert message_id == "dm-1"
-    call = transport.calls[0]
-    assert call["method"] == "POST"
-    assert call["url"].endswith("/direct_messages")
-    assert "/groups/" not in call["url"]
-    assert call["body"]["direct_message"] == {
-        "source_guid": "guid-1",
-        "recipient_id": "8675309",
-        "text": "september 1st: cleanup",
-    }
+def test_the_join_link_is_read_from_the_group_and_not_invented() -> None:
+    """The one channel that reaches a man GroupMe refuses to add.
 
+    Adds for these men are accepted and silently dropped, and /direct_messages
+    is 403 for a user token, so the link he follows himself is all that is left.
+    """
+    transport = FakeTransport(
+        _ok({"share_url": "https://groupme.com/join_group/1/abc", "name": "Risk"})
+    )
+    url = _client(transport).share_url("group-placeholder")
+    assert url == "https://groupme.com/join_group/1/abc"
+    call = transport.calls[0]
+    assert call["method"] == "GET"
+    assert call["url"].endswith("/groups/group-placeholder")
+
+
+def test_a_group_with_sharing_disabled_reports_no_link_rather_than_guessing() -> None:
+    """Fabricating a join URL would hand the chapter a link that 404s."""
+    transport = FakeTransport(_ok({"name": "Risk"}))
+    assert _client(transport).share_url("group-placeholder") is None
 
 def test_mentions_pair_user_ids_and_loci_positionally() -> None:
     transport = FakeTransport(_ok({"message": {"id": "m"}}))
