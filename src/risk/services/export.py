@@ -16,8 +16,8 @@ appeared under four spellings at 4 shifts when he had worked 10. Twelve cells
 held a bare first name with two people on the roster who matched it. So:
 
   - every cell carries the FULL display name, never a first name and never a
-    slug. Three Masons, two Chrises, and two each of Nate, Mike, Joe, Jack,
-    Christian, Alex, Albert and Aidan are on this roster.
+    slug. Several first names are shared by two or more members of this
+    roster.
   - the Tally tab is derived from the same rows as the Schedule tab, so the two
     cannot disagree the way the old sheet's two tabs did.
   - an unfilled slot says so in the cell rather than being blank, because a

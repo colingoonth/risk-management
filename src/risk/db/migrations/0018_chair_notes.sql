@@ -1,6 +1,6 @@
 -- Somewhere for the chair to write things the schedule cannot infer.
 --
--- "Nico can't do Oct 10, family thing." "Don't put Mateus on cleanup, he opens
+-- "Sam can't do Oct 10, family thing." "Don't put Leo on cleanup, he opens
 -- the house." Facts that decide assignments and exist nowhere in this database —
 -- they live in a group chat, or in Colin's head, and by November nobody
 -- remembers why a crew was built the way it was.
@@ -12,7 +12,7 @@
 --
 -- TWO KINDS, because they behave differently and a single list would blur them:
 --
---   one_off   Action it once. "Nico is out Oct 10." `closed_at` means DONE.
+--   one_off   Action it once. "Sam is out Oct 10." `closed_at` means DONE.
 --   standing  Applies to every rebuild, forever, until retired. "Never put two
 --             Etas on the same setup crew." `closed_at` means RETIRED, not done
 --             — a standing rule that gets "completed" would silently stop

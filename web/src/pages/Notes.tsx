@@ -148,7 +148,7 @@ export function Notes() {
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Nico can't do Oct 10, family thing"
+            placeholder="Sam can't do Oct 10, family thing"
             rows={2}
             className="w-full resize-y border-b border-ink-700/50 bg-transparent px-1 py-1.5 text-sm text-ink-100 placeholder:text-ink-500/60 focus:border-brass-500 focus:outline-none"
           />

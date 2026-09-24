@@ -65,7 +65,7 @@ def add(
     """Write a note.
 
     Example:
-        risk note add "Nico can't do Oct 10, family thing"
+        risk note add "Sam can't do Oct 10, family thing"
         risk note add "Never two Etas on one setup crew" --standing
     """
     mode = mode_from_ctx(ctx)

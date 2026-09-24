@@ -1,7 +1,7 @@
 """Chair notes — the things the schedule cannot infer.
 
 The input side of the loop. Colin writes what he knows that the database does
-not ("Nico is out Oct 10"), the next rebuild acts on it, and the note carries the
+not ("Sam is out Oct 10"), the next rebuild acts on it, and the note carries the
 record of what was done.
 """
 

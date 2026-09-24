@@ -272,7 +272,7 @@ def test_notes_are_mirrored_from_the_database(db: sqlite3.Connection) -> None:
 
     sem_id = semesters_repo.insert(db, name="FA26", starts_on="2026-08-20", ends_on="2026-12-19")
     with transaction(db):
-        notes_repo.insert(db, semester_id=sem_id, body="Nico out Oct 10")
+        notes_repo.insert(db, semester_id=sem_id, body="Sam out Oct 10")
         standing = notes_repo.insert(
             db, semester_id=sem_id, body="Never two Etas on setup", kind="standing"
         )
@@ -285,7 +285,7 @@ def test_notes_are_mirrored_from_the_database(db: sqlite3.Connection) -> None:
 
     data = export_svc.build(db, semester_id=sem_id)
     bodies = {n.body: n for n in data.notes}
-    assert set(bodies) == {"Nico out Oct 10", "Never two Etas on setup", "How big is the PC?"}
+    assert set(bodies) == {"Sam out Oct 10", "Never two Etas on setup", "How big is the PC?"}
     assert bodies["Never two Etas on setup"].kind == "standing"
     assert bodies["How big is the PC?"].author == "claude"
     assert bodies["How big is the PC?"].closed_note == "~18 expected"
